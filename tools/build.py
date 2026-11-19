@@ -4,9 +4,10 @@
     python tools/build.py
 
 產生：
-    dist/PDF工作台.html   單一檔案的完整網頁，可以直接寄給別人或放到任何地方開啟
+    dist/紙匣.html        單一檔案的完整網頁，可以直接寄給別人或放到任何地方開啟
     dist/artifact.html    發布到 Claude Artifact 用的版本（不含 <html>/<head>/<body> 外框）
 """
+import base64
 import os
 import re
 
@@ -42,6 +43,9 @@ def inline_assets(html):
         # Each file is its own classic script so top-level names stay shared, exactly as when loaded separately.
         return '<script>\n' + code.replace('</script', '<\\/script') + '</script>'
 
+    # The icon travels inside the file as a data: URI (favicon and header logo).
+    icon = 'data:image/svg+xml;base64,' + base64.b64encode(read('icon.svg').encode('utf-8')).decode('ascii')
+    html = html.replace('href="icon.svg"', f'href="{icon}"').replace('src="icon.svg"', f'src="{icon}"')
     html = re.sub(r'<link rel="stylesheet" href="((?!https?:)[^"]+)">', css, html)
     html = re.sub(r'<script src="((?!https?:)[^"]+)"></script>', js, html)
     return html
@@ -51,7 +55,7 @@ def main():
     index = read('index.html')
     single = inline_assets(index)
     os.makedirs(os.path.join(ROOT, 'dist'), exist_ok=True)
-    with open(os.path.join(ROOT, 'dist', 'PDF工作台.html'), 'w', encoding='utf-8', newline='\n') as f:
+    with open(os.path.join(ROOT, 'dist', '紙匣.html'), 'w', encoding='utf-8', newline='\n') as f:
         f.write(single)
 
     # Artifact page: head content (minus charset/viewport, which the host adds) followed by the body content.
@@ -61,7 +65,7 @@ def main():
     with open(os.path.join(ROOT, 'dist', 'artifact.html'), 'w', encoding='utf-8', newline='\n') as f:
         f.write(head + '\n\n' + body + '\n')
 
-    for name in ('PDF工作台.html', 'artifact.html'):
+    for name in ('紙匣.html', 'artifact.html'):
         size = os.path.getsize(os.path.join(ROOT, 'dist', name))
         print(f'dist/{name}  {size / 1024:.0f} KB')
 
