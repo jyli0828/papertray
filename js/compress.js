@@ -1,29 +1,52 @@
 'use strict';
 /* ================= COMPRESS =================
-   Two ways:
+   Two ways, applied to every file in the list:
    - keep: re-encode only the photos inside the PDF (JPEG or 8-bit Flate images); text and vector graphics stay untouched.
-   - raster: render every page to a JPEG; smallest for scans, but text can no longer be selected. */
-const comp = { name: '', bytes: null, pages: 0, result: null, mode: 'keep' };
+   - raster: render every page to a JPEG; smallest for scans, but text can no longer be selected.
+   A file that does not get smaller keeps its original bytes. */
+const comp = { items: [], mode: 'keep', file: { i: 0, n: 0 } };
 const LEVELS = { light: { dpi: 150, q: .8 }, medium: { dpi: 110, q: .65 }, strong: { dpi: 72, q: .5 } };
 const KEEP_LEVELS = { light: { px: 2400, q: .82 }, medium: { px: 1600, q: .68 }, strong: { px: 1100, q: .5 } };
 async function loadCompFile(files) {
-  const f = files[0];
-  if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const bytes = new Uint8Array(await f.arrayBuffer());
-  let doc;
-  try { doc = await PDFDocument.load(bytes); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
-  const first = doc.getPage(0).getSize();
-  Object.assign(comp, { name: f.name, bytes, pages: doc.getPageCount(), result: null });
-  $('#comp-fname').textContent = f.name;
-  $('#comp-fmeta').textContent = `${comp.pages} 頁 · ${fmtSize(bytes.length)} · ${paperName(first.width, first.height)}`;
-  $('#comp-name').value = baseName(f.name) + '-壓縮.pdf';
-  $('#comp-empty').hidden = true; $('#comp-work').hidden = false;
-  $('#comp-result').hidden = true; $('#comp-progress').hidden = true;
+  for (const f of files) {
+    if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    let doc;
+    try { doc = await PDFDocument.load(bytes); } catch (e) { toast(loadErr(f.name, e), 'err'); continue; }
+    const first = doc.getPage(0).getSize();
+    comp.items.push({ id: uid(), name: f.name, bytes, pages: doc.getPageCount(), paper: paperName(first.width, first.height), out: null });
+  }
+  clearCompResults();
+  renderCompList();
 }
+function clearCompResults() { comp.items.forEach(it => { it.out = null; }); $('#comp-result').hidden = true; $('#comp-progress').hidden = true; }
+function renderCompList() {
+  const n = comp.items.length;
+  $('#comp-empty').hidden = n > 0; $('#comp-work').hidden = !n;
+  const list = $('#comp-list'); list.innerHTML = '';
+  for (const it of comp.items) {
+    const li = document.createElement('li'); li.className = 'file-row'; li.dataset.id = it.id;
+    let after = '';
+    if (it.out) after = it.out.kept ? ' → 沒有變小，保留原檔' : ` → ${fmtSize(it.out.bytes.length)}（−${Math.round((1 - it.out.bytes.length / it.bytes.length) * 100)}%）`;
+    li.innerHTML = `<span class="doc-ico-sm" aria-hidden="true"></span>
+      <div class="file-main"><div class="file-name"></div><div class="file-meta">${it.pages} 頁 · ${fmtSize(it.bytes.length)} · ${it.paper}${after}</div></div>
+      <div class="row-btns"><button class="icon-btn danger" data-act="remove" aria-label="移除">${ICON.x}</button></div>`;
+    li.querySelector('.file-name').textContent = it.name;
+    list.append(li);
+  }
+  const total = comp.items.reduce((s, x) => s + x.bytes.length, 0);
+  $('#comp-hint').textContent = n > 1 ? `${n} 份 · 共 ${fmtSize(total)}，會用同樣的設定依序壓縮` : '壓縮在你的裝置上進行，頁數多時需要一點時間。';
+  $('#comp-go').textContent = n > 1 ? `壓縮 ${n} 份` : '開始壓縮';
+}
+$('#comp-list').addEventListener('click', e => {
+  const b = e.target.closest('[data-act="remove"]'); if (!b || $('#comp-go').classList.contains('is-running')) return;
+  comp.items = comp.items.filter(x => x.id !== b.closest('.file-row').dataset.id);
+  clearCompResults(); renderCompList();
+});
 bindInput($('#comp-input'), loadCompFile);
+bindInput($('#comp-input-more'), loadCompFile);
 acceptFiles($('#panel-compress'), $('#comp-drop'), loadCompFile);
 registerTarget('pdf', 'compress', '壓縮', loadCompFile);
-$('#comp-change').addEventListener('click', () => $('#comp-input').click());
 $('#comp-sample').addEventListener('click', async e => {
   await busy(e.currentTarget, '產生範例…', async () => loadCompFile([asFile(await makePhotoSample(), 'site-survey-photos.pdf')]));
 });
@@ -35,26 +58,26 @@ function setCompMode(m) {
   $('#comp-note').textContent = m === 'keep'
     ? '文字、表格和向量圖完全不動，仍可選取和搜尋；只把裡面的照片縮小、重新壓縮。照片多的檔案效果最好。'
     : '每一頁都會轉成圖片再壓縮，完成後文字無法選取或搜尋。適合掃描檔，或「保留文字」壓不下來的檔案。';
-  $('#comp-result').hidden = true;
+  clearCompResults(); renderCompList();
 }
 $('#comp-m-keep').addEventListener('click', () => setCompMode('keep'));
 $('#comp-m-raster').addEventListener('click', () => setCompMode('raster'));
-setCompMode('keep');
-document.querySelectorAll('input[name="level"]').forEach(r => r.addEventListener('change', () => { $('#comp-result').hidden = true; }));
-$('#comp-gray').addEventListener('change', () => { $('#comp-result').hidden = true; });
+document.querySelectorAll('input[name="level"]').forEach(r => r.addEventListener('change', () => { clearCompResults(); renderCompList(); }));
+$('#comp-gray').addEventListener('change', () => { clearCompResults(); renderCompList(); });
 
 function progress(i, n, unit = '頁') {
+  const f = comp.file, pre = f.n > 1 ? `第 ${f.i + 1} / ${f.n} 份 · ` : '';
   $('#comp-progress').hidden = false;
-  $('#comp-bar').style.width = (n ? i / n * 100 : 100) + '%';
-  $('#comp-plabel').textContent = i < n ? `處理第 ${i + 1} / ${n} ${unit}` : (n ? `完成 ${n} ${unit}` : '完成');
+  $('#comp-bar').style.width = ((f.i + (n ? Math.min(i, n) / n : 1)) / Math.max(1, f.n) * 100) + '%';
+  $('#comp-plabel').textContent = pre + (i < n ? `處理第 ${i + 1} / ${n} ${unit}` : (n ? `完成 ${n} ${unit}` : '完成'));
 }
 function toGray(ctx, w, h) {
   const img = ctx.getImageData(0, 0, w, h), d = img.data;
   for (let k = 0; k < d.length; k += 4) { const y = d[k] * .299 + d[k + 1] * .587 + d[k + 2] * .114; d[k] = d[k + 1] = d[k + 2] = y; }
   ctx.putImageData(img, 0, 0);
 }
-async function compressRaster(lv, gray, check) {
-  const pj = await openPdfjs(comp.bytes);
+async function compressRaster(bytes, lv, gray, check) {
+  const pj = await openPdfjs(bytes);
   const out = await PDFDocument.create();
   try {
     for (let i = 0; i < pj.numPages; i++) {
@@ -153,8 +176,8 @@ async function decodeToCanvas(info, stream) {
   ctx.putImageData(img, 0, 0);
   return cv;
 }
-async function compressKeepText(lv, gray, check) {
-  const doc = await PDFDocument.load(comp.bytes);
+async function compressKeepText(bytes, lv, gray, check) {
+  const doc = await PDFDocument.load(bytes);
   const ctx = doc.context;
   const cands = [];
   for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
@@ -199,33 +222,51 @@ async function compressKeepText(lv, gray, check) {
 }
 
 $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中…', async check => {
-  $('#comp-result').hidden = true;
+  clearCompResults(); renderCompList();
   const lv = levelVal(), gray = $('#comp-gray').checked, keep = comp.mode === 'keep';
-  const res = keep ? await compressKeepText(KEEP_LEVELS[lv], gray, check) : await compressRaster(LEVELS[lv], gray, check);
-  const bytes = res.bytes;
-  comp.result = bytes;
-  const before = comp.bytes.length, after = bytes.length;
-  const max = Math.max(before, after);
+  comp.file.n = comp.items.length;
+  let changed = 0;
+  for (let i = 0; i < comp.items.length; i++) {
+    check();
+    comp.file.i = i;
+    const it = comp.items[i];
+    const res = keep ? await compressKeepText(it.bytes, KEEP_LEVELS[lv], gray, check) : await compressRaster(it.bytes, LEVELS[lv], gray, check);
+    const kept = res.bytes.length >= it.bytes.length;
+    it.out = { bytes: kept ? it.bytes : res.bytes, kept };
+    changed += res.changed || 0;
+    renderCompList();
+  }
+  comp.file.i = comp.items.length - 1; progress(1, 1);
+  const before = comp.items.reduce((s, x) => s + x.bytes.length, 0), after = comp.items.reduce((s, x) => s + x.out.bytes.length, 0);
+  const max = Math.max(before, after, 1);
   $('#bar-before').style.width = (before / max * 100) + '%';
   $('#bar-after').style.width = (after / max * 100) + '%';
   $('#v-before').textContent = fmtSize(before); $('#v-after').textContent = fmtSize(after);
-  const pct = Math.round((1 - after / before) * 100);
-  const big = $('#comp-pct'), warn = $('#comp-warn');
-  const extra = keep ? `，重新壓縮 ${res.changed} 張照片` : '';
-  if (after < before) {
-    big.textContent = `−${pct}%`; big.classList.remove('worse');
-    $('#comp-pct-label').textContent = `省下 ${fmtSize(before - after)}${extra}`;
-    warn.hidden = !(keep && pct < 10);
-    warn.textContent = '這份檔案的照片不多，縮減有限。如果是掃描檔，改用「整頁轉成圖片」會小很多。';
-  } else {
-    big.textContent = `+${Math.abs(pct)}%`; big.classList.add('worse');
-    $('#comp-pct-label').textContent = '檔案沒有變小' + extra;
-    warn.hidden = false;
-    warn.textContent = keep
-      ? '這份檔案裡沒有可以再壓縮的照片。如果是掃描檔，改用「整頁轉成圖片」會有明顯效果；否則建議保留原檔。'
-      : '這份檔案主要是文字和向量圖形，原本就很小，轉成圖片反而變大。建議保留原檔，或改用「保留文字」。';
-  }
+  const pct = Math.round((1 - after / before) * 100), multi = comp.items.length > 1;
+  const big = $('#comp-pct'), warn = $('#comp-warn'), keptN = comp.items.filter(x => x.out.kept).length;
+  big.textContent = after < before ? `−${pct}%` : '±0%'; big.classList.toggle('worse', after >= before);
+  $('#comp-pct-label').textContent = (after < before ? `省下 ${fmtSize(before - after)}` : '沒有變小') + (keep ? `，重新壓縮 ${changed} 張照片` : '');
+  warn.hidden = !keptN && !(keep && pct < 10);
+  warn.textContent = keptN
+    ? (multi ? `${keptN} 份壓縮後沒有變小，下載時會保留原檔。` : '壓縮後沒有變小，下載的會是原檔。')
+      + (keep ? '如果是掃描檔，改用「整頁轉成圖片」會有明顯效果。' : '這類檔案主要是文字和向量圖形，改用「保留文字」或保留原檔即可。')
+    : '這份檔案的照片不多，縮減有限。如果是掃描檔，改用「整頁轉成圖片」會小很多。';
+  $('#comp-name-label').textContent = multi ? '壓縮檔名' : '檔名';
+  $('#comp-name').value = multi ? '壓縮後的 PDF.zip' : baseName(comp.items[0].name) + '-壓縮.pdf';
+  $('#comp-save').textContent = multi ? `下載全部 ${comp.items.length} 份（ZIP）` : '下載壓縮檔';
   $('#comp-result').hidden = false;
-  if (after < before) offerNext(pdfFile(bytes, $('#comp-name').value), 'pdf', 'compress');
+  if (!multi && !comp.items[0].out.kept) offerNext(pdfFile(comp.items[0].out.bytes, $('#comp-name').value), 'pdf', 'compress');
 }).catch(err => toast('壓縮失敗：' + err.message, 'err')));
-$('#comp-save').addEventListener('click', () => { if (comp.result) saveFile(ensurePdf($('#comp-name').value), comp.result); });
+$('#comp-save').addEventListener('click', e => busy(e.currentTarget, '準備中…', async () => {
+  const done = comp.items.filter(x => x.out); if (!done.length) return;
+  if (done.length === 1) { await saveFile(ensurePdf($('#comp-name').value), done[0].out.bytes); return; }
+  const zip = new JSZip(), used = new Set();
+  for (const it of done) {
+    let n = baseName(it.name) + '-壓縮.pdf', k = 2;
+    while (used.has(n)) n = baseName(it.name) + `-壓縮-${k++}.pdf`;
+    used.add(n); zip.file(n, it.out.bytes);
+  }
+  let name = ($('#comp-name').value || '壓縮後的 PDF').trim(); if (!/\.zip$/i.test(name)) name += '.zip';
+  await saveFile(name, await zip.generateAsync({ type: 'blob', compression: 'STORE' }));
+}).catch(err => toast('下載失敗：' + err.message, 'err')));
+setCompMode('keep');

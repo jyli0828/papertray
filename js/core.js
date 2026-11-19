@@ -219,6 +219,7 @@ function makeSortable(container, sel, getArr, onChange, horizontal, beforeChange
     t.el.classList.remove('sort-lifted'); t.el.draggable = t.wasDraggable;
     clear();
     const done = t; t = null;
+    if (done.active) container._sortedAt = Date.now(); // the finger lifts on a card; that is not a click on it
     if (done.active && done.target) move(done.id, done.target, done.before);
   };
   container.addEventListener('pointerdown', e => {

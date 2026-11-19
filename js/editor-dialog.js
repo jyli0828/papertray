@@ -310,3 +310,33 @@ $('#te-apply-go').addEventListener('click', () => {
   }
   toast(`已套用到 ${done} 頁` + (skipped ? `，${skipped} 頁還在載入所以略過` : ''));
 });
+
+/* ---------- today's date, next to a signature ---------- */
+function todayText(fmt) {
+  const d = new Date(), y = d.getFullYear(), m = d.getMonth() + 1, day = d.getDate(), p2 = n => String(n).padStart(2, '0');
+  switch (fmt) {
+    case 'dash': return `${y}-${p2(m)}-${p2(day)}`;
+    case 'zh': return `${y}年${m}月${day}日`;
+    case 'roc': return `民國${y - 1911}年${m}月${day}日`;
+    case 'rocs': return `${y - 1911}/${p2(m)}/${p2(day)}`;
+    default: return `${y}/${p2(m)}/${p2(day)}`;
+  }
+}
+document.querySelectorAll('#te-datefmt option').forEach(o => { o.textContent = todayText(o.value); }); // show the real date in each format
+try { const f = localStorage.getItem('papertray.datefmt'); if (f && $(`#te-datefmt option[value="${f}"]`)) $('#te-datefmt').value = f; } catch (e) {}
+$('#te-datefmt').addEventListener('change', () => { try { localStorage.setItem('papertray.datefmt', $('#te-datefmt').value); } catch (e) {} });
+$('#te-text-date').addEventListener('click', () => { $('#te-text').value = todayText($('#te-datefmt').value); updateSel(); });
+$('#te-date').addEventListener('click', async () => {
+  const text = todayText($('#te-datefmt').value), sig = te.sel && te.sel.type === 'img' ? te.sel : null;
+  if (!sig) { // no signature picked: hand over to the text tool, the next click on the page places the date
+    $('#te-text').value = text; setTeMode('text'); toast('點頁面上要放日期的位置'); return;
+  }
+  uprightKeepAnchor(sig);
+  const [l, t] = annotTopLeft(sig), [dw] = dispSize(te.page.view, te.R);
+  const a = { id: uid(), type: 'text', text, size: Math.round(Math.max(9, Math.min(16, sig.hPt * .32))), color: '#111111' };
+  await ensureFont(text, a.size); measureAnnot(a);
+  // to the right of the signature, middle-aligned; below it when there is no room on the right
+  if (l + sig.wPt + 8 + a.wPt <= dw - 6) setTopLeft(a, l + sig.wPt + 8, t + sig.hPt / 2 - a.hPt / 2);
+  else setTopLeft(a, l, t + sig.hPt + 4);
+  te.page.annots.push(a); te.sel = a; renderAnnots();
+});

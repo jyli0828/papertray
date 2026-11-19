@@ -85,6 +85,11 @@ $('#split-go').addEventListener('click', e => runJob(e.currentTarget, '拆分中
   files.forEach(f => { let n = f.name, k = 2; while (used.has(n)) n = f.name.replace(/\.pdf$/, `-${k++}.pdf`); used.add(n); zip.file(n, f.bytes); });
   await saveFile(`${base}-拆分.zip`, await zip.generateAsync({ type: 'blob', compression: 'STORE' }));
 }).catch(err => toast('拆分失敗：' + err.message, 'err')));
+$('#split-grid').addEventListener('click', e => {
+  if (!isThumbClick(e)) return;
+  const i0 = split.pages.findIndex(x => x.id === e.target.closest('.page-card').dataset.id);
+  openPreview(split.pages.length, i0, async i => { const page = await split.pj.getPage(i + 1); return { page, rotation: page.rotate }; });
+});
 bindInput($('#split-input'), loadSplit);
 acceptFiles($('#panel-split'), $('#split-drop'), loadSplit);
 $('#split-change').addEventListener('click', () => $('#split-input').click());

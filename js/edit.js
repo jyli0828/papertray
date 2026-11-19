@@ -33,12 +33,36 @@ function redoEdit() {
 function updateUndoButtons() { $('#edit-undo').disabled = !editHist.undo.length; $('#edit-redo').disabled = !editHist.redo.length; }
 $('#edit-undo').addEventListener('click', undoEdit);
 $('#edit-redo').addEventListener('click', redoEdit);
+/* ---------- keyboard ----------
+   Ctrl+Z / Ctrl+Y undo and redo; the rest act on the selected pages:
+   Delete remove · R rotate right (Shift+R left) · D duplicate · ← → move · Ctrl+A select all · Esc clear selection */
 document.addEventListener('keydown', e => {
-  if ($('#panel-edit').hidden || document.querySelector('dialog[open]')) return;
+  if ($('#panel-edit').hidden || $('#edit-work').hidden || document.querySelector('dialog[open]')) return;
   if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
-  const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey;
+  const k = e.key.toLowerCase(), mod = e.ctrlKey || e.metaKey, a = edit.pages, sel = a.filter(p => p.selected);
+  const act = fn => { e.preventDefault(); fn(); renderEdit(); };
   if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); undoEdit(); }
   else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redoEdit(); }
+  else if (mod && k === 'a') act(() => a.forEach(p => { p.selected = true; }));
+  else if (mod || e.altKey) return;
+  else if (k === 'escape' && sel.length) act(() => a.forEach(p => { p.selected = false; }));
+  else if (!sel.length) { if (['delete', 'backspace', 'r', 'd', 'arrowleft', 'arrowright'].includes(k)) toast('先勾選要處理的頁面'); }
+  else if (k === 'delete' || k === 'backspace') act(() => { pushUndo(); edit.pages = a.filter(p => !p.selected); toast(`已刪除 ${sel.length} 頁，可按 Ctrl+Z 復原`); });
+  else if (k === 'r') act(() => { pushUndo(); sel.forEach(p => { p.rot = (p.rot + (e.shiftKey ? 270 : 90)) % 360; }); });
+  else if (k === 'd') act(() => {
+    pushUndo();
+    for (let i = a.length - 1; i >= 0; i--) if (a[i].selected) a.splice(i + 1, 0, { ...a[i], id: uid(), selected: false, annots: a[i].annots.map(x => ({ ...x, id: uid() })) });
+    toast(`已複製 ${sel.length} 頁`);
+  });
+  else if (k === 'arrowleft' || k === 'arrowright') {
+    const left = k === 'arrowleft';
+    if (left ? a[0].selected : a[a.length - 1].selected) { e.preventDefault(); return; } // already at the edge
+    act(() => {
+      pushUndo();
+      if (left) { for (let i = 1; i < a.length; i++) if (a[i].selected && !a[i - 1].selected) [a[i - 1], a[i]] = [a[i], a[i - 1]]; }
+      else { for (let i = a.length - 2; i >= 0; i--) if (a[i].selected && !a[i + 1].selected) [a[i + 1], a[i]] = [a[i], a[i + 1]]; }
+    });
+  }
 });
 
 /* ---------- loading ---------- */
@@ -87,7 +111,8 @@ const selCount = () => edit.pages.filter(p => p.selected).length;
 function insertPos() { let last = -1; edit.pages.forEach((p, i) => { if (p.selected) last = i; }); return last < 0 ? edit.pages.length : last + 1; }
 
 function renderEdit() {
-  const has = edit.pages.length > 0;
+  // Keep the workspace (and its 復原 button) after every page was deleted, as long as that can be undone.
+  const has = edit.pages.length > 0 || editHist.undo.length > 0;
   $('#edit-empty').hidden = has; $('#edit-work').hidden = !has;
   const grid = $('#edit-grid'); forgetCards(grid); grid.innerHTML = '';
   const n = edit.pages.length;
@@ -125,6 +150,7 @@ function renderEdit() {
     } else if (p.view) whenVisible(card, () => loadEditThumb(metaKey(p)));
     grid.append(card);
   });
+  if (has && !n) grid.innerHTML = '<p class="hint grid-empty">所有頁面都刪掉了。按「復原」（Ctrl+Z）可以找回來，或用「插入 PDF」加入新的頁面。</p>';
   const s = selCount();
   $('#edit-stat').textContent = `${n} 頁` + (s ? ` · 已選 ${s}` : '');
   $('#edit-rot-sel').disabled = !s; $('#edit-del-sel').disabled = !s;
@@ -134,11 +160,26 @@ function renderEdit() {
   updateUndoButtons();
 }
 $('#edit-grid').addEventListener('click', e => {
-  const t = e.target.closest('[data-act]'); if (!t) return;
+  const t = e.target.closest('[data-act]');
+  if (!t) {
+    if (!isThumbClick(e)) return;
+    const i0 = edit.pages.findIndex(x => x.id === e.target.closest('.page-card').dataset.id);
+    openPreview(edit.pages.length, i0, async i => {
+      const p = edit.pages[i];
+      return { page: await edit.docs[p.docId].pj.getPage(p.index + 1), rotation: (p.baseRot + p.rot) % 360 };
+    });
+    return;
+  }
   const id = t.closest('.page-card').dataset.id;
   const i = edit.pages.findIndex(x => x.id === id); const p = edit.pages[i]; const a = edit.pages;
   const act = t.dataset.act;
-  if (act === 'sel') { p.selected = t.checked; renderEdit(); return; }
+  if (act === 'sel') {
+    // Shift+click ticks or clears every page between the last clicked box and this one.
+    const j = edit.pages.findIndex(x => x.id === edit.anchor);
+    if (e.shiftKey && j >= 0) for (let k = Math.min(i, j); k <= Math.max(i, j); k++) a[k].selected = t.checked;
+    else p.selected = t.checked;
+    edit.anchor = p.id; renderEdit(); return;
+  }
   if (act === 'text') { if (!fillMeta(p)) { toast('這頁還在載入'); return; } openTextEditor(p); return; }
   pushUndo();
   switch (act) {

@@ -112,9 +112,20 @@ async function exportP2i(pages, btn) {
   }
 }
 $('#p2i-grid').addEventListener('click', e => {
-  const t = e.target.closest('[data-act]'); if (!t) return;
+  const t = e.target.closest('[data-act]');
+  if (!t) {
+    if (!isThumbClick(e)) return;
+    const i0 = p2i.pages.findIndex(x => x.id === e.target.closest('.page-card').dataset.id);
+    openPreview(p2i.pages.length, i0, async i => { const page = await p2i.pj.getPage(i + 1); return { page, rotation: page.rotate }; });
+    return;
+  }
   const p = p2i.pages.find(x => x.id === t.closest('.page-card').dataset.id);
-  if (t.dataset.act === 'sel') { p.selected = t.checked; t.closest('.page-card').classList.toggle('is-selected', p.selected); updateP2iSummary(); }
+  if (t.dataset.act === 'sel') {
+    const i = p2i.pages.indexOf(p), j = p2i.pages.findIndex(x => x.id === p2i.anchor);
+    if (e.shiftKey && j >= 0) { for (let k = Math.min(i, j); k <= Math.max(i, j); k++) p2i.pages[k].selected = t.checked; renderP2i(); }
+    else { p.selected = t.checked; t.closest('.page-card').classList.toggle('is-selected', p.selected); updateP2iSummary(); }
+    p2i.anchor = p.id;
+  }
   if (t.dataset.act === 'one') exportP2i([p], t);
 });
 $('#p2i-selall').addEventListener('click', () => {

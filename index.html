@@ -103,7 +103,7 @@
   <section class="panel" id="panel-edit" role="tabpanel" aria-labelledby="tab-edit" hidden>
     <div class="panel-head">
       <h2>編輯頁面</h2>
-      <p>拖曳縮圖排序（手機上長按再拖）；勾選多頁可一次旋轉或刪除，Ctrl+Z 可復原。</p>
+      <p>點縮圖看大圖；拖曳排序（手機上長按再拖）；按住 Shift 可以連續勾選。</p>
     </div>
     <div id="edit-empty" class="stack">
       <label class="drop" id="edit-drop">
@@ -130,7 +130,8 @@
         <label class="check"><input type="checkbox" id="edit-numbers"> 加上頁碼</label>
         <span class="stat mono" id="edit-stat"></span>
       </div>
-      <div class="page-grid" id="edit-grid" style="margin-top:18px"></div>
+      <p class="hint keys" id="edit-keys"><kbd>Delete</kbd> 刪除　<kbd>R</kbd> 旋轉（<kbd>Shift</kbd>+<kbd>R</kbd> 反向）　<kbd>D</kbd> 複製　<kbd>←</kbd><kbd>→</kbd> 移動　<kbd>Ctrl</kbd>+<kbd>A</kbd> 全選　<kbd>Esc</kbd> 取消選取　<kbd>Ctrl</kbd>+<kbd>Z</kbd> 復原</p>
+      <div class="page-grid" id="edit-grid" style="margin-top:12px"></div>
       <div class="footer-bar" style="margin-top:18px">
         <button class="btn ghost danger" id="edit-clear">清空重來</button>
         <div class="go">
@@ -152,20 +153,18 @@
       <label class="drop" id="comp-drop">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
         <strong>把要壓縮的 PDF 拖到這裡，或點一下選擇</strong>
-        <span>一次處理一份</span>
-        <input type="file" id="comp-input" accept="application/pdf,.pdf">
+        <span>可以一次放入多份，用同樣的設定一起壓縮</span>
+        <input type="file" id="comp-input" accept="application/pdf,.pdf" multiple>
       </label>
       <p class="hint" style="margin-top:10px">沒有檔案在手邊？<button class="link-btn" id="comp-sample">用含照片的範例檔試試</button></p>
     </div>
     <div id="comp-work" hidden style="display:flex;flex-direction:column;gap:18px">
-      <div class="doc-card">
-        <svg class="doc-ico" viewBox="0 0 40 48" fill="none" aria-hidden="true"><path d="M4 3h22l10 10v32H4z" fill="currentColor" opacity=".14"/><path d="M4 3h22l10 10v32H4z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M26 3v10h10" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
-        <div style="min-width:0">
-          <div class="file-name" id="comp-fname"></div>
-          <div class="file-meta" id="comp-fmeta"></div>
-        </div>
-        <button class="btn" id="comp-change">換一個檔案</button>
-      </div>
+      <label class="drop compact" id="comp-drop-more">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        <span><strong>加入更多 PDF</strong>　拖到這裡或點一下選擇</span>
+        <input type="file" id="comp-input-more" accept="application/pdf,.pdf" multiple>
+      </label>
+      <ul class="file-list" id="comp-list"></ul>
 
       <div class="seg" role="group" aria-label="壓縮方式">
         <button id="comp-m-keep" aria-pressed="true">保留文字（只壓縮照片）</button>
@@ -192,7 +191,7 @@
         <div class="result-head">
           <div><span class="big" id="comp-pct"></span> <span id="comp-pct-label" style="color:var(--muted);font-size:14px"></span></div>
           <div class="go" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-            <label class="name-field">檔名 <input type="text" id="comp-name" spellcheck="false"></label>
+            <label class="name-field"><span id="comp-name-label">檔名</span> <input type="text" id="comp-name" spellcheck="false"></label>
             <button class="btn primary" id="comp-save">下載壓縮檔</button>
           </div>
         </div>
@@ -705,6 +704,7 @@
       <div class="ed-panel" id="te-text-panel">
         <p class="hint">輸入文字後，點頁面上任一處放置。拖曳可移動，點一下文字可修改。</p>
         <label class="field">文字<textarea id="te-text">已審閱</textarea></label>
+        <button class="link-btn" id="te-text-date" style="align-self:flex-start">填入今天日期</button>
         <div class="field-row">
           <label class="field">大小 (pt)<input type="number" id="te-size" min="6" max="144" value="18"></label>
           <label class="field">顏色<input type="color" id="te-color" value="#c2362b"></label>
@@ -722,6 +722,19 @@
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn" id="te-sig-new">手寫新簽名</button>
           <label class="btn add-label">上傳圖檔<input type="file" class="sig-upload" accept="image/png,image/jpeg,image/webp"></label>
+        </div>
+        <div class="date-box">
+          <label class="optfield">日期格式
+            <select id="te-datefmt">
+              <option value="slash">2026/11/19</option>
+              <option value="dash">2026-11-19</option>
+              <option value="zh">2026年11月19日</option>
+              <option value="roc">民國115年11月19日</option>
+              <option value="rocs">115/11/19</option>
+            </select>
+          </label>
+          <button class="btn" id="te-date">加上今天日期</button>
+          <p class="hint" style="margin:0">選取了簽名時，日期會放在簽名旁邊；沒有選取時，點頁面放置。</p>
         </div>
       </div>
       <div class="ed-panel" id="te-mark-panel" hidden>
@@ -787,6 +800,17 @@
   </div>
 </dialog>
 
+<dialog class="viewer" id="pv-dialog" aria-label="頁面預覽">
+  <div class="pv-bar">
+    <span class="mono" id="pv-title">第 1 頁</span>
+    <span class="pv-hint">← → 換頁　Esc 關閉</span>
+    <span style="flex:1"></span>
+    <button class="icon-btn" id="pv-prev" aria-label="上一頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
+    <button class="icon-btn" id="pv-next" aria-label="下一頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>
+    <button class="icon-btn" id="pv-close" aria-label="關閉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+  </div>
+  <div class="pv-stage" id="pv-stage"><canvas id="pv-canvas"></canvas></div>
+</dialog>
 <div class="handoff" id="handoff" role="region" aria-label="繼續處理這個檔案" hidden>
   <div class="handoff-text"><span class="handoff-label">接著處理</span><span class="handoff-name" id="handoff-name"></span></div>
   <div class="handoff-actions" id="handoff-actions"></div>
@@ -799,6 +823,7 @@
 <script src="lib/jszip.min.js"></script>
 <script src="js/core.js"></script>
 <script src="js/inpaint.js"></script>
+<script src="js/preview.js"></script>
 <script src="js/merge.js"></script>
 <script src="js/split.js"></script>
 <script src="js/edit.js"></script>
