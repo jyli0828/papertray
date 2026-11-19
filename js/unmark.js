@@ -1,6 +1,6 @@
 'use strict';
 /* ================= WATERMARK REMOVER ================= */
-const um = { name: '', mime: 'image/png', w: 0, h: 0, scale: 1, mode: 'paint', history: [], drawing: false, last: null };
+const um = { name: '', mime: 'image/png', w: 0, h: 0, scale: 1, fit: 1, zoom: 1, mode: 'paint', history: [], drawing: false, last: null };
 const umImg = $('#um-img'), umMask = $('#um-mask'), umOrig = $('#um-orig'), umWrap = $('#um-wrap'), umCursor = $('#um-cursor');
 const uctx = umImg.getContext('2d', { willReadFrequently: true });
 const mctxU = umMask.getContext('2d', { willReadFrequently: true });
@@ -22,23 +22,60 @@ async function loadUm(files) {
   $('#um-name').value = f.name.replace(/\.[^.]+$/, '') + '-去浮水印.' + (um.mime === 'image/jpeg' ? 'jpg' : 'png');
   $('#um-meta').textContent = w === ow ? `${w} × ${h} px` : `${w} × ${h} px（原圖 ${ow} × ${oh}，已縮小以便處理）`;
   $('#um-empty').hidden = true; $('#um-work').hidden = false;
-  updateUmButtons(); fitUm();
+  um.zoom = 1; updateUmButtons(); fitUm();
 }
+/* Zoom: 1 = the whole picture fits the box. Above that the box scrolls; the 「移動」 tool or holding Space drags it. */
 function fitUm() {
   if (!um.w || $('#panel-unmark').hidden) return;
   const box = $('#um-stagebox');
   const avail = Math.max(120, box.clientWidth - 24);
   const maxH = Math.max(260, window.innerHeight * .68);
-  um.scale = Math.min(avail / um.w, maxH / um.h, 1.5);
+  um.fit = Math.min(avail / um.w, maxH / um.h, 1.5);
+  applyZoom();
+}
+function applyZoom(anchor) {
+  const box = $('#um-stagebox');
+  let ix, iy;
+  if (anchor) { ix = (box.scrollLeft + anchor[0]) / um.scale; iy = (box.scrollTop + anchor[1]) / um.scale; }
+  um.scale = um.fit * um.zoom;
   umWrap.style.width = um.w * um.scale + 'px'; umWrap.style.height = um.h * um.scale + 'px';
+  box.classList.toggle('is-zoomed', um.zoom > 1);
+  if (anchor) { box.scrollLeft = ix * um.scale - anchor[0]; box.scrollTop = iy * um.scale - anchor[1]; }
+  $('#um-zoom-v').textContent = Math.round(um.zoom * 100) + '%';
+  $('#um-zoom-out').disabled = um.zoom <= 1; $('#um-zoom-in').disabled = um.zoom >= 8;
   setCursorSize();
 }
+function setZoom(z, anchor) {
+  um.zoom = Math.max(1, Math.min(8, z));
+  if (!anchor) { const box = $('#um-stagebox'); anchor = [box.clientWidth / 2, box.clientHeight / 2]; }
+  applyZoom(anchor);
+}
+$('#um-zoom-in').addEventListener('click', () => setZoom(um.zoom * 1.5));
+$('#um-zoom-out').addEventListener('click', () => setZoom(um.zoom / 1.5));
+$('#um-zoom-fit').addEventListener('click', () => setZoom(1));
+$('#um-stagebox').addEventListener('wheel', e => {
+  if (!um.w || !(e.ctrlKey || e.metaKey)) return;
+  e.preventDefault();
+  const r = $('#um-stagebox').getBoundingClientRect();
+  setZoom(um.zoom * (e.deltaY < 0 ? 1.2 : 1 / 1.2), [e.clientX - r.left, e.clientY - r.top]);
+}, { passive: false });
+let umSpace = false;
+document.addEventListener('keydown', e => {
+  if ($('#panel-unmark').hidden || e.code !== 'Space' || (e.target.closest && e.target.closest('input, textarea, select, button'))) return;
+  e.preventDefault(); if (!umSpace) { umSpace = true; umMask.classList.add('is-pan'); }
+});
+document.addEventListener('keyup', e => { if (e.code === 'Space' && umSpace) { umSpace = false; umMask.classList.toggle('is-pan', um.mode === 'pan'); } });
 window.addEventListener('resize', fitUm);
 function setCursorSize() { const s = +$('#um-size').value; umCursor.style.width = umCursor.style.height = s + 'px'; }
 function updateUmButtons() { $('#um-undo').disabled = !um.history.length; $('#um-compare').disabled = !um.history.length; }
-function setUmMode(m) { um.mode = m; $('#um-paint').setAttribute('aria-pressed', m === 'paint'); $('#um-erase').setAttribute('aria-pressed', m === 'erase'); }
+function setUmMode(m) {
+  um.mode = m;
+  for (const k of ['paint', 'erase', 'pan']) $('#um-' + k).setAttribute('aria-pressed', m === k);
+  umMask.classList.toggle('is-pan', m === 'pan');
+}
 $('#um-paint').addEventListener('click', () => setUmMode('paint'));
 $('#um-erase').addEventListener('click', () => setUmMode('erase'));
+$('#um-pan').addEventListener('click', () => setUmMode('pan'));
 $('#um-size').addEventListener('input', () => { $('#um-size-v').textContent = $('#um-size').value; setCursorSize(); });
 $('#um-clear').addEventListener('click', () => mctxU.clearRect(0, 0, um.w, um.h));
 const umPt = e => { const r = umMask.getBoundingClientRect(); return [(e.clientX - r.left) / um.scale, (e.clientY - r.top) / um.scale, e.clientX - r.left, e.clientY - r.top]; };
@@ -50,14 +87,21 @@ function umStroke(a, b) {
   mctxU.beginPath(); mctxU.moveTo(a[0], a[1]); mctxU.lineTo(b[0] + .01, b[1]); mctxU.stroke();
   mctxU.restore();
 }
-umMask.addEventListener('pointerdown', e => { e.preventDefault(); if (um.busy) { toast('正在處理，請等完成再塗抹'); return; } try { umMask.setPointerCapture(e.pointerId); } catch (_) {} um.drawing = true; const p = umPt(e); um.last = p; umStroke(p, p); });
+umMask.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  try { umMask.setPointerCapture(e.pointerId); } catch (_) {}
+  if (um.mode === 'pan' || umSpace) { const box = $('#um-stagebox'); um.pan = { x: e.clientX, y: e.clientY, l: box.scrollLeft, t: box.scrollTop }; return; }
+  if (um.busy) { toast('正在處理，請等完成再塗抹'); return; }
+  um.drawing = true; const p = umPt(e); um.last = p; umStroke(p, p);
+});
 umMask.addEventListener('pointermove', e => {
+  if (um.pan) { const box = $('#um-stagebox'); box.scrollLeft = um.pan.l - (e.clientX - um.pan.x); box.scrollTop = um.pan.t - (e.clientY - um.pan.y); return; }
   const p = umPt(e);
-  umCursor.hidden = false; umCursor.style.left = p[2] + 'px'; umCursor.style.top = p[3] + 'px';
+  umCursor.hidden = um.mode === 'pan' || umSpace; umCursor.style.left = p[2] + 'px'; umCursor.style.top = p[3] + 'px';
   if (!um.drawing) return;
   umStroke(um.last, p); um.last = p;
 });
-const umEnd = () => { um.drawing = false; };
+const umEnd = () => { um.drawing = false; um.pan = null; };
 umMask.addEventListener('pointerup', umEnd); umMask.addEventListener('pointercancel', umEnd);
 umMask.addEventListener('pointerleave', () => { umCursor.hidden = true; });
 
@@ -73,22 +117,27 @@ function dilateMask(mask, W, H, r) {
   }
   return cur;
 }
-let umWorker = null;
-try {
-  const code = `const A=(${umAlgoFactory.toString()})();self.onmessage=e=>{const d=e.data;try{A.fillRegion(d.px,d.mask,d.W,d.H);self.postMessage({ok:true,px:d.px},[d.px.buffer]);}catch(err){self.postMessage({ok:false,msg:String(err&&err.message||err)});}};`;
-  umWorker = new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
-} catch (e) { umWorker = null; }
-function runFill(px, mask, W, H) {
+function makeUmWorker() {
+  try {
+    const code = `const A=(${umAlgoFactory.toString()})();self.onmessage=e=>{const d=e.data;try{A.fillRegion(d.px,d.mask,d.W,d.H);self.postMessage({ok:true,px:d.px},[d.px.buffer]);}catch(err){self.postMessage({ok:false,msg:String(err&&err.message||err)});}};`;
+    return new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
+  } catch (e) { return null; }
+}
+let umWorker = makeUmWorker();
+/* Cancelling stops the worker outright and starts a fresh one for next time. */
+function runFill(px, mask, W, H, signal) {
   const local = () => { umAlgoFactory().fillRegion(px, mask, W, H); return px; };
   if (!umWorker) return new Promise(r => setTimeout(() => r(local()), 30));
   const copy = px.slice();
   return new Promise((resolve, reject) => {
-    umWorker.onmessage = e => e.data.ok ? resolve(e.data.px) : reject(new Error(e.data.msg));
-    umWorker.onerror = () => { umWorker = null; px.set(copy); resolve(local()); };
+    const onAbort = () => { umWorker.terminate(); umWorker = makeUmWorker(); reject(new Cancelled()); };
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    umWorker.onmessage = e => { signal && signal.removeEventListener('abort', onAbort); e.data.ok ? resolve(e.data.px) : reject(new Error(e.data.msg)); };
+    umWorker.onerror = () => { signal && signal.removeEventListener('abort', onAbort); umWorker = null; px.set(copy); resolve(local()); };
     umWorker.postMessage({ px, mask, W, H }, [px.buffer]);
   });
 }
-async function removeMarked() {
+async function removeMarked(signal) {
   const W = um.w, H = um.h;
   const md = mctxU.getImageData(0, 0, W, H).data;
   let x0 = W, y0 = H, x1 = -1, y1 = -1;
@@ -106,7 +155,7 @@ async function removeMarked() {
   const token = um.token;
   um.busy = true;
   try {
-    const out = await runFill(sub.data, mask, cw, chh);
+    const out = await runFill(sub.data, mask, cw, chh, signal);
     if (token !== um.token) return false; // a different image was loaded meanwhile
     uctx.putImageData(new ImageData(out, cw, chh), cx0, cy0);
     um.history.push({ x: cx0, y: cy0, data: before }); if (um.history.length > 8) um.history.shift();
@@ -115,8 +164,8 @@ async function removeMarked() {
   updateUmButtons();
   return true;
 }
-$('#um-go').addEventListener('click', e => busy(e.currentTarget, '處理中…', async () => {
-  if (await removeMarked()) toast('已移除，不滿意可以按「復原」');
+$('#um-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async (check, signal) => {
+  if (await removeMarked(signal)) toast('已移除，不滿意可以按「復原」');
 }).catch(err => toast('處理失敗：' + err.message, 'err')));
 $('#um-undo').addEventListener('click', () => { const s = um.history.pop(); if (s) uctx.putImageData(s.data, s.x, s.y); updateUmButtons(); });
 const showOrig = on => { umOrig.hidden = !on; };
@@ -131,8 +180,10 @@ $('#um-save').addEventListener('click', e => busy(e.currentTarget, '準備中…
   const ext = um.mime === 'image/jpeg' ? 'jpg' : 'png';
   if (!new RegExp('\\.' + ext + '$', 'i').test(name)) name = name.replace(/\.(jpe?g|png|webp|bmp|gif)$/i, '') + '.' + ext;
   await saveFile(name, blob);
+  offerNext(new File([blob], name, { type: um.mime }), 'image', 'unmark');
 }).catch(err => toast('下載失敗：' + err.message, 'err')));
 bindInput($('#um-input'), loadUm);
+registerTarget('image', 'unmark', '去浮水印', loadUm);
 acceptFiles($('#panel-unmark'), $('#um-drop'), loadUm);
 $('#um-change').addEventListener('click', () => $('#um-input').click());
 $('#um-sample').addEventListener('click', async () => {

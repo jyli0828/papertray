@@ -1,15 +1,21 @@
 'use strict';
-/* 共用：函式庫設定、工具函式、存檔、拖放、範例檔、縮圖、頁碼範圍、座標換算 */
+/* 共用：函式庫設定、工具函式、存檔、可取消的工作、工具間串接、拖放、範例檔、縮圖、頁碼範圍、座標換算 */
+const $ = (s, r = document) => r.querySelector(s);
 
-const { PDFDocument, degrees, rgb, StandardFonts } = PDFLib;
-const WORKER_URL = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+const { PDFDocument, degrees, rgb, StandardFonts, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber } = PDFLib;
+/* The worker sits next to pdf.min.js: lib/ in the offline project, cdnjs in the published page. */
+const PDFJS_SRC = ($('script[src*="pdf.min.js"]') || {}).src || 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+const WORKER_URL = PDFJS_SRC.replace(/pdf\.min\.js(\?.*)?$/, 'pdf.worker.min.js');
 pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URL;
-/* Run pdf.js parsing in a real background worker (blob wrapper around the CDN script). */
+/* Run pdf.js parsing in a real background worker (blob wrapper around the worker script).
+   Opened straight from disk (file://) browsers refuse that, and pdf.js runs the worker code on the page instead. */
 let sharedWorker = null;
-try {
-  const w = new Worker(URL.createObjectURL(new Blob([`importScripts('${WORKER_URL}');`], { type: 'text/javascript' })));
-  sharedWorker = new pdfjsLib.PDFWorker({ port: w });
-} catch (e) { sharedWorker = null; }
+if (location.protocol !== 'file:') {
+  try {
+    const w = new Worker(URL.createObjectURL(new Blob([`importScripts('${WORKER_URL}');`], { type: 'text/javascript' })));
+    sharedWorker = new pdfjsLib.PDFWorker({ port: w });
+  } catch (e) { sharedWorker = null; }
+}
 /* pdf.js waits on animation frames while painting images; those stop in a background tab.
    Fall back to a timer so long jobs keep going when the page is not on screen. */
 (() => {
@@ -25,7 +31,6 @@ try {
 })();
 
 /* ---------- helpers ---------- */
-const $ = (s, r = document) => r.querySelector(s);
 let _n = 0; const uid = () => 'i' + (++_n);
 const isPdf = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
 const baseName = n => n.replace(/\.pdf$/i, '');
@@ -53,6 +58,7 @@ const ICON = {
   rotr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>',
   text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg>',
   pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c2-1 3-3 5-3s1.5 2 3.5 2 2-1.5 3-1.5"/><path d="m14 4 4 4-8 8H6v-4z"/></svg>',
+  copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h2"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>'
 };
 
@@ -70,6 +76,44 @@ async function busy(btn, label, fn) {
   const old = btn.innerHTML; btn.disabled = true; btn.innerHTML = `<span class="spin"></span>${label}`;
   try { return await fn(); } finally { btn.innerHTML = old; btn.disabled = false; }
 }
+
+/* ---------- cancellable jobs ----------
+   The button stays clickable while the job runs and shows「取消」; a second click stops the job at its next check(). */
+class Cancelled extends Error { constructor() { super('已取消'); this.cancelled = true; } }
+function runJob(btn, label, fn) {
+  if (btn._job) { btn._job.abort(); return Promise.resolve(); }
+  const ac = new AbortController(); btn._job = ac;
+  const old = btn.innerHTML; btn.classList.add('is-running');
+  btn.innerHTML = `<span class="spin"></span>${label}<span class="cancel-hint">取消</span>`;
+  const check = () => { if (ac.signal.aborted) throw new Cancelled(); };
+  return (async () => {
+    try { return await fn(check, ac.signal); }
+    finally { btn._job = null; btn.innerHTML = old; btn.classList.remove('is-running'); }
+  })().catch(err => { if (err && err.cancelled) { toast('已取消'); return; } throw err; });
+}
+
+/* ---------- hand a finished file to the next tool ----------
+   Each tool registers how it accepts a file; after a tool finishes it calls offerNext() and a bar offers the others. */
+const NEXT_TARGETS = { pdf: [], image: [] };
+function registerTarget(kind, tab, label, load) { NEXT_TARGETS[kind].push({ tab, label, load }); }
+function offerNext(file, kind, fromTab) {
+  const bar = $('#handoff'), acts = $('#handoff-actions');
+  $('#handoff-name').textContent = file.name;
+  acts.innerHTML = '';
+  for (const t of NEXT_TARGETS[kind]) {
+    if (t.tab === fromTab) continue;
+    const b = document.createElement('button'); b.className = 'btn'; b.textContent = t.label;
+    b.addEventListener('click', () => {
+      hideNext();
+      showTab(t.tab); try { history.replaceState(null, '', '#' + t.tab); } catch (e) {}
+      t.load([file]);
+    });
+    acts.append(b);
+  }
+  bar.hidden = false; document.body.classList.add('has-handoff');
+}
+function hideNext() { $('#handoff').hidden = true; document.body.classList.remove('has-handoff'); }
+const pdfFile = (bytes, name) => new File([bytes], ensurePdf(name), { type: 'application/pdf' });
 function openPdfjs(bytes) {
   const opts = { data: bytes.slice(), isEvalSupported: false };
   if (sharedWorker) opts.worker = sharedWorker;
@@ -135,30 +179,81 @@ document.addEventListener('focusout', e => {
   if (!el.value.trim()) el.value = el.dataset.prev || '';
   el.placeholder = '';
 });
-function makeSortable(container, sel, getArr, onChange, horizontal) {
+/* Reorder items by dragging. Mouse uses native drag and drop; touch uses long-press (phones don't drag natively),
+   then the lifted item follows the finger. before() runs just before the list changes (used for undo). */
+function makeSortable(container, sel, getArr, onChange, horizontal, beforeChange) {
   let dragId = null;
   const clear = () => container.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+  const isBefore = (el, x, y) => { const r = el.getBoundingClientRect(); return horizontal ? x < r.left + r.width / 2 : y < r.top + r.height / 2; };
+  const move = (fromId, toEl, before) => {
+    if (!toEl || toEl.dataset.id === fromId) return;
+    beforeChange && beforeChange();
+    const arr = getArr();
+    const from = arr.findIndex(x => x.id === fromId); const [item] = arr.splice(from, 1);
+    let to = arr.findIndex(x => x.id === toEl.dataset.id); if (!before) to++;
+    arr.splice(to, 0, item); onChange();
+  };
   container.addEventListener('dragstart', e => {
     const el = e.target.closest && e.target.closest(sel); if (!el) return;
     dragId = el.dataset.id; el.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', dragId);
   });
   container.addEventListener('dragend', () => { dragId = null; clear(); container.querySelectorAll('.dragging').forEach(x => x.classList.remove('dragging')); });
-  const before = (el, e) => { const r = el.getBoundingClientRect(); return horizontal ? e.clientX < r.left + r.width / 2 : e.clientY < r.top + r.height / 2; };
   container.addEventListener('dragover', e => {
     if (!dragId) return;
     const el = e.target.closest(sel); if (!el || el.dataset.id === dragId) return;
-    e.preventDefault(); clear(); el.classList.add(before(el, e) ? 'drop-before' : 'drop-after');
+    e.preventDefault(); clear(); el.classList.add(isBefore(el, e.clientX, e.clientY) ? 'drop-before' : 'drop-after');
   });
   container.addEventListener('drop', e => {
     if (!dragId) return;
     const el = e.target.closest(sel); e.preventDefault(); clear();
-    if (!el || el.dataset.id === dragId) return;
-    const arr = getArr();
-    const from = arr.findIndex(x => x.id === dragId); const [item] = arr.splice(from, 1);
-    let to = arr.findIndex(x => x.id === el.dataset.id); if (!before(el, e)) to++;
-    arr.splice(to, 0, item); dragId = null; onChange();
+    const id = dragId; dragId = null;
+    if (el) move(id, el, isBefore(el, e.clientX, e.clientY));
   });
+
+  let t = null;
+  const end = () => {
+    if (!t) return;
+    clearTimeout(t.timer);
+    if (t.ghost) t.ghost.remove();
+    t.el.classList.remove('sort-lifted'); t.el.draggable = t.wasDraggable;
+    clear();
+    const done = t; t = null;
+    if (done.active && done.target) move(done.id, done.target, done.before);
+  };
+  container.addEventListener('pointerdown', e => {
+    if (e.pointerType !== 'touch') return;
+    const el = e.target.closest(sel);
+    if (!el || e.target.closest('button, input, label, select, textarea')) return;
+    t = { el, id: el.dataset.id, x: e.clientX, y: e.clientY, active: false, wasDraggable: el.draggable };
+    el.draggable = false;
+    t.timer = setTimeout(() => {
+      if (!t) return;
+      const r = el.getBoundingClientRect();
+      t.active = true; t.dx = t.x - r.left; t.dy = t.y - r.top;
+      t.ghost = el.cloneNode(true); t.ghost.classList.add('sort-ghost');
+      Object.assign(t.ghost.style, { width: r.width + 'px', height: r.height + 'px', left: r.left + 'px', top: r.top + 'px' });
+      document.body.append(t.ghost); el.classList.add('sort-lifted');
+      try { navigator.vibrate && navigator.vibrate(12); } catch (_) {}
+    }, 350);
+  });
+  window.addEventListener('pointermove', e => {
+    if (!t || e.pointerType !== 'touch') return;
+    if (!t.active) { if (Math.hypot(e.clientX - t.x, e.clientY - t.y) > 10) end(); return; } // it was a scroll
+    t.ghost.style.left = (e.clientX - t.dx) + 'px'; t.ghost.style.top = (e.clientY - t.dy) + 'px';
+    if (e.clientY < 70) window.scrollBy(0, -14); else if (e.clientY > window.innerHeight - 70) window.scrollBy(0, 14);
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const el = under && under.closest(sel);
+    clear(); t.target = null;
+    if (el && el !== t.el && container.contains(el)) {
+      t.target = el; t.before = isBefore(el, e.clientX, e.clientY);
+      el.classList.add(t.before ? 'drop-before' : 'drop-after');
+    }
+  });
+  window.addEventListener('pointerup', end);
+  window.addEventListener('pointercancel', end);
+  document.addEventListener('touchmove', e => { if (t && t.active) e.preventDefault(); }, { passive: false });
+  container.addEventListener('contextmenu', e => { if (t) e.preventDefault(); });
 }
 
 /* ---------- sample documents ---------- */

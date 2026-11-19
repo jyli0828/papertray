@@ -18,8 +18,22 @@ def read(rel):
         return f.read()
 
 
+# lib/ holds offline copies of these libraries; the bundled pages load the same versions from cdnjs instead
+# (the single file stays small, and Claude Artifacts only allow scripts from approved CDNs).
+CDN = {
+    'lib/pdf-lib.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js',
+    'lib/pdf.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+    'lib/jszip.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+}
+
+
 def inline_assets(html):
-    """Replace local <link rel="stylesheet"> and <script src> with inline copies; CDN tags stay as they are."""
+    """Swap lib/ scripts for their CDN copies, then inline local <link rel="stylesheet"> and <script src>."""
+    for local, url in CDN.items():
+        html = html.replace(f'<script src="{local}"></script>', f'<script src="{url}"></script>')
+    leftover = re.findall(r'<script src="(lib/[^"]+)"', html)
+    if leftover:
+        raise SystemExit(f'沒有對應的 CDN 網址：{leftover}（請加到 tools/build.py 的 CDN 表）')
     def css(m):
         return '<style>\n' + read(m.group(1)) + '</style>'
 

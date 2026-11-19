@@ -115,5 +115,6 @@ async function startSigning(files) {
   await loadEditFiles(files, p => { showTab('edit'); try { history.replaceState(null, '', '#edit'); } catch (e) {} openTextEditor(p, 'sig'); });
 }
 bindInput($('#sign-input'), startSigning);
+registerTarget('pdf', 'sign', '簽名', startSigning);
 acceptFiles($('#sign-drop'), $('#sign-drop'), startSigning);
 $('#sign-sample').addEventListener('click', async () => startSigning([asFile(await makeSample('Service Agreement', 2, [.11, .31, .72]), 'service-agreement.pdf')]));

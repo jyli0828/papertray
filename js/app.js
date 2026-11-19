@@ -1,6 +1,6 @@
 'use strict';
 /* ================= tabs ================= */
-const TABS = ['merge', 'split', 'edit', 'sign', 'watermark', 'compress', 'img2pdf', 'pdf2img', 'unmark'];
+const TABS = ['merge', 'split', 'edit', 'sign', 'watermark', 'resize', 'compress', 'img2pdf', 'pdf2img', 'imgtool', 'unmark'];
 function showTab(name) {
   if (!TABS.includes(name)) name = 'merge';
   TABS.forEach(t => {
@@ -21,6 +21,7 @@ $('.tabs').addEventListener('keydown', e => {
   const next = TABS[(cur + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length];
   $('#tab-' + next).click(); $('#tab-' + next).focus();
 });
+$('#handoff-close').addEventListener('click', hideNext);
 window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
 showTab(location.hash.slice(1));
 

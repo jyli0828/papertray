@@ -70,6 +70,7 @@ $('#img-list').addEventListener('click', e => {
 });
 makeSortable($('#img-list'), '.file-row', () => imgs.items, renderImgs, false);
 bindInput($('#img-input'), addImages);
+registerTarget('image', 'img2pdf', '圖片轉 PDF', addImages);
 acceptFiles($('#panel-img2pdf'), $('#img-drop'), addImages);
 $('#img-sample').addEventListener('click', async () => {
   const files = [];
@@ -96,11 +97,12 @@ async function imageBytesFor(it) {
   cv.width = cv.height = 0;
   return { kind: 'jpg', bytes: new Uint8Array(await blob.arrayBuffer()) };
 }
-$('#img-go').addEventListener('click', e => busy(e.currentTarget, '轉換中…', async () => {
+$('#img-go').addEventListener('click', e => runJob(e.currentTarget, '轉換中…', async check => {
   const sizeOpt = $('#img-size').value, orient = $('#img-orient').value, margin = +$('#img-margin').value;
   const PAPER = { a4: [595.28, 841.89], letter: [612, 792] };
   const out = await PDFDocument.create();
   for (const it of imgs.items) {
+    check();
     const { kind, bytes } = await imageBytesFor(it);
     const img = kind === 'png' ? await out.embedPng(bytes) : await out.embedJpg(bytes);
     let pw, ph;
@@ -117,5 +119,7 @@ $('#img-go').addEventListener('click', e => busy(e.currentTarget, '轉換中…'
     page.drawImage(img, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
   }
   const bytes = await out.save({ useObjectStreams: true });
-  await saveFile(ensurePdf($('#img-name').value), bytes);
+  const name = ensurePdf($('#img-name').value);
+  await saveFile(name, bytes);
+  offerNext(pdfFile(bytes, name), 'pdf', 'img2pdf');
 }).catch(err => toast('轉換失敗：' + err.message, 'err')));

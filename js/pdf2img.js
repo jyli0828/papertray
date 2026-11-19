@@ -86,23 +86,28 @@ function p2iProgress(i, n) {
 }
 async function exportP2i(pages, btn) {
   const o = p2iOpts();
-  await busy(btn, btn.classList.contains('mini') ? '' : '轉換中…', async () => {
+  const mini = btn.classList.contains('mini');
+  await (mini ? busy(btn, '', () => go(() => {})) : runJob(btn, '轉換中…', go)).catch(err => toast('轉換失敗：' + err.message, 'err'));
+  async function go(check) {
     if (pages.length === 1) {
       p2iProgress(0, 1);
       const blob = await pageToBlob(pages[0].index, o);
       p2iProgress(1, 1);
-      await saveFile(p2iFileName(pages[0].index, o), blob);
+      const name = p2iFileName(pages[0].index, o);
+      await saveFile(name, blob);
+      offerNext(new File([blob], name, { type: o.mime }), 'image', 'pdf2img');
       return;
     }
     const zip = new JSZip();
     for (let i = 0; i < pages.length; i++) {
+      check();
       p2iProgress(i, pages.length);
       zip.file(p2iFileName(pages[i].index, o), await pageToBlob(pages[i].index, o));
     }
     p2iProgress(pages.length, pages.length);
     const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
     await saveFile(`${baseName(p2i.name)}-${o.fmt}.zip`, blob);
-  }).catch(err => toast('轉換失敗：' + err.message, 'err'));
+  }
 }
 $('#p2i-grid').addEventListener('click', e => {
   const t = e.target.closest('[data-act]'); if (!t) return;
@@ -115,6 +120,7 @@ $('#p2i-selall').addEventListener('click', () => {
 });
 $('#p2i-go').addEventListener('click', e => exportP2i(p2i.pages.filter(p => p.selected), e.currentTarget));
 bindInput($('#p2i-input'), loadP2i);
+registerTarget('pdf', 'pdf2img', '轉成圖片', loadP2i);
 acceptFiles($('#panel-pdf2img'), $('#p2i-drop'), loadP2i);
 $('#p2i-change').addEventListener('click', () => $('#p2i-input').click());
 $('#p2i-sample').addEventListener('click', async () => {

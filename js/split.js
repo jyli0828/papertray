@@ -63,17 +63,18 @@ $('#split-ranges').addEventListener('input', renderSplit);
 $('#split-every').addEventListener('input', renderSplit);
 $('#split-ranges').addEventListener('focus', () => { document.querySelector('input[name="split-mode"][value="range"]').checked = true; renderSplit(); });
 $('#split-every').addEventListener('focus', () => { document.querySelector('input[name="split-mode"][value="every"]').checked = true; renderSplit(); });
-$('#split-go').addEventListener('click', e => busy(e.currentTarget, '拆分中…', async () => {
+$('#split-go').addEventListener('click', e => runJob(e.currentTarget, '拆分中…', async check => {
   const { groups, error } = splitGroups();
   if (error || !groups.length) { toast(error || '沒有要輸出的頁面'); return; }
   const base = baseName(split.name);
   const files = [];
   for (const g of groups) {
+    check();
     const out = await PDFDocument.create();
     (await out.copyPages(split.lib, g)).forEach(pg => out.addPage(pg));
     files.push({ name: `${base}-第${groupLabel(g).replace('–', '-')}頁.pdf`, bytes: await out.save({ useObjectStreams: true }) });
   }
-  if (files.length === 1) { await saveFile(files[0].name, files[0].bytes); return; }
+  if (files.length === 1) { await saveFile(files[0].name, files[0].bytes); offerNext(pdfFile(files[0].bytes, files[0].name), 'pdf', 'split'); return; }
   const zip = new JSZip(); const used = new Set();
   files.forEach(f => { let n = f.name, k = 2; while (used.has(n)) n = f.name.replace(/\.pdf$/, `-${k++}.pdf`); used.add(n); zip.file(n, f.bytes); });
   await saveFile(`${base}-拆分.zip`, await zip.generateAsync({ type: 'blob', compression: 'STORE' }));
@@ -81,4 +82,5 @@ $('#split-go').addEventListener('click', e => busy(e.currentTarget, '拆分中�
 bindInput($('#split-input'), loadSplit);
 acceptFiles($('#panel-split'), $('#split-drop'), loadSplit);
 $('#split-change').addEventListener('click', () => $('#split-input').click());
+registerTarget('pdf', 'split', '拆分', loadSplit);
 $('#split-sample').addEventListener('click', async () => loadSplit([asFile(await makeSample('Quarterly Report', 6, [.04, .48, .42]), 'quarterly-report.pdf')]));

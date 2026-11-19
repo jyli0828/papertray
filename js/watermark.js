@@ -142,7 +142,7 @@ bindInput($('#wm-img-input'), async files => {
     drawWmOverlay();
   } catch (e) { toast('這張圖片無法讀取', 'err'); }
 });
-$('#wm-go').addEventListener('click', e => busy(e.currentTarget, '處理中…', async () => {
+$('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async check => {
   const tg = wmTargets(); if (tg.error) { toast(tg.error, 'err'); return; }
   if (wm.type === 'text') { try { await document.fonts.load(wmFont(64), $('#wm-text').value.trim() || ' '); } catch (e) {} }
   const out = await PDFDocument.load(wm.bytes);
@@ -156,6 +156,7 @@ $('#wm-go').addEventListener('click', e => busy(e.currentTarget, '處理中…',
   };
   let done = 0;
   for (let i = 0; i < out.getPageCount(); i++) {
+    check();
     if (tg.set && !tg.set.has(i)) continue;
     const page = out.getPage(i);
     const R = ((page.getRotation().angle % 360) + 360) % 360;
@@ -172,9 +173,12 @@ $('#wm-go').addEventListener('click', e => busy(e.currentTarget, '處理中…',
     done++;
   }
   const bytes = await out.save({ useObjectStreams: true });
-  await saveFile(ensurePdf($('#wm-name').value), bytes);
+  const name = ensurePdf($('#wm-name').value);
+  await saveFile(name, bytes);
+  offerNext(pdfFile(bytes, name), 'pdf', 'watermark');
 }).catch(err => toast('加浮水印失敗：' + err.message, 'err')));
 bindInput($('#wm-input'), loadWm);
+registerTarget('pdf', 'watermark', '加浮水印', loadWm);
 acceptFiles($('#panel-watermark'), $('#wm-drop'), loadWm);
 $('#wm-change').addEventListener('click', () => $('#wm-input').click());
 $('#wm-sample').addEventListener('click', async () => loadWm([asFile(await makeSample('Quarterly Report', 3, [.04, .48, .42]), 'quarterly-report.pdf')]));

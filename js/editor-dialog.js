@@ -16,7 +16,7 @@ async function openTextEditor(p, mode) {
   setTeMode(mode || te.mode);
   $('#te-title').textContent = `第 ${edit.pages.indexOf(p) + 1} 頁`;
   overlay.innerHTML = '';
-  if (!dlg.open) dlg.showModal();
+  if (!dlg.open) { te.snap = snapEdit(); te.sig0 = annotSig(); dlg.showModal(); }
   syncFields();
   const pj = edit.docs[p.docId].pj;
   const pg = await pj.getPage(p.index + 1);
@@ -70,6 +70,7 @@ function renderAnnots() {
     overlay.append(d);
   }
   $('#te-del').disabled = !te.sel;
+  $('#te-apply').hidden = !te.sel || edit.pages.length < 2;
 }
 function syncFields() {
   if (te.sel && te.sel.type !== 'img') { $('#te-text').value = te.sel.text; $('#te-size').value = te.sel.size; $('#te-color').value = te.sel.color; }
@@ -142,8 +143,50 @@ document.querySelectorAll('.swatch').forEach(b => b.addEventListener('click', ()
 function deleteSel() { if (!te.sel) return; te.page.annots = te.page.annots.filter(x => x !== te.sel); te.sel = null; renderAnnots(); }
 $('#te-del').addEventListener('click', deleteSel);
 dlg.addEventListener('keydown', e => { if ((e.key === 'Delete') && te.sel && document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'INPUT') deleteSel(); });
-$('#te-done').addEventListener('click', () => dlg.close());
-dlg.addEventListener('close', () => {
-  if (te.page) te.page.annots = te.page.annots.filter(a => a.type === 'img' || a.text.trim());
-  te.page = null; te.sel = null; renderEdit();
+/* Runs once per visit, from whichever happens first: 完成, Esc, or the dialog's own close event
+   (that event is not delivered reliably in every embedded view, so nothing may depend on it alone). */
+function finishEditor() {
+  if (!te.page) return;
+  te.page.annots = te.page.annots.filter(a => a.type === 'img' || a.text.trim());
+  if (te.snap && annotSig() !== te.sig0) pushUndo(te.snap); // the whole visit to the editor is one undo step
+  te.snap = null; te.page = null; te.sel = null; renderEdit();
+}
+$('#te-done').addEventListener('click', () => { finishEditor(); dlg.close(); });
+dlg.addEventListener('cancel', finishEditor);
+dlg.addEventListener('close', finishEditor);
+
+/* A cheap fingerprint of every annotation, to tell whether the editor changed anything. */
+const annotSig = () => edit.pages.map(p => p.annots.map(a => [a.id, a.ux, a.uy, a.wPt, a.hPt, a.text, a.size, a.color].join(',')).join(';')).join('|');
+
+/* ---------- copy the selected text or signature to other pages ----------
+   It keeps its distance from the nearest page edges, so a bottom-right signature stays bottom-right on other page sizes. */
+$('#te-apply-to').addEventListener('change', () => { $('#te-apply-pages').hidden = $('#te-apply-to').value !== 'custom'; });
+$('#te-apply-go').addEventListener('click', () => {
+  const a = te.sel; if (!a) return;
+  const n = edit.pages.length, cur = edit.pages.indexOf(te.page), mode = $('#te-apply-to').value;
+  let targets = [];
+  if (mode === 'custom') {
+    const r = parseRanges($('#te-apply-pages').value, n);
+    if (r.error) { toast(r.error, 'err'); return; }
+    if (!r.ranges.length) { toast('請輸入要套用的頁碼'); return; }
+    const set = new Set(); r.ranges.forEach(([x, y]) => { for (let i = x; i <= y; i++) set.add(i - 1); });
+    targets = [...set];
+  } else targets = edit.pages.map((_, i) => i).filter(i => mode === 'all' || (mode === 'odd' ? i % 2 === 0 : i % 2 === 1));
+  targets = targets.filter(i => i !== cur);
+  if (!targets.length) { toast('沒有其他符合的頁面'); return; }
+  uprightKeepAnchor(a);
+  const [l, t] = annotTopLeft(a), [dw, dh] = dispSize(te.page.view, te.R);
+  const right = l + a.wPt / 2 > dw / 2, bottom = t + a.hPt / 2 > dh / 2;
+  const mx = right ? dw - (l + a.wPt) : l, my = bottom ? dh - (t + a.hPt) : t;
+  let done = 0, skipped = 0;
+  for (const i of targets) {
+    const p = edit.pages[i];
+    if (!fillMeta(p)) { skipped++; continue; }
+    const R = (p.baseRot + p.rot) % 360, [w2, h2] = dispSize(p.view, R);
+    const L = Math.max(0, right ? w2 - mx - a.wPt : mx), T = Math.max(0, bottom ? h2 - my - a.hPt : my);
+    const c = { ...a, id: uid(), rot: R };
+    [c.ux, c.uy] = displayToUser(p.view, R, L, T + a.hPt);
+    p.annots.push(c); done++;
+  }
+  toast(`已套用到 ${done} 頁` + (skipped ? `，${skipped} 頁還在載入所以略過` : ''));
 });
