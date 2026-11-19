@@ -18,7 +18,7 @@
     <img class="brand-mark" src="icon.svg" alt="" width="44" height="44">
     <div class="brand-text">
       <h1>紙匣</h1>
-      <p>PDF 與圖片的隨手工具：合併、拆分、編輯、簽名、加浮水印、調整尺寸、壓縮，圖片與 PDF 互轉。</p>
+      <p>PDF 與圖片的隨手工具：合併、拆分、編輯、簽名、遮蔽個資、加浮水印、調整尺寸、壓縮，圖片與 PDF 互轉。</p>
     </div>
     <span class="privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>檔案只在你的瀏覽器裡處理，不會上傳</span>
   </header>
@@ -39,6 +39,10 @@
     <button class="tab" role="tab" id="tab-sign" aria-controls="panel-sign" data-tab="sign" title="在 PDF 上簽名">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17c2-3 3.5-6 5-6s.5 5 2 5 2.5-3 4-3 1 2 2.5 2"/><path d="M3 21h18"/><path d="m15 4 3 3-6 6H9v-3z"/></svg>
       <span>簽名</span>
+    </button>
+    <button class="tab" role="tab" id="tab-redact" aria-controls="panel-redact" data-tab="redact" title="塗黑並真正刪除個人資料">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"/><rect x="7.5" y="9" width="9" height="3.2" rx=".6" fill="currentColor"/><path d="M8 16h8"/></svg>
+      <span>遮蔽個資</span>
     </button>
     <button class="tab" role="tab" id="tab-watermark" aria-controls="panel-watermark" data-tab="watermark" title="在每頁蓋上文字或 Logo">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"/><path d="m8.5 16.5 7-7M10 10.5l3.5 3.5"/></svg>
@@ -379,6 +383,32 @@
     </div>
   </section>
 
+  <!-- REDACT -->
+  <section class="panel" id="panel-redact" role="tabpanel" aria-labelledby="tab-redact" hidden>
+    <div class="panel-head">
+      <h2>遮蔽個人資料</h2>
+      <p>框住身分證字號、帳號、地址等內容，匯出時真正刪除，不是只蓋一個黑框。</p>
+    </div>
+    <div class="sign-steps">
+      <div class="sign-step">
+        <h3>怎麼運作</h3>
+        <p class="hint" style="margin:0">PDF 上只蓋一個黑色方塊並不安全，底下的文字還是能被複製出來。這裡匯出時，有遮蔽的頁面會整頁重新畫成圖片，黑框下的內容就不存在了。</p>
+        <p class="hint" style="margin:0">代價是那幾頁的文字會變成無法選取或搜尋；沒有遮蔽的頁面完全不受影響。</p>
+        <p class="hint" style="margin:0">放入檔案後會開啟第 1 頁。要遮其他頁，到「編輯」分頁按該頁的筆形按鈕，選「遮蔽」；同一個位置要遮很多頁時，可以用「把選取的項目也放到」一次套用。最後在「編輯」分頁匯出 PDF。</p>
+      </div>
+      <div class="sign-step">
+        <h3>選擇要處理的 PDF</h3>
+        <label class="drop" id="redact-drop">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+          <strong>把 PDF 拖到這裡，或點一下選擇</strong>
+          <span>會開啟第 1 頁，拖曳框選要遮住的範圍</span>
+          <input type="file" id="redact-input" accept="application/pdf,.pdf">
+        </label>
+        <p class="hint">沒有檔案在手邊？<button class="link-btn" id="redact-sample">用範例申請表試試</button></p>
+      </div>
+    </div>
+  </section>
+
   <!-- WATERMARK -->
   <section class="panel" id="panel-watermark" role="tabpanel" aria-labelledby="tab-watermark" hidden>
     <div class="panel-head">
@@ -656,7 +686,7 @@
   </section>
 </div>
 
-<dialog class="editor" id="te-dialog" aria-label="在頁面上加文字或簽名">
+<dialog class="editor" id="te-dialog" aria-label="編輯頁面：文字、簽名、標註、遮蔽">
   <div class="ed">
     <div class="ed-stage" id="te-stage">
       <div class="ed-page" id="te-page">
@@ -666,9 +696,11 @@
     </div>
     <div class="ed-side">
       <h3 id="te-title">第 1 頁</h3>
-      <div class="seg" role="group" aria-label="要放的內容">
+      <div class="seg seg-4" role="group" aria-label="要放的內容">
         <button id="te-mode-text" aria-pressed="true">文字</button>
         <button id="te-mode-sig" aria-pressed="false">簽名</button>
+        <button id="te-mode-mark" aria-pressed="false">標註</button>
+        <button id="te-mode-redact" aria-pressed="false">遮蔽</button>
       </div>
       <div class="ed-panel" id="te-text-panel">
         <p class="hint">輸入文字後，點頁面上任一處放置。拖曳可移動，點一下文字可修改。</p>
@@ -691,6 +723,31 @@
           <button class="btn" id="te-sig-new">手寫新簽名</button>
           <label class="btn add-label">上傳圖檔<input type="file" class="sig-upload" accept="image/png,image/jpeg,image/webp"></label>
         </div>
+      </div>
+      <div class="ed-panel" id="te-mark-panel" hidden>
+        <p class="hint">選工具後在頁面上拖曳畫出來；點一下已畫好的標註可以移動、縮放或改顏色。</p>
+        <div class="seg seg-4" role="group" aria-label="標註工具">
+          <button data-tool="highlight" aria-pressed="true">螢光筆</button>
+          <button data-tool="rect" aria-pressed="false">方框</button>
+          <button data-tool="arrow" aria-pressed="false">箭頭</button>
+          <button data-tool="ink" aria-pressed="false">手繪</button>
+        </div>
+        <div class="field-row">
+          <label class="field">顏色<input type="color" id="te-mcolor" value="#ffd84d"></label>
+          <label class="field" id="te-mwidth-row">粗細<input type="range" id="te-mwidth" min="1" max="12" value="3"></label>
+        </div>
+        <div class="swatches" aria-label="常用標註顏色">
+          <button class="swatch" data-mc="#ffd84d" style="background:#ffd84d" aria-label="黃色"></button>
+          <button class="swatch" data-mc="#7be08a" style="background:#7be08a" aria-label="淺綠"></button>
+          <button class="swatch" data-mc="#ff9fc0" style="background:#ff9fc0" aria-label="粉紅"></button>
+          <button class="swatch" data-mc="#c2362b" style="background:#c2362b" aria-label="紅色"></button>
+          <button class="swatch" data-mc="#1d4fb8" style="background:#1d4fb8" aria-label="藍色"></button>
+          <button class="swatch" data-mc="#111111" style="background:#111111" aria-label="黑色"></button>
+        </div>
+      </div>
+      <div class="ed-panel" id="te-redact-panel" hidden>
+        <p class="hint">在頁面上按住拖曳，框住要遮住的內容。框好的範圍可以移動和縮放。</p>
+        <p class="note">匯出時，有遮蔽的頁面會整頁轉成圖片：框住的文字和圖片會真正刪除，無法再選取或還原；這一頁其他文字也會變成無法選取。沒有遮蔽的頁面不受影響。</p>
       </div>
       <button class="btn danger" id="te-del" disabled>刪除選取的項目</button>
       <div class="apply-box" id="te-apply" hidden>
@@ -747,6 +804,7 @@
 <script src="js/edit.js"></script>
 <script src="js/editor-dialog.js"></script>
 <script src="js/signatures.js"></script>
+<script src="js/redact.js"></script>
 <script src="js/watermark.js"></script>
 <script src="js/resize.js"></script>
 <script src="js/compress.js"></script>

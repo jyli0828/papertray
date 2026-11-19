@@ -1,16 +1,37 @@
 'use strict';
-/* ---------- text & signature editor dialog ---------- */
-const te = { page: null, R: 0, scale: 1, sel: null, renderTask: null, mode: 'text' };
+/* ---------- page editor dialog: text, signatures, markup, redaction ----------
+   Every item on a page is a box: (ux, uy) is its bottom-left corner in PDF user space, wPt × hPt its size in
+   points, rot the page rotation it was drawn under. Types:
+     text    a.text, a.size, a.color
+     img     a.src (signature PNG)
+     shape   a.kind = highlight | rect | arrow | ink, a.color, a.lw, a.pts (arrow/ink: points as fractions of the box)
+     redact  a black box; on export the whole page is flattened to an image so the content underneath is gone */
+const te = { page: null, R: 0, scale: 1, sel: null, renderTask: null, mode: 'text', tool: 'highlight' };
 const dlg = $('#te-dialog'), overlay = $('#te-overlay');
+const TE_MODES = ['text', 'sig', 'mark', 'redact'];
+const modeOf = a => a.type === 'img' ? 'sig' : a.type === 'shape' ? 'mark' : a.type === 'redact' ? 'redact' : 'text';
 function setTeMode(m) {
   te.mode = m;
-  $('#te-mode-text').setAttribute('aria-pressed', m === 'text');
-  $('#te-mode-sig').setAttribute('aria-pressed', m === 'sig');
-  $('#te-text-panel').hidden = m !== 'text'; $('#te-sig-panel').hidden = m !== 'sig';
+  for (const k of TE_MODES) {
+    $('#te-mode-' + k).setAttribute('aria-pressed', m === k);
+    $('#te-' + k + '-panel').hidden = m !== k;
+  }
+  overlay.classList.toggle('is-draw', m === 'mark' || m === 'redact');
   if (m === 'sig') renderSigLists();
 }
-$('#te-mode-text').addEventListener('click', () => setTeMode('text'));
-$('#te-mode-sig').addEventListener('click', () => setTeMode('sig'));
+TE_MODES.forEach(k => $('#te-mode-' + k).addEventListener('click', () => setTeMode(k)));
+
+/* markup tool settings: each tool remembers its own colour */
+const toolColor = { highlight: '#ffd84d', rect: '#c2362b', arrow: '#c2362b', ink: '#1d4fb8' };
+function setTool(t) {
+  te.tool = t;
+  document.querySelectorAll('[data-tool]').forEach(b => b.setAttribute('aria-pressed', b.dataset.tool === t));
+  $('#te-mcolor').value = toolColor[t];
+  $('#te-mwidth-row').hidden = t === 'highlight';
+}
+document.querySelectorAll('[data-tool]').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+setTool('highlight');
+
 async function openTextEditor(p, mode) {
   te.page = p; te.sel = null; te.R = (p.baseRot + p.rot) % 360;
   setTeMode(mode || te.mode);
@@ -47,13 +68,35 @@ function setTopLeft(a, left, top) {
   a.rot = te.R;
   [a.ux, a.uy] = displayToUser(te.page.view, te.R, left, top + a.hPt);
 }
+
+/* Draw a shape in its own box. The context is scaled so one unit is one point. Used on screen and for export. */
+function drawShape(ctx, a) {
+  const w = a.wPt, h = a.hPt;
+  ctx.lineCap = ctx.lineJoin = 'round';
+  ctx.strokeStyle = ctx.fillStyle = a.color; ctx.lineWidth = a.lw || 3;
+  if (a.kind === 'highlight') { ctx.fillRect(0, 0, w, h); return; }
+  if (a.kind === 'rect') { const i = (a.lw || 3) / 2; ctx.strokeRect(i, i, w - 2 * i, h - 2 * i); return; }
+  const pts = a.pts.map(([fx, fy]) => [fx * w, fy * h]);
+  ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  ctx.stroke();
+  if (a.kind === 'arrow' && pts.length >= 2) {
+    const [x1, y1] = pts[pts.length - 1], [x0, y0] = pts[pts.length - 2];
+    const ang = Math.atan2(y1 - y0, x1 - x0), L = Math.max(9, (a.lw || 3) * 4), spread = .45;
+    ctx.beginPath(); ctx.moveTo(x1, y1);
+    ctx.lineTo(x1 - L * Math.cos(ang - spread), y1 - L * Math.sin(ang - spread));
+    ctx.lineTo(x1 - L * Math.cos(ang + spread), y1 - L * Math.sin(ang + spread));
+    ctx.closePath(); ctx.fill();
+  }
+}
+
 function renderAnnots() {
   overlay.innerHTML = '';
-  const s = te.scale;
+  const s = te.scale, dpr = Math.min(window.devicePixelRatio || 1, 2);
   for (const a of te.page.annots) {
     const [dx, dy] = userToDisplay(te.page.view, te.R, a.ux, a.uy);
     const d = document.createElement('div');
-    d.className = 'annot' + (a.type === 'img' ? ' is-img' : '') + (a === te.sel ? ' is-sel' : '');
+    d.className = 'annot is-' + a.type + (a.type === 'shape' ? ' is-' + a.kind : '') + (a === te.sel ? ' is-sel' : '');
     d.dataset.id = a.id;
     Object.assign(d.style, {
       left: dx * s + 'px', top: (dy - a.hPt) * s + 'px',
@@ -62,25 +105,89 @@ function renderAnnots() {
     });
     if (a.type === 'img') {
       const im = document.createElement('img'); im.src = a.src; im.alt = ''; im.draggable = false; d.append(im);
-      if (a === te.sel) { const h = document.createElement('span'); h.className = 'annot-handle'; h.title = '拖曳縮放'; d.append(h); }
-    } else {
+    } else if (a.type === 'shape') {
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.ceil(a.wPt * s * dpr)); c.height = Math.max(1, Math.ceil(a.hPt * s * dpr));
+      const cx = c.getContext('2d'); cx.scale(s * dpr, s * dpr); drawShape(cx, a);
+      d.append(c);
+    } else if (a.type === 'text') {
       d.textContent = a.text;
       Object.assign(d.style, { fontSize: a.size * s + 'px', color: a.color, paddingLeft: s + 'px' });
     }
+    if (a === te.sel && a.type !== 'text') { const h = document.createElement('span'); h.className = 'annot-handle'; h.title = '拖曳縮放'; d.append(h); }
     overlay.append(d);
   }
   $('#te-del').disabled = !te.sel;
   $('#te-apply').hidden = !te.sel || edit.pages.length < 2;
 }
 function syncFields() {
-  if (te.sel && te.sel.type !== 'img') { $('#te-text').value = te.sel.text; $('#te-size').value = te.sel.size; $('#te-color').value = te.sel.color; }
+  const a = te.sel; if (!a) return;
+  if (a.type === 'text') { $('#te-text').value = a.text; $('#te-size').value = a.size; $('#te-color').value = a.color; }
+  if (a.type === 'shape') { setTool(a.kind); $('#te-mcolor').value = a.color; $('#te-mwidth').value = a.lw || 3; }
 }
 function localPt(e) { const r = overlay.getBoundingClientRect(); return [(e.clientX - r.left) / te.scale, (e.clientY - r.top) / te.scale]; }
 function uprightKeepAnchor(a) { if (a.rot !== te.R) { const [dx, dy] = userToDisplay(te.page.view, te.R, a.ux, a.uy); setTopLeft(a, dx, dy - a.hPt); } }
+
+/* ---------- drawing a new box, arrow or line (markup and redaction modes) ---------- */
+function startDraw(e) {
+  const tool = te.mode === 'redact' ? 'redact' : te.tool;
+  const start = localPt(e), pts = [start];
+  const pv = document.createElement('canvas'), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  pv.className = 'draw-preview'; pv.width = overlay.clientWidth * dpr; pv.height = overlay.clientHeight * dpr;
+  overlay.append(pv);
+  const pctx = pv.getContext('2d');
+  const color = $('#te-mcolor').value, lw = +$('#te-mwidth').value;
+  const box = () => { const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; };
+  const paint = () => {
+    pctx.setTransform(1, 0, 0, 1, 0, 0); pctx.clearRect(0, 0, pv.width, pv.height);
+    pctx.setTransform(te.scale * dpr, 0, 0, te.scale * dpr, 0, 0);
+    if (tool === 'redact') { const [x0, y0, x1, y1] = box(); pctx.fillStyle = 'rgba(0,0,0,.8)'; pctx.fillRect(x0, y0, x1 - x0, y1 - y0); return; }
+    if (tool === 'highlight' || tool === 'rect') {
+      const [x0, y0, x1, y1] = box();
+      pctx.save(); pctx.translate(x0, y0); drawShape(pctx, { kind: tool, color: tool === 'highlight' ? color + '73' : color, lw, wPt: x1 - x0, hPt: y1 - y0 }); pctx.restore();
+      return;
+    }
+    pctx.strokeStyle = color; pctx.lineWidth = lw; pctx.lineCap = pctx.lineJoin = 'round';
+    const line = tool === 'arrow' ? [pts[0], pts[pts.length - 1]] : pts;
+    pctx.beginPath(); pctx.moveTo(line[0][0], line[0][1]); line.forEach(p => pctx.lineTo(p[0], p[1])); pctx.stroke();
+  };
+  try { overlay.setPointerCapture(e.pointerId); } catch (_) {}
+  const move = ev => {
+    const p = localPt(ev);
+    if (tool === 'ink') { const q = pts[pts.length - 1]; if (Math.hypot(p[0] - q[0], p[1] - q[1]) > 1.2) pts.push(p); }
+    else pts[1] = p;
+    paint();
+  };
+  const up = () => {
+    overlay.removeEventListener('pointermove', move); overlay.removeEventListener('pointerup', up); overlay.removeEventListener('pointercancel', up);
+    pv.remove();
+    let a = null;
+    if (tool === 'redact' || tool === 'highlight' || tool === 'rect') {
+      const [x0, y0, x1, y1] = box();
+      if (x1 - x0 < 4 || y1 - y0 < 4) { if (pts.length < 2) toast('在頁面上按住拖曳，框出範圍'); return; }
+      a = tool === 'redact' ? { type: 'redact', wPt: x1 - x0, hPt: y1 - y0 } : { type: 'shape', kind: tool, color, lw, wPt: x1 - x0, hPt: y1 - y0 };
+      a.id = uid(); setTopLeft(a, x0, y0);
+    } else {
+      const line = tool === 'arrow' ? [pts[0], pts[pts.length - 1]] : pts;
+      if (line.length < 2 || Math.hypot(line[line.length - 1][0] - line[0][0], line[line.length - 1][1] - line[0][1]) < 5) return;
+      const pad = lw * 2 + (tool === 'arrow' ? Math.max(9, lw * 4) : 0);
+      const xs = line.map(p => p[0]), ys = line.map(p => p[1]);
+      const bx = Math.min(...xs) - pad, by = Math.min(...ys) - pad, bw = Math.max(...xs) - Math.min(...xs) + pad * 2, bh = Math.max(...ys) - Math.min(...ys) + pad * 2;
+      a = { id: uid(), type: 'shape', kind: tool, color, lw, wPt: bw, hPt: bh, pts: line.map(([x, y]) => [(x - bx) / bw, (y - by) / bh]) };
+      setTopLeft(a, bx, by);
+    }
+    te.page.annots.push(a); te.sel = a; renderAnnots();
+  };
+  overlay.addEventListener('pointermove', move); overlay.addEventListener('pointerup', up); overlay.addEventListener('pointercancel', up);
+  paint();
+}
+
 overlay.addEventListener('pointerdown', async e => {
   if (!te.page) return;
   const box = e.target.closest('.annot');
   if (!box) {
+    e.preventDefault();
+    if (te.mode === 'mark' || te.mode === 'redact') { te.sel = null; renderAnnots(); startDraw(e); return; }
     const [x, y] = localPt(e);
     if (te.mode === 'sig') {
       const sg = sigs.list[sigs.sel];
@@ -104,31 +211,35 @@ overlay.addEventListener('pointerdown', async e => {
   e.preventDefault();
   const resizing = !!e.target.closest('.annot-handle');
   uprightKeepAnchor(a);
-  te.sel = a; syncFields();
-  if (a.type !== 'img' && te.mode !== 'text') setTeMode('text'); // show the fields for the text just picked
+  te.sel = a;
+  if (modeOf(a) !== te.mode) setTeMode(modeOf(a)); // show the settings for what was just picked
+  syncFields();
   renderAnnots();
   const el = overlay.querySelector(`[data-id="${a.id}"]`);
   const [sx, sy] = localPt(e); const [l0, t0] = annotTopLeft(a);
-  const w0 = a.wPt, ratio = a.hPt / a.wPt;
+  const w0 = a.wPt, h0 = a.hPt, keepRatio = a.type === 'img';
+  const newSize = (x, y) => {
+    const w = Math.max(8, w0 + (x - sx));
+    return [w, keepRatio ? w * h0 / w0 : Math.max(8, h0 + (y - sy))];
+  };
   try { el.setPointerCapture(e.pointerId); } catch (_) {}
   const move = ev => {
     const [x, y] = localPt(ev);
-    if (resizing) {
-      const w = Math.max(16, w0 + (x - sx));
-      el.style.width = w * te.scale + 'px'; el.style.height = w * ratio * te.scale + 'px';
-    } else { el.style.left = (l0 + x - sx) * te.scale + 'px'; el.style.top = (t0 + y - sy) * te.scale + 'px'; }
+    if (resizing) { const [w, h] = newSize(x, y); el.style.width = w * te.scale + 'px'; el.style.height = h * te.scale + 'px'; }
+    else { el.style.left = (l0 + x - sx) * te.scale + 'px'; el.style.top = (t0 + y - sy) * te.scale + 'px'; }
   };
   const up = ev => {
     el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
     const [x, y] = localPt(ev);
-    if (resizing) { a.wPt = Math.max(16, w0 + (x - sx)); a.hPt = a.wPt * ratio; setTopLeft(a, l0, t0); }
+    if (resizing) { [a.wPt, a.hPt] = newSize(x, y); setTopLeft(a, l0, t0); }
     else setTopLeft(a, l0 + x - sx, t0 + y - sy);
     renderAnnots();
   };
   el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
 });
+
 async function updateSel() {
-  const a = te.sel; if (!a || a.type === 'img') return;
+  const a = te.sel; if (!a || a.type !== 'text') return;
   const [l, t] = annotTopLeft(a);
   a.text = $('#te-text').value || ' ';
   a.size = Math.max(6, Math.min(144, +$('#te-size').value || a.size));
@@ -139,7 +250,16 @@ async function updateSel() {
 $('#te-text').addEventListener('input', updateSel);
 $('#te-size').addEventListener('input', updateSel);
 $('#te-color').addEventListener('input', updateSel);
-document.querySelectorAll('.swatch').forEach(b => b.addEventListener('click', () => { $('#te-color').value = b.dataset.c; updateSel(); }));
+document.querySelectorAll('.swatch[data-c]').forEach(b => b.addEventListener('click', () => { $('#te-color').value = b.dataset.c; updateSel(); }));
+function updateShape() {
+  toolColor[te.tool] = $('#te-mcolor').value;
+  const a = te.sel; if (!a || a.type !== 'shape') return;
+  a.color = $('#te-mcolor').value; a.lw = +$('#te-mwidth').value; renderAnnots();
+}
+$('#te-mcolor').addEventListener('input', updateShape);
+$('#te-mwidth').addEventListener('input', updateShape);
+document.querySelectorAll('.swatch[data-mc]').forEach(b => b.addEventListener('click', () => { $('#te-mcolor').value = b.dataset.mc; updateShape(); }));
+
 function deleteSel() { if (!te.sel) return; te.page.annots = te.page.annots.filter(x => x !== te.sel); te.sel = null; renderAnnots(); }
 $('#te-del').addEventListener('click', deleteSel);
 dlg.addEventListener('keydown', e => { if ((e.key === 'Delete') && te.sel && document.activeElement.tagName !== 'TEXTAREA' && document.activeElement.tagName !== 'INPUT') deleteSel(); });
@@ -147,7 +267,7 @@ dlg.addEventListener('keydown', e => { if ((e.key === 'Delete') && te.sel && doc
    (that event is not delivered reliably in every embedded view, so nothing may depend on it alone). */
 function finishEditor() {
   if (!te.page) return;
-  te.page.annots = te.page.annots.filter(a => a.type === 'img' || a.text.trim());
+  te.page.annots = te.page.annots.filter(a => a.type !== 'text' || a.text.trim());
   if (te.snap && annotSig() !== te.sig0) pushUndo(te.snap); // the whole visit to the editor is one undo step
   te.snap = null; te.page = null; te.sel = null; renderEdit();
 }
@@ -156,9 +276,9 @@ dlg.addEventListener('cancel', finishEditor);
 dlg.addEventListener('close', finishEditor);
 
 /* A cheap fingerprint of every annotation, to tell whether the editor changed anything. */
-const annotSig = () => edit.pages.map(p => p.annots.map(a => [a.id, a.ux, a.uy, a.wPt, a.hPt, a.text, a.size, a.color].join(',')).join(';')).join('|');
+const annotSig = () => edit.pages.map(p => p.annots.map(a => [a.id, a.ux, a.uy, a.wPt, a.hPt, a.text, a.size, a.color, a.lw].join(',')).join(';')).join('|');
 
-/* ---------- copy the selected text or signature to other pages ----------
+/* ---------- copy the selected item to other pages ----------
    It keeps its distance from the nearest page edges, so a bottom-right signature stays bottom-right on other page sizes. */
 $('#te-apply-to').addEventListener('change', () => { $('#te-apply-pages').hidden = $('#te-apply-to').value !== 'custom'; });
 $('#te-apply-go').addEventListener('click', () => {
@@ -184,7 +304,7 @@ $('#te-apply-go').addEventListener('click', () => {
     if (!fillMeta(p)) { skipped++; continue; }
     const R = (p.baseRot + p.rot) % 360, [w2, h2] = dispSize(p.view, R);
     const L = Math.max(0, right ? w2 - mx - a.wPt : mx), T = Math.max(0, bottom ? h2 - my - a.hPt : my);
-    const c = { ...a, id: uid(), rot: R };
+    const c = { ...a, id: uid(), rot: R, pts: a.pts && a.pts.map(q => q.slice()) };
     [c.ux, c.uy] = displayToUser(p.view, R, L, T + a.hPt);
     p.annots.push(c); done++;
   }

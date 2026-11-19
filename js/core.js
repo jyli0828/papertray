@@ -2,7 +2,7 @@
 /* 共用：函式庫設定、工具函式、存檔、可取消的工作、工具間串接、拖放、範例檔、縮圖、頁碼範圍、座標換算 */
 const $ = (s, r = document) => r.querySelector(s);
 
-const { PDFDocument, degrees, rgb, StandardFonts, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber } = PDFLib;
+const { PDFDocument, degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber } = PDFLib;
 /* The worker sits next to pdf.min.js: lib/ in the offline project, cdnjs in the published page. */
 const PDFJS_SRC = ($('script[src*="pdf.min.js"]') || {}).src || 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const WORKER_URL = PDFJS_SRC.replace(/pdf\.min\.js(\?.*)?$/, 'pdf.worker.min.js');
@@ -321,6 +321,35 @@ async function renderThumb(pg) {
   const out = { thumb: cv.toDataURL('image/jpeg', .82), tw: cv.width, th: cv.height };
   pg.cleanup(); cv.width = cv.height = 0;
   return out;
+}
+/* ---------- lazy thumbnails ----------
+   A long document would otherwise render every page before anything else can happen. Each card asks for its
+   thumbnail when it comes near the screen; at most two render at once. */
+const thumbJobs = []; let thumbBusy = 0;
+const thumbIO = new IntersectionObserver(entries => {
+  for (const en of entries) {
+    if (!en.isIntersecting) continue;
+    thumbIO.unobserve(en.target);
+    const job = en.target._thumbJob; en.target._thumbJob = null;
+    if (job) { thumbJobs.push(job); pumpThumbs(); }
+  }
+}, { rootMargin: '600px 0px' });
+function pumpThumbs() {
+  while (thumbBusy < 2 && thumbJobs.length) {
+    const job = thumbJobs.shift(); thumbBusy++;
+    Promise.resolve().then(job).catch(() => {}).finally(() => { thumbBusy--; pumpThumbs(); });
+  }
+}
+function whenVisible(el, job) { el._thumbJob = job; thumbIO.observe(el); }
+function forgetCards(container) { container.querySelectorAll('.page-card').forEach(c => { c._thumbJob = null; thumbIO.unobserve(c); }); }
+function setCardThumb(card, src, tw, th, rot) {
+  const box = card && card.querySelector('.thumb'); if (!box || !src) return;
+  let img = box.querySelector('img');
+  if (!img) {
+    img = document.createElement('img'); img.alt = ''; img.draggable = false;
+    const ph = box.querySelector('.thumb-loading'); if (ph) ph.replaceWith(img); else box.prepend(img);
+  }
+  img.src = src; sizeThumbImg(img, tw, th, rot);
 }
 function sizeThumbImg(img, tw, th, rot) {
   const L = Math.max(tw, th);

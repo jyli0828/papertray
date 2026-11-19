@@ -9,18 +9,23 @@ async function loadSplit(files) {
   let lib, pj;
   try { lib = await PDFDocument.load(bytes); pj = await openPdfjs(bytes); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (split.pj) split.pj.destroy();
-  Object.assign(split, { name: f.name, lib, pj, pages: Array.from({ length: pj.numPages }, (_, i) => ({ id: uid(), index: i, thumb: null, tw: 1, th: 1, w: 0, h: 0 })) });
+  // Page sizes come from the file itself; thumbnails are drawn only when their card comes near the screen.
+  Object.assign(split, { name: f.name, lib, pj, pages: lib.getPages().map((pg, i) => {
+    const cb = pg.getCropBox(), R = ((pg.getRotation().angle % 360) + 360) % 360;
+    return { id: uid(), index: i, thumb: null, tw: 1, th: 1, w: R % 180 ? cb.height : cb.width, h: R % 180 ? cb.width : cb.height };
+  }) });
   $('#split-fname').textContent = f.name;
   $('#split-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(bytes.length)}`;
   const half = Math.ceil(pj.numPages / 2);
   $('#split-ranges').value = pj.numPages > 1 ? `1-${half}, ${half + 1}-` : '1';
   $('#split-empty').hidden = true; $('#split-work').hidden = false;
   renderSplit();
-  for (const p of split.pages) {
-    if (split.pj !== pj) return;
-    try { const pg = await pj.getPage(p.index + 1); const vp = pg.getViewport({ scale: 1 }); p.w = vp.width; p.h = vp.height; Object.assign(p, await renderThumb(pg)); } catch (e) {}
-    renderSplit();
-  }
+}
+async function loadSplitThumb(p) {
+  if (p.thumb || p.loading) return;
+  const pj = split.pj; p.loading = true;
+  try { Object.assign(p, await renderThumb(await pj.getPage(p.index + 1))); } catch (e) { return; } finally { p.loading = false; }
+  if (split.pj === pj) setCardThumb($(`#split-grid [data-id="${p.id}"]`), p.thumb, p.tw, p.th, 0);
 }
 function splitGroups() {
   const n = split.pages.length, mode = document.querySelector('input[name="split-mode"]:checked').value;
@@ -41,16 +46,17 @@ function renderSplit() {
   $('#split-err').hidden = !error; $('#split-err').textContent = error || '';
   const owner = new Map();
   groups.forEach((g, gi) => g.forEach(i => { if (!owner.has(i)) owner.set(i, gi); }));
-  const grid = $('#split-grid'); grid.innerHTML = '';
+  const grid = $('#split-grid'); forgetCards(grid); grid.innerHTML = '';
   for (const p of split.pages) {
     const gi = owner.get(p.index);
     const card = document.createElement('div');
-    card.className = 'page-card static split-card' + (gi === undefined ? ' excluded' : '');
+    card.className = 'page-card static split-card' + (gi === undefined ? ' excluded' : ''); card.dataset.id = p.id;
     if (gi !== undefined) card.style.setProperty('--g', GROUP_COLORS[gi % GROUP_COLORS.length]);
     card.innerHTML = `<div class="thumb">${p.thumb ? '<img alt="" draggable="false">' : '<span class="thumb-loading"></span>'}</div>
       <div class="meta"><span class="mid"><span class="pno">${p.index + 1}</span><span class="psize">${p.w ? paperName(p.w, p.h) : ''}</span></span>
       ${gi !== undefined ? `<span class="gchip">第 ${gi + 1} 份</span>` : '<span class="psize">不輸出</span>'}</div>`;
     if (p.thumb) { const img = card.querySelector('img'); img.src = p.thumb; sizeThumbImg(img, p.tw, p.th, 0); }
+    else whenVisible(card, () => loadSplitThumb(p));
     grid.append(card);
   }
   const shown = groups.slice(0, 8).map(groupLabel).join('、') + (groups.length > 8 ? '…' : '');

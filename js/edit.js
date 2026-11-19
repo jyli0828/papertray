@@ -58,17 +58,28 @@ async function loadEditFiles(files, onFirst, insertAt) {
     for (let i = 0; i < pj.numPages; i++) fresh.push({ id: uid(), docId, index: i, baseRot: 0, rot: 0, annots: [], selected: false, view: null, thumb: null, tw: 1, th: 1 });
     if (at == null) edit.pages.push(...fresh); else { edit.pages.splice(at, 0, ...fresh); at += fresh.length; }
     renderEdit();
-    for (const p of fresh) {
-      const m = { baseRot: 0, view: [0, 0, 595, 842], thumb: null, tw: 1, th: 1 };
+    // Sizes and rotation are quick to read; thumbnails are drawn later, only for cards near the screen.
+    for (let k = 0; k < fresh.length; k++) {
+      const p = fresh[k], m = { baseRot: 0, view: [0, 0, 595, 842], thumb: null, tw: 1, th: 1 };
       try {
         const pg = await pj.getPage(p.index + 1);
         m.baseRot = ((pg.rotate % 360) + 360) % 360; m.view = pg.view.slice();
-        Object.assign(m, await renderThumb(pg));
       } catch (e) {}
       edit.meta[metaKey(p)] = m; Object.assign(p, m);
-      scheduleEditRender();
+      if (k % 40 === 39 || k === fresh.length - 1) scheduleEditRender();
       if (onFirst) { const cb = onFirst; onFirst = null; cb(p); }
     }
+  }
+}
+async function loadEditThumb(key) {
+  const m = edit.meta[key]; if (!m || m.thumb || m.loading) return;
+  const cut = key.lastIndexOf(':'), d = edit.docs[key.slice(0, cut)]; if (!d) return;
+  m.loading = true;
+  try { Object.assign(m, await renderThumb(await d.pj.getPage(+key.slice(cut + 1) + 1))); }
+  catch (e) { return; } finally { m.loading = false; }
+  for (const p of edit.pages) if (metaKey(p) === key) {
+    Object.assign(p, { thumb: m.thumb, tw: m.tw, th: m.th });
+    setCardThumb($(`#edit-grid [data-id="${p.id}"]`), m.thumb, m.tw, m.th, p.rot);
   }
 }
 const selCount = () => edit.pages.filter(p => p.selected).length;
@@ -78,10 +89,12 @@ function insertPos() { let last = -1; edit.pages.forEach((p, i) => { if (p.selec
 function renderEdit() {
   const has = edit.pages.length > 0;
   $('#edit-empty').hidden = has; $('#edit-work').hidden = !has;
-  const grid = $('#edit-grid'); grid.innerHTML = '';
+  const grid = $('#edit-grid'); forgetCards(grid); grid.innerHTML = '';
   const n = edit.pages.length;
   edit.pages.forEach((p, i) => {
     fillMeta(p);
+    const m = edit.meta[metaKey(p)];
+    if (!p.thumb && m && m.thumb) Object.assign(p, { thumb: m.thumb, tw: m.tw, th: m.th });
     const card = document.createElement('div');
     card.className = 'page-card' + (p.selected ? ' is-selected' : '');
     card.draggable = true; card.dataset.id = p.id;
@@ -91,7 +104,8 @@ function renderEdit() {
     card.innerHTML = `
       <div class="thumb">${p.thumb ? '<img alt="" draggable="false">' : '<span class="thumb-loading"></span>'}
         <label class="sel"><input type="checkbox" data-act="sel" ${p.selected ? 'checked' : ''} aria-label="選取第 ${i + 1} 頁"></label>
-        ${p.annots.length ? `<span class="badge" title="已加 ${p.annots.length} 個文字或簽名">${ICON.text}${p.annots.length}</span>` : ''}
+        ${isRedacted(p) ? '<span class="badge redact" title="這頁有遮蔽範圍，匯出時會整頁轉成圖片">遮蔽</span>' : ''}
+        ${p.annots.filter(a => a.type !== 'redact').length ? `<span class="badge" title="已加 ${p.annots.filter(a => a.type !== 'redact').length} 個文字、簽名或標註">${ICON.text}${p.annots.filter(a => a.type !== 'redact').length}</span>` : ''}
       </div>
       <div class="meta">
         <button class="icon-btn mini" data-act="left" aria-label="往前移" ${i === 0 ? 'disabled' : ''}>${ICON.left}</button>
@@ -101,14 +115,14 @@ function renderEdit() {
       <div class="actions">
         <button class="icon-btn" data-act="rotl" title="向左轉" aria-label="向左轉">${ICON.rotl}</button>
         <button class="icon-btn" data-act="rotr" title="向右轉" aria-label="向右轉">${ICON.rotr}</button>
-        <button class="icon-btn" data-act="text" title="加文字或簽名" aria-label="加文字或簽名">${ICON.pen}</button>
+        <button class="icon-btn" data-act="text" title="加文字、簽名、標註或遮蔽" aria-label="加文字、簽名、標註或遮蔽">${ICON.pen}</button>
         <button class="icon-btn" data-act="dup" title="複製這一頁" aria-label="複製這一頁">${ICON.copy}</button>
         <button class="icon-btn danger" data-act="del" title="刪除此頁" aria-label="刪除此頁">${ICON.trash}</button>
       </div>`;
     if (p.thumb) {
       const img = card.querySelector('img'); img.src = p.thumb;
       sizeThumbImg(img, p.tw, p.th, p.rot);
-    }
+    } else if (p.view) whenVisible(card, () => loadEditThumb(metaKey(p)));
     grid.append(card);
   });
   const s = selCount();
@@ -169,6 +183,43 @@ $('#edit-clear').addEventListener('click', e => {
   edit.docs = {}; edit.pages = []; edit.meta = {}; editHist.undo = []; editHist.redo = []; renderEdit();
 });
 
+/* ---------- redaction ----------
+   A redacted page is re-made from a picture of itself with the boxes painted black, so nothing under them survives
+   (no text, no image data). Pages without redaction are copied as they are. */
+const isRedacted = p => p.annots.some(a => a.type === 'redact');
+function annotUserBox(a, view) {
+  const [dx, dy] = userToDisplay(view, a.rot, a.ux, a.uy);
+  const [ax, ay] = displayToUser(view, a.rot, dx, dy - a.hPt), [bx, by] = displayToUser(view, a.rot, dx + a.wPt, dy);
+  return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
+}
+async function flattenRedacted(out, p) {
+  const [x0, y0, x1, y1] = p.view, W = x1 - x0, H = y1 - y0;
+  const pg = await edit.docs[p.docId].pj.getPage(p.index + 1);
+  let s = 200 / 72; if (W * H * s * s > 30e6) s = Math.sqrt(30e6 / (W * H));
+  const vp = pg.getViewport({ scale: s, rotation: 0 }); // unrotated: the new page gets the rotation back below
+  const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+  const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+  ctx.fillStyle = '#000';
+  for (const a of p.annots) if (a.type === 'redact') {
+    const [ax, ay, bx, by] = annotUserBox(a, p.view);
+    ctx.fillRect(Math.floor((ax - x0) * s) - 1, Math.floor((y1 - by) * s) - 1, Math.ceil((bx - ax) * s) + 2, Math.ceil((by - ay) * s) + 2);
+  }
+  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9));
+  pg.cleanup(); cv.width = cv.height = 0;
+  const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
+  const page = out.addPage([W, H]);
+  page.drawImage(img, { x: 0, y: 0, width: W, height: H });
+  return page;
+}
+async function renderShapePng(a) {
+  const k = 4, c = document.createElement('canvas');
+  c.width = Math.max(1, Math.ceil(a.wPt * k)); c.height = Math.max(1, Math.ceil(a.hPt * k));
+  const ctx = c.getContext('2d'); ctx.scale(k, k); drawShape(ctx, a);
+  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
 async function exportEdit(onlySel, btn) {
   const pages = onlySel ? edit.pages.filter(p => p.selected) : edit.pages.slice();
   if (!pages.length) { toast('沒有可匯出的頁面'); return; }
@@ -176,8 +227,9 @@ async function exportEdit(onlySel, btn) {
   await runJob(btn, '產生中…', async check => {
     const out = await PDFDocument.create();
     // Copy pages per source file. A page used twice (duplicated) needs its own copy, so repeats go in later rounds.
+    // Redacted pages are rebuilt from an image instead, so they are not copied.
     const copied = new Map(), byDoc = new Map();
-    pages.forEach(p => { if (!byDoc.has(p.docId)) byDoc.set(p.docId, []); byDoc.get(p.docId).push(p); });
+    pages.filter(p => !isRedacted(p)).forEach(p => { if (!byDoc.has(p.docId)) byDoc.set(p.docId, []); byDoc.get(p.docId).push(p); });
     for (const [docId, list] of byDoc) {
       let rest = list;
       while (rest.length) {
@@ -193,20 +245,25 @@ async function exportEdit(onlySel, btn) {
     const sigCache = new Map();
     for (let i = 0; i < pages.length; i++) {
       check();
-      const p = pages[i]; const page = copied.get(p);
-      out.addPage(page);
-      const R = (p.baseRot + p.rot) % 360;
+      const p = pages[i], R = (p.baseRot + p.rot) % 360;
+      let page, ox = 0, oy = 0;
+      if (isRedacted(p)) { page = await flattenRedacted(out, p); ox = p.view[0]; oy = p.view[1]; }
+      else { page = copied.get(p); out.addPage(page); }
       page.setRotation(degrees(R));
       for (const a of p.annots) {
-        let png;
+        let png, extra = {};
+        if (a.type === 'redact') continue; // already burnt into the page image
         if (a.type === 'img') {
           if (!sigCache.has(a.src)) sigCache.set(a.src, await out.embedPng(Uint8Array.from(atob(a.src.split(',')[1]), c => c.charCodeAt(0))));
           png = sigCache.get(a.src);
+        } else if (a.type === 'shape') {
+          png = await out.embedPng(await renderShapePng(a));
+          if (a.kind === 'highlight') extra = { opacity: .45, blendMode: BlendMode.Multiply };
         } else {
           if (!a.text.trim()) continue;
           png = await out.embedPng(await renderTextPng(a));
         }
-        page.drawImage(png, { x: a.ux, y: a.uy, width: a.wPt, height: a.hPt, rotate: degrees(a.rot) });
+        page.drawImage(png, { x: a.ux - ox, y: a.uy - oy, width: a.wPt, height: a.hPt, rotate: degrees(a.rot), ...extra });
       }
       if (font) {
         const label = `${i + 1} / ${pages.length}`, size = 10;

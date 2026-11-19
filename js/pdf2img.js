@@ -13,20 +13,21 @@ async function loadP2i(files) {
   $('#p2i-fname').textContent = f.name;
   $('#p2i-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(bytes.length)}`;
   $('#p2i-empty').hidden = true; $('#p2i-work').hidden = false; $('#p2i-progress').hidden = true;
-  renderP2i();
+  // Page sizes first (fast), so the summary is right; thumbnails come as cards scroll near the screen.
   for (const p of p2i.pages) {
     if (p2i.pj !== pj) return;
-    try {
-      const pg = await pj.getPage(p.index + 1);
-      const vp = pg.getViewport({ scale: 1 }); p.w = vp.width; p.h = vp.height;
-      Object.assign(p, await renderThumb(pg));
-    } catch (e) {}
-    renderP2iCard(p);
-    updateP2iSummary();
+    try { const vp = (await pj.getPage(p.index + 1)).getViewport({ scale: 1 }); p.w = vp.width; p.h = vp.height; } catch (e) {}
   }
+  renderP2i();
+}
+async function loadP2iThumb(p) {
+  if (p.thumb || p.loading) return;
+  const pj = p2i.pj; p.loading = true;
+  try { Object.assign(p, await renderThumb(await pj.getPage(p.index + 1))); } catch (e) { return; } finally { p.loading = false; }
+  if (p2i.pj === pj) setCardThumb($(`#p2i-grid [data-id="${p.id}"]`), p.thumb, p.tw, p.th, 0);
 }
 function renderP2i() {
-  const grid = $('#p2i-grid'); grid.innerHTML = '';
+  const grid = $('#p2i-grid'); forgetCards(grid); grid.innerHTML = '';
   p2i.pages.forEach(p => {
     const card = document.createElement('div');
     card.className = 'page-card static'; card.dataset.id = p.id;
@@ -46,6 +47,7 @@ function renderP2iCard(p) {
       <button class="icon-btn mini" data-act="one" title="只下載這一頁" aria-label="只下載第 ${p.index + 1} 頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg></button>
     </div>`;
   if (p.thumb) { const img = card.querySelector('img'); img.src = p.thumb; sizeThumbImg(img, p.tw, p.th, 0); }
+  else whenVisible(card, () => loadP2iThumb(p));
 }
 function p2iOpts() {
   const fmt = $('#p2i-fmt').value;
