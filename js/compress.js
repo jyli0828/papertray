@@ -12,11 +12,14 @@ const BW_DPI = { light: 300, medium: 200, strong: 150 };
 async function loadCompFile(files) {
   for (const f of files) {
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
-    const bytes = new Uint8Array(await f.arrayBuffer());
-    let doc;
-    try { doc = await PDFDocument.load(bytes); } catch (e) { toast(loadErr(f.name, e), 'err'); continue; }
-    const first = doc.getPage(0).getSize();
-    comp.items.push({ id: uid(), name: f.name, bytes, pages: doc.getPageCount(), paper: paperName(first.width, first.height), out: null });
+    const { bytes } = await fileBytes(f);
+    if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); continue; }
+    let pages, paper;
+    try {
+      const pj = await openPdfjs(bytes), vp = (await pj.getPage(1)).getViewport({ scale: 1 });
+      pages = pj.numPages; paper = paperName(vp.width, vp.height); pj.destroy();
+    } catch (e) { toast(loadErr(f.name, e), 'err'); continue; }
+    comp.items.push({ id: uid(), name: f.name, bytes, pages, paper, out: null });
   }
   clearCompResults();
   renderCompList();
@@ -239,7 +242,110 @@ async function decodeToCanvas(info, stream) {
   ctx.putImageData(img, 0, 0);
   return cv;
 }
-async function compressKeepText(bytes, lv, gray, check) {
+/* ---------- photos are re-encoded in background workers, several at once ----------
+   Each worker decodes one photo (JPEG, or Flate pixels), shrinks it and writes a JPEG with OffscreenCanvas, so the
+   page stays responsive and a multi-core machine handles several photos at the same time. Browsers without
+   OffscreenCanvas in workers fall back to doing the same work on the page, one photo at a time.
+   The function below is self-contained: it is turned into the workers' source code. */
+function photoWorkerMain() {
+  async function inflate(bytes) {
+    const ds = new DecompressionStream('deflate');
+    return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer());
+  }
+  function pngUnfilter(data, w, h, bpp) {
+    const stride = w * bpp, out = new Uint8Array(stride * h);
+    for (let y = 0; y < h; y++) {
+      const ft = data[y * (stride + 1)], src = y * (stride + 1) + 1, dst = y * stride;
+      for (let x = 0; x < stride; x++) {
+        const raw = data[src + x], a = x >= bpp ? out[dst + x - bpp] : 0, b = y ? out[dst - stride + x] : 0, c = x >= bpp && y ? out[dst - stride + x - bpp] : 0;
+        let v;
+        switch (ft) {
+          case 1: v = raw + a; break;
+          case 2: v = raw + b; break;
+          case 3: v = raw + ((a + b) >> 1); break;
+          case 4: { const q = a + b - c, pa = Math.abs(q - a), pb = Math.abs(q - b), pc = Math.abs(q - c); v = raw + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c); break; }
+          default: v = raw;
+        }
+        out[dst + x] = v & 255;
+      }
+    }
+    return out;
+  }
+  async function reencode(t) {
+    const { info } = t;
+    let src, w, h;
+    if (info.kind === 'jpeg') {
+      src = await createImageBitmap(new Blob([t.contents], { type: 'image/jpeg' })); w = src.width; h = src.height;
+    } else {
+      let px = await inflate(t.contents);
+      if (info.predictor >= 10) px = pngUnfilter(px, info.w, info.h, info.comps);
+      w = info.w; h = info.h;
+      if (px.length < w * h * info.comps) return null;
+      const img = new ImageData(w, h), d = img.data;
+      for (let i = 0, j = 0; i < w * h; i++) {
+        if (info.comps === 3) { d[i * 4] = px[j++]; d[i * 4 + 1] = px[j++]; d[i * 4 + 2] = px[j++]; }
+        else { d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = px[j++]; }
+        d[i * 4 + 3] = 255;
+      }
+      src = new OffscreenCanvas(w, h); src.getContext('2d').putImageData(img, 0, 0);
+    }
+    const k = Math.min(1, t.px / Math.max(w, h)), ow = Math.max(1, Math.round(w * k)), oh = Math.max(1, Math.round(h * k));
+    const cv = new OffscreenCanvas(ow, oh), ctx = cv.getContext('2d');
+    ctx.imageSmoothingQuality = 'high'; ctx.drawImage(src, 0, 0, ow, oh);
+    if (src.close) src.close();
+    if (t.gray || info.comps === 1) {
+      const img = ctx.getImageData(0, 0, ow, oh), d = img.data;
+      for (let i = 0; i < d.length; i += 4) { const y = d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114; d[i] = d[i + 1] = d[i + 2] = y; }
+      ctx.putImageData(img, 0, 0);
+    }
+    const blob = await cv.convertToBlob({ type: 'image/jpeg', quality: t.q });
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), w: ow, h: oh };
+  }
+  self.onmessage = async e => {
+    let out = null;
+    try { out = await reencode(e.data); } catch (err) { out = null; }
+    self.postMessage({ id: e.data.id, out }, out ? [out.bytes.buffer] : []);
+  };
+}
+const workersCanDraw = () => typeof OffscreenCanvas !== 'undefined' && 'convertToBlob' in OffscreenCanvas.prototype && typeof Worker !== 'undefined';
+function photoPool(size) {
+  const url = URL.createObjectURL(new Blob([`(${photoWorkerMain.toString()})()`], { type: 'text/javascript' }));
+  const workers = [], waiting = new Map(); let seq = 0;
+  for (let i = 0; i < size; i++) {
+    const w = new Worker(url);
+    w.onmessage = e => { const r = waiting.get(e.data.id); waiting.delete(e.data.id); w.busy = false; r && r.resolve(e.data.out); };
+    w.onerror = () => { const r = waiting.get(w.current); waiting.delete(w.current); w.busy = false; r && r.resolve(null); }; // a failed photo is just left as it was
+    workers.push(w);
+  }
+  URL.revokeObjectURL(url);
+  return {
+    size,
+    run(task, worker) {
+      const id = ++seq;
+      return new Promise((resolve, reject) => { waiting.set(id, { resolve, reject }); worker.busy = true; worker.current = id; worker.postMessage({ ...task, id }, [task.contents.buffer]); });
+    },
+    idle() { return workers.find(w => !w.busy); },
+    close() { workers.forEach(w => w.terminate()); waiting.forEach(r => r.reject(new Cancelled())); waiting.clear(); }
+  };
+}
+/* page fallback: the same steps on the page, for browsers without OffscreenCanvas in workers */
+async function reencodeOnPage(info, obj, lv, gray) {
+  let cv;
+  try { cv = await decodeToCanvas(info, obj); } catch (e) { cv = null; }
+  if (!cv) return null;
+  const k = Math.min(1, lv.px / Math.max(cv.width, cv.height));
+  let outCv = cv;
+  if (k < 1) {
+    outCv = document.createElement('canvas'); outCv.width = Math.max(1, Math.round(cv.width * k)); outCv.height = Math.max(1, Math.round(cv.height * k));
+    const c2 = outCv.getContext('2d'); c2.imageSmoothingQuality = 'high'; c2.drawImage(cv, 0, 0, outCv.width, outCv.height);
+  }
+  if (gray || info.comps === 1) toGray(outCv.getContext('2d'), outCv.width, outCv.height);
+  const blob = await new Promise(r => outCv.toBlob(r, 'image/jpeg', lv.q));
+  const out = blob && { bytes: new Uint8Array(await blob.arrayBuffer()), w: outCv.width, h: outCv.height };
+  cv.width = cv.height = 0; if (outCv !== cv) { outCv.width = outCv.height = 0; }
+  return out;
+}
+async function compressKeepText(bytes, lv, gray, check, signal) {
   const doc = await PDFDocument.load(bytes);
   const ctx = doc.context;
   const cands = [];
@@ -249,42 +355,44 @@ async function compressKeepText(bytes, lv, gray, check) {
     // Small Flate images are usually logos or line art; JPEG would blur them, so leave them alone.
     if (info && (info.kind === 'jpeg' || info.w * info.h >= 250000)) cands.push({ ref, obj, info });
   }
-  let changed = 0;
-  for (let i = 0; i < cands.length; i++) {
-    check();
-    progress(i, cands.length, '張照片');
-    const { ref, obj, info } = cands[i];
-    let cv;
-    try { cv = await decodeToCanvas(info, obj); } catch (e) { cv = null; }
-    if (!cv) continue;
-    const k = Math.min(1, lv.px / Math.max(cv.width, cv.height));
-    let outCv = cv;
-    if (k < 1) {
-      outCv = document.createElement('canvas'); outCv.width = Math.max(1, Math.round(cv.width * k)); outCv.height = Math.max(1, Math.round(cv.height * k));
-      const c2 = outCv.getContext('2d'); c2.imageSmoothingQuality = 'high'; c2.drawImage(cv, 0, 0, outCv.width, outCv.height);
-    }
-    if (gray || info.comps === 1) toGray(outCv.getContext('2d'), outCv.width, outCv.height);
-    const blob = await new Promise(r => outCv.toBlob(r, 'image/jpeg', lv.q));
-    cv.width = cv.height = 0; if (outCv !== cv) { outCv.width = outCv.height = 0; }
-    if (!blob) continue;
-    const nb = new Uint8Array(await blob.arrayBuffer());
-    if (nb.length > obj.contents.length * .9) continue; // not worth it
-    const ns = ctx.stream(nb, {
-      Type: 'XObject', Subtype: 'Image', Width: Math.round(info.w * k) || 1, Height: Math.round(info.h * k) || 1,
-      ColorSpace: 'DeviceRGB', BitsPerComponent: 8, Filter: 'DCTDecode'
-    });
-    // Width/Height must match the JPEG we just wrote.
-    const bmpSize = await createImageBitmap(blob).then(b => { const s = [b.width, b.height]; b.close && b.close(); return s; });
-    ns.dict.set(N('Width'), PDFNumber.of(bmpSize[0])); ns.dict.set(N('Height'), PDFNumber.of(bmpSize[1]));
-    for (const key of ['SMask', 'Intent', 'Interpolate', 'Metadata', 'OC']) { const v = obj.dict.get(N(key)); if (v) ns.dict.set(N(key), v); }
-    ctx.assign(ref, ns);
+  let changed = 0, done = 0;
+  const apply = (c, out) => {
+    done++; progress(done, cands.length, '張照片');
+    if (!out || out.bytes.length > c.obj.contents.length * .9) return; // not worth it
+    const ns = ctx.stream(out.bytes, { Type: 'XObject', Subtype: 'Image', Width: out.w, Height: out.h, ColorSpace: 'DeviceRGB', BitsPerComponent: 8, Filter: 'DCTDecode' });
+    for (const key of ['SMask', 'Intent', 'Interpolate', 'Metadata', 'OC']) { const v = c.obj.dict.get(N(key)); if (v) ns.dict.set(N(key), v); }
+    ctx.assign(c.ref, ns);
     changed++;
+  };
+  progress(0, cands.length, '張照片');
+  if (cands.length > 1 && workersCanDraw()) {
+    // Feed photos to the idle workers; at most one photo per worker is in memory at a time.
+    const pool = photoPool(Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, cands.length)));
+    const stop = () => pool.close();
+    if (signal) signal.addEventListener('abort', stop, { once: true });
+    try {
+      let next = 0; const running = new Set();
+      while (next < cands.length || running.size) {
+        check();
+        let w;
+        while (next < cands.length && (w = pool.idle())) {
+          const c = cands[next++];
+          const job = pool.run({ info: c.info, contents: c.obj.contents.slice(), px: lv.px, q: lv.q, gray }, w).then(out => { running.delete(job); apply(c, out); });
+          job.catch(() => {}); // a cancelled run rejects the others too; only the first one matters
+          running.add(job);
+        }
+        if (running.size) await Promise.race(running);
+      }
+    } finally { if (signal) signal.removeEventListener('abort', stop); pool.close(); }
+  } else {
+    for (const c of cands) { check(); apply(c, await reencodeOnPage(c.info, c.obj, lv, gray)); }
   }
+  check();
   progress(cands.length, cands.length, '張照片');
   return { bytes: await doc.save({ useObjectStreams: true }), changed, found: cands.length };
 }
 
-$('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中…', async check => {
+$('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中…', async (check, signal) => {
   clearCompResults(); renderCompList();
   const lvKey = levelVal(), color = $('#comp-color').value, gray = color !== 'color', keep = comp.mode === 'keep';
   comp.file.n = comp.items.length;
@@ -293,7 +401,7 @@ $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中�
     check();
     comp.file.i = i;
     const it = comp.items[i];
-    const res = keep ? await compressKeepText(it.bytes, KEEP_LEVELS[lvKey], gray, check)
+    const res = keep ? await compressKeepText(it.bytes, KEEP_LEVELS[lvKey], gray, check, signal)
       : color === 'bw' ? await compressBW(it.bytes, BW_DPI[lvKey], check)
       : await compressRaster(it.bytes, LEVELS[lvKey], gray, check);
     const kept = res.bytes.length >= it.bytes.length;
@@ -325,7 +433,7 @@ $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中�
 $('#comp-save').addEventListener('click', e => busy(e.currentTarget, '準備中…', async () => {
   const done = comp.items.filter(x => x.out); if (!done.length) return;
   if (done.length === 1) { await saveFile(ensurePdf($('#comp-name').value), done[0].out.bytes); return; }
-  const zip = new JSZip(), used = new Set();
+  const zip = await newZip(), used = new Set();
   for (const it of done) {
     let n = baseName(it.name) + '-壓縮.pdf', k = 2;
     while (used.has(n)) n = baseName(it.name) + `-壓縮-${k++}.pdf`;

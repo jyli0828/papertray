@@ -4,15 +4,15 @@ const p2i = { name: '', pj: null, pages: [] };
 async function loadP2i(files) {
   const f = files[0];
   if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const bytes = new Uint8Array(await f.arrayBuffer());
+  const { bytes, owned } = await fileBytes(f), size = bytes.length;
   let pj;
-  try { pj = await openPdfjs(bytes); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
+  try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (p2i.pj) p2i.pj.destroy();
   releaseThumbs(p2i.pages);
   p2i.name = f.name; p2i.pj = pj;
   p2i.pages = Array.from({ length: pj.numPages }, (_, i) => ({ id: uid(), index: i, selected: true, thumb: null, tw: 1, th: 1, w: 0, h: 0 }));
   $('#p2i-fname').textContent = f.name;
-  $('#p2i-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(bytes.length)}`;
+  $('#p2i-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)}`;
   $('#p2i-empty').hidden = true; $('#p2i-work').hidden = false; $('#p2i-progress').hidden = true;
   // Page sizes first (fast), so the summary is right; thumbnails come as cards scroll near the screen.
   for (const p of p2i.pages) {
@@ -102,7 +102,7 @@ async function exportP2i(pages, btn) {
       else await deliver(file, 'image', 'pdf2img');
       return;
     }
-    const zip = new JSZip();
+    const zip = await newZip();
     for (let i = 0; i < pages.length; i++) {
       check();
       p2iProgress(i, pages.length);

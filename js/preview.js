@@ -77,7 +77,8 @@ async function openResultPreview() {
     openPreview(1, 0, async () => ({ image: bmp, label: `${file.name} · ${bmp.width} × ${bmp.height} px` }), { download, onClose: () => bmp.close && bmp.close() });
     return;
   }
-  const pj = await openPdfjs(new Uint8Array(await file.arrayBuffer()));
+  const { bytes, owned } = await fileBytes(file);
+  const pj = await openPdfjs(bytes, owned);
   openPreview(pj.numPages, 0, async i => {
     const page = await pj.getPage(i + 1);
     return { page, rotation: page.rotate, label: `${file.name} · 第 ${i + 1} / ${pj.numPages} 頁` };

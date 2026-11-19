@@ -29,12 +29,7 @@ CDN = {
 
 
 def inline_assets(html):
-    """Swap lib/ scripts for their CDN copies, then inline local <link rel="stylesheet"> and <script src>."""
-    for local, url in CDN.items():
-        html = html.replace(f'<script src="{local}"></script>', f'<script src="{url}"></script>')
-    leftover = re.findall(r'<script src="(lib/[^"]+)"', html)
-    if leftover:
-        raise SystemExit(f'沒有對應的 CDN 網址：{leftover}（請加到 tools/build.py 的 CDN 表）')
+    """Inline local <link rel="stylesheet"> and <script src>, then point the on-demand library paths at cdnjs."""
     def css(m):
         return '<style>\n' + read(m.group(1)) + '</style>'
 
@@ -48,6 +43,12 @@ def inline_assets(html):
     html = html.replace('href="icon.svg"', f'href="{icon}"').replace('src="icon.svg"', f'src="{icon}"')
     html = re.sub(r'<link rel="stylesheet" href="((?!https?:)[^"]+)">', css, html)
     html = re.sub(r'<script src="((?!https?:)[^"]+)"></script>', js, html)
+    # Libraries load on demand from the paths in js/core.js (LIBS); in the bundles those paths point at cdnjs.
+    for local, url in CDN.items():
+        html = html.replace(f"'{local}'", f"'{url}'")
+    leftover = re.findall(r"""['"](lib/[^'"]+)""", html)
+    if leftover:
+        raise SystemExit(f'沒有對應的 CDN 網址：{leftover}（請加到 tools/build.py 的 CDN 表）')
     return html
 
 

@@ -71,13 +71,14 @@ async function loadEditFiles(files, onFirst, insertAt) {
   let at = insertAt == null ? null : insertAt;
   for (const f of files) {
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
-    const bytes = new Uint8Array(await f.arrayBuffer());
+    const { bytes, owned } = await fileBytes(f);
+    if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); continue; }
+    // pdf.js keeps the only copy of the file; export asks it for the bytes back (pj.getData()).
     let pj;
-    // Parse with pdf-lib only to check the file; the parsed copy is dropped and rebuilt at export time.
-    try { await PDFDocument.load(bytes); pj = await openPdfjs(bytes); }
+    try { pj = await openPdfjs(bytes, owned); }
     catch (e) { toast(loadErr(f.name, e), 'err'); continue; }
     const docId = uid();
-    edit.docs[docId] = { name: f.name, bytes, pj };
+    edit.docs[docId] = { name: f.name, pj };
     if (!edit.pages.length) $('#edit-name').value = baseName(f.name) + '-編輯.pdf';
     const fresh = [];
     for (let i = 0; i < pj.numPages; i++) fresh.push({ id: uid(), docId, index: i, baseRot: 0, rot: 0, annots: [], selected: false, view: null, thumb: null, tw: 1, th: 1 });
@@ -273,7 +274,7 @@ async function exportEdit(onlySel, btn) {
     const copied = new Map(), byDoc = new Map();
     pages.filter(p => !isRedacted(p)).forEach(p => { if (!byDoc.has(p.docId)) byDoc.set(p.docId, []); byDoc.get(p.docId).push(p); });
     const libs = {};
-    for (const docId of byDoc.keys()) libs[docId] = await PDFDocument.load(edit.docs[docId].bytes);
+    for (const docId of byDoc.keys()) libs[docId] = await PDFDocument.load(await edit.docs[docId].pj.getData());
     for (const [docId, list] of byDoc) {
       let rest = list;
       while (rest.length) {

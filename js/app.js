@@ -36,11 +36,9 @@ $('#handoff-close').addEventListener('click', hideNext);
 window.addEventListener('hashchange', () => showTab(location.hash.slice(1)));
 showTab(location.hash.slice(1));
 
-/* first view: two sample files ready to merge */
+/* first view: two sample files ready to merge (pre-built bytes, so no library has to load for them) */
 (async () => {
-  try {
-    const a = await makeSample('Quarterly Report', 3, [.04, .48, .42]);
-    const b = await makeSample('Appendix: Budget Tables', 2, [.11, .31, .72]);
-    if (!merge.items.length) await addMergeFiles([asFile(a, 'quarterly-report.pdf'), asFile(b, 'appendix-budget.pdf')], true);
-  } catch (e) { renderMerge(); }
+  if (merge.items.length) return;
+  const files = MERGE_SAMPLES.map(sm => Object.assign(pdfFile(Uint8Array.from(atob(sm.b64), c => c.charCodeAt(0)), sm.name), { pages: sm.pages }));
+  await addMergeFiles(files, true);
 })();

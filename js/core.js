@@ -2,11 +2,41 @@
 /* 共用：函式庫設定、工具函式、存檔、可取消的工作、工具間串接、拖放、範例檔、縮圖、頁碼範圍、座標換算 */
 const $ = (s, r = document) => r.querySelector(s);
 
-const { PDFDocument, degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber } = PDFLib;
-/* The worker sits next to pdf.min.js: lib/ in the offline project, cdnjs in the published page. */
-const PDFJS_SRC = ($('script[src*="pdf.min.js"]') || {}).src || 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-const WORKER_URL = PDFJS_SRC.replace(/pdf\.min\.js(\?.*)?$/, 'pdf.worker.min.js');
-pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URL;
+/* ---------- libraries, loaded the first time they are needed ----------
+   pdf-lib (makes PDFs), pdf.js (reads and draws PDFs) and JSZip are not loaded with the page: opening 紙匣 costs
+   only its own code, and each library arrives on the first action that uses it. tools/build.py swaps these paths
+   for cdnjs addresses in the bundled pages. */
+const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.js', jszip: 'lib/jszip.min.js' };
+const libLoads = {};
+function loadScript(key) {
+  return libLoads[key] || (libLoads[key] = new Promise((resolve, reject) => {
+    const sc = document.createElement('script'); sc.src = LIBS[key];
+    sc.onload = resolve;
+    sc.onerror = () => { delete libLoads[key]; reject(new Error('函式庫載入失敗，請檢查網路連線後再試一次')); };
+    document.head.append(sc);
+  }));
+}
+/* Until pdf-lib is loaded, PDFDocument.load / .create load it first. Every other pdf-lib name is only used on
+   a document those calls returned, so by then the real values are in place. */
+let PDFDocument = {
+  load: async (...a) => (await needPdfLib()).load(...a),
+  create: async (...a) => (await needPdfLib()).create(...a)
+};
+let degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber;
+async function needPdfLib() {
+  if (!window.PDFLib) await loadScript('pdflib');
+  ({ PDFDocument, degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber } = window.PDFLib);
+  return PDFDocument;
+}
+let WORKER_URL = null;
+async function needPdfjs() {
+  if (!window.pdfjsLib) await loadScript('pdfjs');
+  if (!WORKER_URL) { // the worker sits next to pdf.min.js
+    WORKER_URL = new URL(LIBS.pdfjs.replace(/pdf\.min\.js$/, 'pdf.worker.min.js'), location.href).href;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URL;
+  }
+}
+async function newZip() { if (!window.JSZip) await loadScript('jszip'); return new JSZip(); }
 /* pdf.js parses in a background worker (blob wrapper around the worker script). It is started the first time a PDF
    is opened, not at page load: the worker script alone is about 1 MB and its thread holds memory of its own.
    Opened straight from disk (file://) browsers refuse that, and pdf.js runs the worker code on the page instead. */
@@ -133,11 +163,31 @@ function offerNext(file, kind, fromTab) {
   bar.hidden = false; document.body.classList.add('has-handoff');
 }
 function hideNext() { $('#handoff').hidden = true; document.body.classList.remove('has-handoff'); lastResult = null; }
-const pdfFile = (bytes, name) => new File([bytes], ensurePdf(name), { type: 'application/pdf' });
-function openPdfjs(bytes) {
-  const opts = { data: bytes.slice(), isEvalSupported: false };
+/* A finished PDF travels between tools as its bytes, not as a File: making a File copies them, and the next tool
+   would copy them again. fileBytes() gives a tool the bytes either way; owned = false means others share them. */
+const pdfFile = (bytes, name) => ({ name: ensurePdf(name), type: 'application/pdf', size: bytes.length, bytes,
+  arrayBuffer: async () => bytes.slice().buffer, slice: (...a) => new Blob([bytes]).slice(...a) });
+async function fileBytes(f) {
+  if (f.bytes) return { bytes: f.bytes, owned: false };
+  return { bytes: new Uint8Array(await f.arrayBuffer()), owned: true };
+}
+/* Encrypted files open in pdf.js but cannot be rebuilt; spot them up front without parsing the whole file. */
+function hasEncrypt(bytes) {
+  const pat = [0x2F, 0x45, 0x6E, 0x63, 0x72, 0x79, 0x70, 0x74]; // "/Encrypt"
+  for (let i = bytes.indexOf(0x2F); i >= 0 && i < bytes.length - 8; i = bytes.indexOf(0x2F, i + 1)) {
+    let k = 1; while (k < 8 && bytes[i + k] === pat[k]) k++;
+    if (k === 8) return true;
+  }
+  return false;
+}
+const encryptedMsg = name => `「${name}」有密碼保護，請先移除密碼再處理。`;
+/* pdf.js takes ownership of the bytes it is given. Pass owned = true only when nothing else needs them afterwards;
+   otherwise a copy goes to pdf.js. */
+async function openPdfjs(bytes, owned) {
+  await needPdfjs();
+  const opts = { data: owned ? bytes : bytes.slice(), isEvalSupported: false };
   const w = pdfWorker(); if (w) opts.worker = w;
-  return pdfjsLib.getDocument(opts).promise;
+  return await pdfjsLib.getDocument(opts).promise;
 }
 
 /* ---------- saving files ---------- */
@@ -147,7 +197,8 @@ const dlReady = (window.claude && typeof window.claude.use === 'function')
   : Promise.resolve();
 async function saveFile(filename, bytes, mime) {
   await dlReady;
-  const blob = bytes instanceof Blob ? bytes : new Blob([bytes], { type: mime || 'application/pdf' });
+  const blob = bytes instanceof Blob ? bytes : bytes && bytes.bytes ? new Blob([bytes.bytes], { type: bytes.type })
+    : new Blob([bytes], { type: mime || 'application/pdf' });
   if (downloadsNS) {
     try { await downloadsNS.save({ filename, data: blob }); toast(`已儲存 ${filename}`); }
     catch (e) {
@@ -326,7 +377,7 @@ async function makePhotoSample() {
   }
   return doc.save();
 }
-const asFile = (bytes, name) => new File([bytes], name, { type: 'application/pdf' });
+const asFile = (bytes, name) => pdfFile(bytes, name);
 
 
 /* ---------- page thumbnails ---------- */

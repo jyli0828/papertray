@@ -5,10 +5,13 @@ async function addMergeFiles(files, isSample) {
   if (!isSample && merge.items.some(i => i.sample)) merge.items = merge.items.filter(i => !i.sample);
   for (const f of files) {
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
-    const bytes = new Uint8Array(await f.arrayBuffer());
+    const { bytes } = await fileBytes(f);
+    if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); continue; }
     try {
-      const doc = await PDFDocument.load(bytes);
-      merge.items.push({ id: uid(), name: f.name, size: bytes.length, bytes, pages: doc.getPageCount(), range: '', sample: !!isSample });
+      // Only the page count is needed now; pdf.js reads just the page tree. The full parse happens once, when merging.
+      let pages = f.pages;
+      if (!pages) { const pj = await openPdfjs(bytes); pages = pj.numPages; pj.destroy(); }
+      merge.items.push({ id: uid(), name: f.name, size: bytes.length, bytes, pages, range: '', sample: !!isSample });
     } catch (e) { toast(loadErr(f.name, e), 'err'); }
   }
   renderMerge();

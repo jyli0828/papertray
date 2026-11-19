@@ -1,16 +1,17 @@
 'use strict';
 /* ================= WATERMARK ================= */
-const wm = { name: '', bytes: null, pj: null, n: 0, cur: 0, type: 'text', img: null, disp: [595, 842] };
+const wm = { name: '', pj: null, n: 0, cur: 0, type: 'text', img: null, disp: [595, 842] };
 async function loadWm(files) {
   const f = files[0];
   if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const bytes = new Uint8Array(await f.arrayBuffer());
+  const { bytes, owned } = await fileBytes(f), size = bytes.length;
+  if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); return; }
   let pj;
-  try { await PDFDocument.load(bytes); pj = await openPdfjs(bytes); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
+  try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (wm.pj) wm.pj.destroy();
-  Object.assign(wm, { name: f.name, bytes, pj, n: pj.numPages, cur: 0 });
+  Object.assign(wm, { name: f.name, pj, n: pj.numPages, cur: 0 });
   $('#wm-fname').textContent = f.name;
-  $('#wm-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(bytes.length)}`;
+  $('#wm-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)}`;
   $('#wm-name').value = baseName(f.name) + '-浮水印.pdf';
   $('#wm-empty').hidden = true; $('#wm-work').hidden = false;
   await renderWmPage();
@@ -145,7 +146,7 @@ bindInput($('#wm-img-input'), async files => {
 $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async check => {
   const tg = wmTargets(); if (tg.error) { toast(tg.error, 'err'); return; }
   if (wm.type === 'text') { try { await document.fonts.load(wmFont(64), $('#wm-text').value.trim() || ' '); } catch (e) {} }
-  const out = await PDFDocument.load(wm.bytes);
+  const out = await PDFDocument.load(await wm.pj.getData());
   const deg = +$('#wm-angle').value, opacity = +$('#wm-opacity').value / 100, pos = $('#wm-pos').value;
   const cache = new Map();
   const embedMark = async mark => {
