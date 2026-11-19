@@ -77,14 +77,13 @@ $('#it-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
   for (const it of itool.items) { check(); it.out = await processImage(it); outs.push(it.out); renderImgTool(); }
   if ($('#it-fmt').value === 'webp' && outs.some(o => !/\.webp$/.test(o.name))) toast('這個瀏覽器不支援輸出 WebP，已改存成 PNG');
   if (outs.length === 1) {
-    await saveFile(outs[0].name, outs[0].blob);
-    offerNext(new File([outs[0].blob], outs[0].name, { type: outs[0].blob.type }), 'image', 'imgtool');
+    await deliver(new File([outs[0].blob], outs[0].name, { type: outs[0].blob.type }), 'image', 'imgtool');
     return;
   }
   const zip = new JSZip(), used = new Set();
   outs.forEach(o => { let n = o.name, k = 2; while (used.has(n)) n = o.name.replace(/(\.\w+)$/, `-${k++}$1`); used.add(n); zip.file(n, o.blob); });
   let zipName = ($('#it-zip').value || '圖片').trim(); if (!/\.zip$/i.test(zipName)) zipName += '.zip';
-  await saveFile(zipName, await zip.generateAsync({ type: 'blob', compression: 'STORE' }));
+  await deliver(new File([await zip.generateAsync({ type: 'blob', compression: 'STORE' })], zipName, { type: 'application/zip' }), 'zip', 'imgtool');
 }).catch(err => toast('處理失敗：' + err.message, 'err')));
 bindInput($('#it-input'), addImgTool);
 acceptFiles($('#panel-imgtool'), $('#it-drop'), addImgTool);

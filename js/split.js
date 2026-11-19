@@ -1,7 +1,7 @@
 'use strict';
 /* ================= SPLIT ================= */
 const GROUP_COLORS = ['#0b7a6b', '#c2662b', '#3a5fc8', '#a3407a', '#6b8a12', '#7a55c8'];
-const split = { name: '', lib: null, pj: null, pages: [] };
+const split = { name: '', bytes: null, pj: null, pages: [] };
 async function loadSplit(files) {
   const f = files[0];
   if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
@@ -9,8 +9,9 @@ async function loadSplit(files) {
   let lib, pj;
   try { lib = await PDFDocument.load(bytes); pj = await openPdfjs(bytes); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (split.pj) split.pj.destroy();
+  releaseThumbs(split.pages);
   // Page sizes come from the file itself; thumbnails are drawn only when their card comes near the screen.
-  Object.assign(split, { name: f.name, lib, pj, pages: lib.getPages().map((pg, i) => {
+  Object.assign(split, { name: f.name, bytes, pj, pages: lib.getPages().map((pg, i) => {
     const cb = pg.getCropBox(), R = ((pg.getRotation().angle % 360) + 360) % 360;
     return { id: uid(), index: i, thumb: null, tw: 1, th: 1, w: R % 180 ? cb.height : cb.width, h: R % 180 ? cb.width : cb.height };
   }) });
@@ -62,7 +63,7 @@ function renderSplit() {
   const shown = groups.slice(0, 8).map(groupLabel).join('、') + (groups.length > 8 ? '…' : '');
   $('#split-summary').textContent = groups.length ? `會產生 ${groups.length} 份 PDF：第 ${shown} 頁` : '';
   $('#split-go').disabled = !groups.length;
-  $('#split-go').textContent = groups.length > 1 ? `拆成 ${groups.length} 份並下載（ZIP）` : '拆分並下載';
+  $('#split-go').textContent = groups.length > 1 ? `拆成 ${groups.length} 份` : '拆分';
 }
 document.querySelectorAll('input[name="split-mode"]').forEach(r => r.addEventListener('change', renderSplit));
 $('#split-ranges').addEventListener('input', renderSplit);
@@ -73,17 +74,18 @@ $('#split-go').addEventListener('click', e => runJob(e.currentTarget, '拆分中
   const { groups, error } = splitGroups();
   if (error || !groups.length) { toast(error || '沒有要輸出的頁面'); return; }
   const base = baseName(split.name);
+  const lib = await PDFDocument.load(split.bytes); // parsed only for the export, then dropped
   const files = [];
   for (const g of groups) {
     check();
     const out = await PDFDocument.create();
-    (await out.copyPages(split.lib, g)).forEach(pg => out.addPage(pg));
+    (await out.copyPages(lib, g)).forEach(pg => out.addPage(pg));
     files.push({ name: `${base}-第${groupLabel(g).replace('–', '-')}頁.pdf`, bytes: await out.save({ useObjectStreams: true }) });
   }
-  if (files.length === 1) { await saveFile(files[0].name, files[0].bytes); offerNext(pdfFile(files[0].bytes, files[0].name), 'pdf', 'split'); return; }
+  if (files.length === 1) { await deliver(pdfFile(files[0].bytes, files[0].name), 'pdf', 'split'); return; }
   const zip = new JSZip(); const used = new Set();
   files.forEach(f => { let n = f.name, k = 2; while (used.has(n)) n = f.name.replace(/\.pdf$/, `-${k++}.pdf`); used.add(n); zip.file(n, f.bytes); });
-  await saveFile(`${base}-拆分.zip`, await zip.generateAsync({ type: 'blob', compression: 'STORE' }));
+  await deliver(new File([await zip.generateAsync({ type: 'blob', compression: 'STORE' })], `${base}-拆分.zip`, { type: 'application/zip' }), 'zip', 'split');
 }).catch(err => toast('拆分失敗：' + err.message, 'err')));
 $('#split-grid').addEventListener('click', e => {
   if (!isThumbClick(e)) return;

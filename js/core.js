@@ -7,14 +7,20 @@ const { PDFDocument, degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStre
 const PDFJS_SRC = ($('script[src*="pdf.min.js"]') || {}).src || 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
 const WORKER_URL = PDFJS_SRC.replace(/pdf\.min\.js(\?.*)?$/, 'pdf.worker.min.js');
 pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URL;
-/* Run pdf.js parsing in a real background worker (blob wrapper around the worker script).
+/* pdf.js parses in a background worker (blob wrapper around the worker script). It is started the first time a PDF
+   is opened, not at page load: the worker script alone is about 1 MB and its thread holds memory of its own.
    Opened straight from disk (file://) browsers refuse that, and pdf.js runs the worker code on the page instead. */
-let sharedWorker = null;
-if (location.protocol !== 'file:') {
-  try {
-    const w = new Worker(URL.createObjectURL(new Blob([`importScripts('${WORKER_URL}');`], { type: 'text/javascript' })));
-    sharedWorker = new pdfjsLib.PDFWorker({ port: w });
-  } catch (e) { sharedWorker = null; }
+let sharedWorker; // undefined = not tried yet, null = unavailable
+function pdfWorker() {
+  if (sharedWorker !== undefined) return sharedWorker;
+  sharedWorker = null;
+  if (location.protocol !== 'file:') {
+    try {
+      const w = new Worker(URL.createObjectURL(new Blob([`importScripts('${WORKER_URL}');`], { type: 'text/javascript' })));
+      sharedWorker = new pdfjsLib.PDFWorker({ port: w });
+    } catch (e) { sharedWorker = null; }
+  }
+  return sharedWorker;
 }
 /* pdf.js waits on animation frames while painting images; those stop in a background tab.
    Fall back to a timer so long jobs keep going when the page is not on screen. */
@@ -92,15 +98,28 @@ function runJob(btn, label, fn) {
   })().catch(err => { if (err && err.cancelled) { toast('已取消'); return; } throw err; });
 }
 
-/* ---------- hand a finished file to the next tool ----------
-   Each tool registers how it accepts a file; after a tool finishes it calls offerNext() and a bar offers the others. */
+/* ---------- finished results ----------
+   When a tool finishes, its file goes to the result bar at the bottom: 預覽 / 下載 / 接著處理 (hand it to another
+   tool). By default nothing is downloaded on its own and a single PDF or picture opens in the preview right away;
+   with 「完成後自動下載」 ticked the file is saved immediately instead. */
 const NEXT_TARGETS = { pdf: [], image: [] };
 function registerTarget(kind, tab, label, load) { NEXT_TARGETS[kind].push({ tab, label, load }); }
+let lastResult = null;
+let autoDownload = false;
+try { autoDownload = localStorage.getItem('papertray.autodl') === '1'; } catch (e) {}
+/* deliver(file, kind, fromTab): kind is 'pdf', 'image' or 'zip' (a zip can only be downloaded) */
+async function deliver(file, kind, fromTab) {
+  offerNext(file, kind, fromTab);
+  if (autoDownload) await saveFile(file.name, file);
+  else if (kind !== 'zip') openResultPreview();
+}
 function offerNext(file, kind, fromTab) {
+  lastResult = { file, kind };
   const bar = $('#handoff'), acts = $('#handoff-actions');
-  $('#handoff-name').textContent = file.name;
+  $('#handoff-name').textContent = `${file.name}（${fmtSize(file.size)}）`;
+  $('#handoff-preview').hidden = kind === 'zip';
   acts.innerHTML = '';
-  for (const t of NEXT_TARGETS[kind]) {
+  for (const t of NEXT_TARGETS[kind] || []) {
     if (t.tab === fromTab) continue;
     const b = document.createElement('button'); b.className = 'btn'; b.textContent = t.label;
     b.addEventListener('click', () => {
@@ -110,13 +129,14 @@ function offerNext(file, kind, fromTab) {
     });
     acts.append(b);
   }
+  $('#handoff-next').hidden = !acts.children.length;
   bar.hidden = false; document.body.classList.add('has-handoff');
 }
-function hideNext() { $('#handoff').hidden = true; document.body.classList.remove('has-handoff'); }
+function hideNext() { $('#handoff').hidden = true; document.body.classList.remove('has-handoff'); lastResult = null; }
 const pdfFile = (bytes, name) => new File([bytes], ensurePdf(name), { type: 'application/pdf' });
 function openPdfjs(bytes) {
   const opts = { data: bytes.slice(), isEvalSupported: false };
-  if (sharedWorker) opts.worker = sharedWorker;
+  const w = pdfWorker(); if (w) opts.worker = w;
   return pdfjsLib.getDocument(opts).promise;
 }
 
@@ -319,10 +339,14 @@ async function renderThumb(pg) {
   const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
   const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
   await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-  const out = { thumb: cv.toDataURL('image/jpeg', .82), tw: cv.width, th: cv.height };
+  // A Blob URL keeps the picture outside the JavaScript heap (a data: URL would be a base64 string a third larger).
+  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .8));
+  const out = { thumb: URL.createObjectURL(blob), tw: cv.width, th: cv.height };
   pg.cleanup(); cv.width = cv.height = 0;
   return out;
 }
+/* Give back thumbnail pictures that are no longer shown (a file was replaced or cleared). */
+function releaseThumbs(items) { for (const it of items) if (it && typeof it.thumb === 'string' && it.thumb.startsWith('blob:')) { URL.revokeObjectURL(it.thumb); it.thumb = null; } }
 /* ---------- lazy thumbnails ----------
    A long document would otherwise render every page before anything else can happen. Each card asks for its
    thumbnail when it comes near the screen; at most two render at once. */

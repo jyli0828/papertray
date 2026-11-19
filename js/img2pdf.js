@@ -120,6 +120,5 @@ $('#img-go').addEventListener('click', e => runJob(e.currentTarget, '轉換中�
   }
   const bytes = await out.save({ useObjectStreams: true });
   const name = ensurePdf($('#img-name').value);
-  await saveFile(name, bytes);
-  offerNext(pdfFile(bytes, name), 'pdf', 'img2pdf');
+  await deliver(pdfFile(bytes, name), 'pdf', 'img2pdf');
 }).catch(err => toast('轉換失敗：' + err.message, 'err')));

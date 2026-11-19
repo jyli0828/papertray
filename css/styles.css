@@ -376,3 +376,18 @@ kbd { font-family: var(--font-mono); font-size: 11.5px; padding: 1px 6px; border
 @media (hover: none) { .keys { display: none; } }
 .date-box { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
 .grid-empty { grid-column: 1 / -1; padding: 24px 0; text-align: center; }
+
+/* Result bar: 預覽 / 下載 / 接著處理 */
+.handoff-main { display: flex; gap: 6px; }
+.handoff-main .btn { padding: 7px 14px; }
+.handoff-next { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.handoff-next[hidden] { display: none; }
+@media (min-width: 900px) { .handoff { width: min(1040px, calc(100vw - 24px)); } }
+
+/* Header: privacy note and the auto-download switch */
+.brand-side { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.autodl { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.autodl input { width: 15px; height: 15px; accent-color: var(--accent); }
+@media (max-width: 640px) { .brand-side { align-items: flex-start; } }
+.handoff { padding-right: 46px; }
+#handoff-close { position: absolute; top: 8px; right: 8px; }

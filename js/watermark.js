@@ -174,8 +174,7 @@ $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
   }
   const bytes = await out.save({ useObjectStreams: true });
   const name = ensurePdf($('#wm-name').value);
-  await saveFile(name, bytes);
-  offerNext(pdfFile(bytes, name), 'pdf', 'watermark');
+  await deliver(pdfFile(bytes, name), 'pdf', 'watermark');
 }).catch(err => toast('加浮水印失敗：' + err.message, 'err')));
 bindInput($('#wm-input'), loadWm);
 registerTarget('pdf', 'watermark', '加浮水印', loadWm);

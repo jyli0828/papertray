@@ -88,7 +88,6 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   check();
   const bytes = await out.save({ useObjectStreams: true });
   const name = ensurePdf($('#merge-name').value);
-  await saveFile(name, bytes);
-  offerNext(pdfFile(bytes, name), 'pdf', 'merge');
+  await deliver(pdfFile(bytes, name), 'pdf', 'merge');
 }).catch(err => toast('合併失敗：' + err.message, 'err')));
 registerTarget('pdf', 'merge', '合併', f => addMergeFiles(f));

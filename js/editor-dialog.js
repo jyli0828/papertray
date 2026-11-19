@@ -57,6 +57,7 @@ async function openTextEditor(p, mode) {
   if (te.renderTask) { try { te.renderTask.cancel(); } catch (e) {} }
   te.renderTask = pg.render({ canvasContext: ctx, viewport: vp });
   try { await te.renderTask.promise; } catch (e) {}
+  pg.cleanup();
   if (te.page !== p) return; // closed or switched page while rendering
   renderAnnots();
 }
@@ -270,6 +271,7 @@ function finishEditor() {
   te.page.annots = te.page.annots.filter(a => a.type !== 'text' || a.text.trim());
   if (te.snap && annotSig() !== te.sig0) pushUndo(te.snap); // the whole visit to the editor is one undo step
   te.snap = null; te.page = null; te.sel = null; renderEdit();
+  const cv = $('#te-canvas'); cv.width = cv.height = 0; overlay.innerHTML = ''; // the page picture is only needed while editing
 }
 $('#te-done').addEventListener('click', () => { finishEditor(); dlg.close(); });
 dlg.addEventListener('cancel', finishEditor);

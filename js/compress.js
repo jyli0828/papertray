@@ -7,6 +7,8 @@
 const comp = { items: [], mode: 'keep', file: { i: 0, n: 0 } };
 const LEVELS = { light: { dpi: 150, q: .8 }, medium: { dpi: 110, q: .65 }, strong: { dpi: 72, q: .5 } };
 const KEEP_LEVELS = { light: { px: 2400, q: .82 }, medium: { px: 1600, q: .68 }, strong: { px: 1100, q: .5 } };
+/* black-and-white pages need more dots than JPEG ones to keep small print readable, but each dot is one bit */
+const BW_DPI = { light: 300, medium: 200, strong: 150 };
 async function loadCompFile(files) {
   for (const f of files) {
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
@@ -54,16 +56,24 @@ const levelVal = () => document.querySelector('input[name="level"]:checked').val
 function setCompMode(m) {
   comp.mode = m;
   $('#comp-m-keep').setAttribute('aria-pressed', m === 'keep'); $('#comp-m-raster').setAttribute('aria-pressed', m === 'raster');
-  document.querySelectorAll('#panel-compress .spec').forEach(s => { s.textContent = s.dataset[m === 'keep' ? 'keep' : 'raster']; });
-  $('#comp-note').textContent = m === 'keep'
-    ? '文字、表格和向量圖完全不動，仍可選取和搜尋；只把裡面的照片縮小、重新壓縮。照片多的檔案效果最好。'
-    : '每一頁都會轉成圖片再壓縮，完成後文字無法選取或搜尋。適合掃描檔，或「保留文字」壓不下來的檔案。';
+  const bwOpt = $('#comp-color option[value="bw"]');
+  bwOpt.disabled = m === 'keep';
+  if (m === 'keep' && $('#comp-color').value === 'bw') $('#comp-color').value = 'gray';
+  updateCompSpecs();
   clearCompResults(); renderCompList();
+}
+function updateCompSpecs() {
+  const bw = comp.mode === 'raster' && $('#comp-color').value === 'bw';
+  document.querySelectorAll('#panel-compress .spec').forEach(s => { s.textContent = s.dataset[bw ? 'bw' : comp.mode === 'keep' ? 'keep' : 'raster']; });
+  $('#comp-note').textContent = comp.mode === 'keep'
+    ? '文字、表格和向量圖完全不動，仍可選取和搜尋；只把裡面的照片縮小、重新壓縮。照片多的檔案效果最好。'
+    : bw ? '每一頁轉成只有黑與白兩色的圖片，最適合文字掃描檔，通常每頁只要幾十 KB；照片和灰色底紋會變成黑白點，文字無法選取或搜尋。'
+      : '每一頁都會轉成圖片再壓縮，完成後文字無法選取或搜尋。適合掃描檔，或「保留文字」壓不下來的檔案。';
 }
 $('#comp-m-keep').addEventListener('click', () => setCompMode('keep'));
 $('#comp-m-raster').addEventListener('click', () => setCompMode('raster'));
 document.querySelectorAll('input[name="level"]').forEach(r => r.addEventListener('change', () => { clearCompResults(); renderCompList(); }));
-$('#comp-gray').addEventListener('change', () => { clearCompResults(); renderCompList(); });
+$('#comp-color').addEventListener('change', () => { updateCompSpecs(); clearCompResults(); renderCompList(); });
 
 function progress(i, n, unit = '頁') {
   const f = comp.file, pre = f.n > 1 ? `第 ${f.i + 1} / ${f.n} 份 · ` : '';
@@ -97,6 +107,59 @@ async function compressRaster(bytes, lv, gray, check) {
       const page = out.addPage([vp1.width, vp1.height]);
       page.drawImage(jpg, { x: 0, y: 0, width: vp1.width, height: vp1.height });
       pg.cleanup(); cv.width = cv.height = 0;
+    }
+    progress(pj.numPages, pj.numPages);
+  } finally { pj.destroy(); }
+  return { bytes: await out.save({ useObjectStreams: true }) };
+}
+
+/* ---------- black and white: one bit per dot, Flate-compressed ----------
+   The threshold is chosen per page (Otsu's method) so light scans and dark scans both come out clean. */
+function otsu(hist, total) {
+  let sum = 0; for (let i = 0; i < 256; i++) sum += i * hist[i];
+  let sumB = 0, wB = 0, best = 0, t = 128;
+  for (let i = 0; i < 256; i++) {
+    wB += hist[i]; if (!wB) continue;
+    const wF = total - wB; if (!wF) break;
+    sumB += i * hist[i];
+    const mB = sumB / wB, mF = (sum - sumB) / wF, between = wB * wF * (mB - mF) * (mB - mF);
+    if (between > best) { best = between; t = i; }
+  }
+  return t;
+}
+async function deflate(bytes) {
+  const cs = new CompressionStream('deflate');
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(cs)).arrayBuffer());
+}
+async function compressBW(bytes, dpi, check) {
+  const pj = await openPdfjs(bytes);
+  const out = await PDFDocument.create();
+  try {
+    for (let i = 0; i < pj.numPages; i++) {
+      check();
+      progress(i, pj.numPages);
+      const pg = await pj.getPage(i + 1);
+      const vp1 = pg.getViewport({ scale: 1 });
+      let scale = dpi / 72;
+      const maxPx = 30e6; if (vp1.width * vp1.height * scale * scale > maxPx) scale = Math.sqrt(maxPx / (vp1.width * vp1.height));
+      const vp = pg.getViewport({ scale });
+      const W = Math.ceil(vp.width), H = Math.ceil(vp.height);
+      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+      await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+      const d = ctx.getImageData(0, 0, W, H).data;
+      pg.cleanup(); cv.width = cv.height = 0;
+      const lum = new Uint8Array(W * H), hist = new Uint32Array(256);
+      for (let k = 0, j = 0; k < lum.length; k++, j += 4) { const y = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8; lum[k] = y; hist[y]++; }
+      const t = Math.min(200, Math.max(60, otsu(hist, lum.length)));
+      const rowBytes = Math.ceil(W / 8), bits = new Uint8Array(rowBytes * H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (lum[y * W + x] > t) bits[y * rowBytes + (x >> 3)] |= 0x80 >> (x & 7); // 1 = white
+      const img = out.context.register(out.context.stream(await deflate(bits), {
+        Type: 'XObject', Subtype: 'Image', Width: W, Height: H, ColorSpace: 'DeviceGray', BitsPerComponent: 1, Filter: 'FlateDecode'
+      }));
+      const page = out.addPage([vp1.width, vp1.height]);
+      const name = page.node.newXObject('Im', img);
+      page.pushOperators(PDFLib.pushGraphicsState(), PDFLib.concatTransformationMatrix(vp1.width, 0, 0, vp1.height, 0, 0), PDFLib.drawObject(name), PDFLib.popGraphicsState());
     }
     progress(pj.numPages, pj.numPages);
   } finally { pj.destroy(); }
@@ -223,14 +286,16 @@ async function compressKeepText(bytes, lv, gray, check) {
 
 $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中…', async check => {
   clearCompResults(); renderCompList();
-  const lv = levelVal(), gray = $('#comp-gray').checked, keep = comp.mode === 'keep';
+  const lvKey = levelVal(), color = $('#comp-color').value, gray = color !== 'color', keep = comp.mode === 'keep';
   comp.file.n = comp.items.length;
   let changed = 0;
   for (let i = 0; i < comp.items.length; i++) {
     check();
     comp.file.i = i;
     const it = comp.items[i];
-    const res = keep ? await compressKeepText(it.bytes, KEEP_LEVELS[lv], gray, check) : await compressRaster(it.bytes, LEVELS[lv], gray, check);
+    const res = keep ? await compressKeepText(it.bytes, KEEP_LEVELS[lvKey], gray, check)
+      : color === 'bw' ? await compressBW(it.bytes, BW_DPI[lvKey], check)
+      : await compressRaster(it.bytes, LEVELS[lvKey], gray, check);
     const kept = res.bytes.length >= it.bytes.length;
     it.out = { bytes: kept ? it.bytes : res.bytes, kept };
     changed += res.changed || 0;
@@ -255,7 +320,7 @@ $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中�
   $('#comp-name').value = multi ? '壓縮後的 PDF.zip' : baseName(comp.items[0].name) + '-壓縮.pdf';
   $('#comp-save').textContent = multi ? `下載全部 ${comp.items.length} 份（ZIP）` : '下載壓縮檔';
   $('#comp-result').hidden = false;
-  if (!multi && !comp.items[0].out.kept) offerNext(pdfFile(comp.items[0].out.bytes, $('#comp-name').value), 'pdf', 'compress');
+  if (!multi && !comp.items[0].out.kept) await deliver(pdfFile(comp.items[0].out.bytes, $('#comp-name').value), 'pdf', 'compress');
 }).catch(err => toast('壓縮失敗：' + err.message, 'err')));
 $('#comp-save').addEventListener('click', e => busy(e.currentTarget, '準備中…', async () => {
   const done = comp.items.filter(x => x.out); if (!done.length) return;

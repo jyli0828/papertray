@@ -8,6 +8,7 @@ async function loadP2i(files) {
   let pj;
   try { pj = await openPdfjs(bytes); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (p2i.pj) p2i.pj.destroy();
+  releaseThumbs(p2i.pages);
   p2i.name = f.name; p2i.pj = pj;
   p2i.pages = Array.from({ length: pj.numPages }, (_, i) => ({ id: uid(), index: i, selected: true, thumb: null, tw: 1, th: 1, w: 0, h: 0 }));
   $('#p2i-fname').textContent = f.name;
@@ -63,7 +64,7 @@ function updateP2iSummary() {
   $('#p2i-summary').textContent = sel.length ? `${sel.length} 張 ${fmt.toUpperCase()}${px}` : '請至少選一頁';
   const go = $('#p2i-go');
   go.disabled = !sel.length;
-  go.textContent = sel.length > 1 ? `下載 ${sel.length} 張（ZIP）` : '下載圖片';
+  go.textContent = sel.length > 1 ? `轉成 ${sel.length} 張圖片` : '轉成圖片';
   $('#p2i-q-wrap').style.opacity = fmt === 'png' ? .45 : 1; $('#p2i-q').disabled = fmt === 'png';
 }
 ['#p2i-fmt', '#p2i-dpi', '#p2i-q'].forEach(s => $(s).addEventListener('change', updateP2iSummary));
@@ -96,8 +97,9 @@ async function exportP2i(pages, btn) {
       const blob = await pageToBlob(pages[0].index, o);
       p2iProgress(1, 1);
       const name = p2iFileName(pages[0].index, o);
-      await saveFile(name, blob);
-      offerNext(new File([blob], name, { type: o.mime }), 'image', 'pdf2img');
+      const file = new File([blob], name, { type: o.mime });
+      if (mini) { await saveFile(name, blob); offerNext(file, 'image', 'pdf2img'); } // 「只下載這一頁」 means download
+      else await deliver(file, 'image', 'pdf2img');
       return;
     }
     const zip = new JSZip();
@@ -108,7 +110,7 @@ async function exportP2i(pages, btn) {
     }
     p2iProgress(pages.length, pages.length);
     const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
-    await saveFile(`${baseName(p2i.name)}-${o.fmt}.zip`, blob);
+    await deliver(new File([blob], `${baseName(p2i.name)}-${o.fmt}.zip`, { type: 'application/zip' }), 'zip', 'pdf2img');
   }
 }
 $('#p2i-grid').addEventListener('click', e => {

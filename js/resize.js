@@ -116,8 +116,7 @@ $('#rs-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
     toast(r.cropped ? `裁掉了 ${r.cropped} 頁的白邊` : '沒有找到可以裁掉的白邊');
   }
   const name = ensurePdf($('#rs-name').value);
-  await saveFile(name, bytes);
-  offerNext(pdfFile(bytes, name), 'pdf', 'resize');
+  await deliver(pdfFile(bytes, name), 'pdf', 'resize');
 }).catch(err => toast('處理失敗：' + err.message, 'err')));
 bindInput($('#rs-input'), loadResize);
 acceptFiles($('#panel-resize'), $('#rs-drop'), loadResize);

@@ -20,7 +20,10 @@
       <h1>紙匣</h1>
       <p>PDF 與圖片的隨手工具：合併、拆分、編輯、簽名、遮蔽個資、加浮水印、調整尺寸、壓縮，圖片與 PDF 互轉。</p>
     </div>
-    <span class="privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>檔案只在你的瀏覽器裡處理，不會上傳</span>
+    <div class="brand-side">
+      <span class="privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>檔案只在你的瀏覽器裡處理，不會上傳</span>
+      <label class="autodl"><input type="checkbox" id="auto-dl"> 完成後自動下載</label>
+    </div>
   </header>
 
   <nav class="tabs" role="tablist" aria-label="工具">
@@ -94,7 +97,7 @@
       <span class="summary mono" id="merge-summary"></span>
       <div class="go">
         <label class="name-field">檔名 <input type="text" id="merge-name" value="合併文件.pdf" spellcheck="false"></label>
-        <button class="btn primary" id="merge-go">合併並下載</button>
+        <button class="btn primary" id="merge-go">合併</button>
       </div>
     </div>
   </section>
@@ -171,12 +174,18 @@
         <button id="comp-m-raster" aria-pressed="false">整頁轉成圖片</button>
       </div>
       <div class="levels" role="radiogroup" aria-label="壓縮程度">
-        <label class="level"><input type="radio" name="level" value="light"><b>輕度</b><span>畫質接近原檔，適合要列印的文件</span><span class="spec" data-keep="照片最長邊 2400 px · JPEG 82%" data-raster="150 dpi · JPEG 80%"></span></label>
-        <label class="level"><input type="radio" name="level" value="medium" checked><b>標準</b><span>螢幕閱讀清楚，寄信、上傳最常用</span><span class="spec" data-keep="照片最長邊 1600 px · JPEG 68%" data-raster="110 dpi · JPEG 65%"></span></label>
-        <label class="level"><input type="radio" name="level" value="strong"><b>強力</b><span>檔案最小，細節可能變模糊</span><span class="spec" data-keep="照片最長邊 1100 px · JPEG 50%" data-raster="72 dpi · JPEG 50%"></span></label>
+        <label class="level"><input type="radio" name="level" value="light"><b>輕度</b><span>畫質接近原檔，適合要列印的文件</span><span class="spec" data-keep="照片最長邊 2400 px · JPEG 82%" data-raster="150 dpi · JPEG 80%" data-bw="黑白 300 dpi"></span></label>
+        <label class="level"><input type="radio" name="level" value="medium" checked><b>標準</b><span>螢幕閱讀清楚，寄信、上傳最常用</span><span class="spec" data-keep="照片最長邊 1600 px · JPEG 68%" data-raster="110 dpi · JPEG 65%" data-bw="黑白 200 dpi"></span></label>
+        <label class="level"><input type="radio" name="level" value="strong"><b>強力</b><span>明顯變小，細節會模糊一些</span><span class="spec" data-keep="照片最長邊 1100 px · JPEG 50%" data-raster="72 dpi · JPEG 50%" data-bw="黑白 150 dpi"></span></label>
       </div>
       <div class="opts">
-        <label><input type="checkbox" id="comp-gray"> 轉成灰階（再小一些）</label>
+        <label class="optfield" style="min-width:220px">色彩
+          <select id="comp-color">
+            <option value="color" selected>保留彩色</option>
+            <option value="gray">灰階（再小一些）</option>
+            <option value="bw">黑白（文字掃描檔最小）</option>
+          </select>
+        </label>
       </div>
       <p class="note" id="comp-note"></p>
       <div class="footer-bar">
@@ -244,7 +253,7 @@
       <span class="summary mono" id="img-summary"></span>
       <div class="go">
         <label class="name-field">檔名 <input type="text" id="img-name" value="圖片.pdf" spellcheck="false"></label>
-        <button class="btn primary" id="img-go" disabled>轉成 PDF 並下載</button>
+        <button class="btn primary" id="img-go" disabled>轉成 PDF</button>
       </div>
     </div>
   </section>
@@ -306,7 +315,7 @@
       </div>
       <div class="footer-bar">
         <span class="summary mono" id="p2i-summary"></span>
-        <button class="btn primary" id="p2i-go">下載圖片</button>
+        <button class="btn primary" id="p2i-go">轉成圖片</button>
       </div>
     </div>
   </section>
@@ -347,7 +356,7 @@
       <div class="page-grid" id="split-grid"></div>
       <div class="footer-bar">
         <span class="summary" id="split-summary"></span>
-        <button class="btn primary" id="split-go">拆分並下載</button>
+        <button class="btn primary" id="split-go">拆分</button>
       </div>
     </div>
   </section>
@@ -488,7 +497,7 @@
         <span class="summary" id="wm-summary"></span>
         <div class="go">
           <label class="name-field">檔名 <input type="text" id="wm-name" spellcheck="false"></label>
-          <button class="btn primary" id="wm-go">加上浮水印並下載</button>
+          <button class="btn primary" id="wm-go">加上浮水印</button>
         </div>
       </div>
     </div>
@@ -575,7 +584,7 @@
         <span class="summary" id="rs-summary"></span>
         <div class="go">
           <label class="name-field">檔名 <input type="text" id="rs-name" spellcheck="false"></label>
-          <button class="btn primary" id="rs-go">調整並下載</button>
+          <button class="btn primary" id="rs-go">開始調整</button>
         </div>
       </div>
     </div>
@@ -626,7 +635,7 @@
       <span class="summary mono" id="it-summary"></span>
       <div class="go">
         <label class="name-field" id="it-zip-field" hidden>壓縮檔名 <input type="text" id="it-zip" value="圖片.zip" spellcheck="false"></label>
-        <button class="btn primary" id="it-go" disabled>處理並下載</button>
+        <button class="btn primary" id="it-go" disabled>開始處理</button>
       </div>
     </div>
   </section>
@@ -805,15 +814,20 @@
     <span class="mono" id="pv-title">第 1 頁</span>
     <span class="pv-hint">← → 換頁　Esc 關閉</span>
     <span style="flex:1"></span>
+    <button class="btn primary" id="pv-download" hidden>下載</button>
     <button class="icon-btn" id="pv-prev" aria-label="上一頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
     <button class="icon-btn" id="pv-next" aria-label="下一頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>
     <button class="icon-btn" id="pv-close" aria-label="關閉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
   </div>
   <div class="pv-stage" id="pv-stage"><canvas id="pv-canvas"></canvas></div>
 </dialog>
-<div class="handoff" id="handoff" role="region" aria-label="繼續處理這個檔案" hidden>
-  <div class="handoff-text"><span class="handoff-label">接著處理</span><span class="handoff-name" id="handoff-name"></span></div>
-  <div class="handoff-actions" id="handoff-actions"></div>
+<div class="handoff" id="handoff" role="region" aria-label="處理結果" hidden>
+  <div class="handoff-text"><span class="handoff-label">完成</span><span class="handoff-name" id="handoff-name"></span></div>
+  <div class="handoff-main">
+    <button class="btn" id="handoff-preview">預覽</button>
+    <button class="btn primary" id="handoff-download">下載</button>
+  </div>
+  <div class="handoff-next" id="handoff-next"><span class="handoff-label">接著處理</span><div class="handoff-actions" id="handoff-actions"></div></div>
   <button class="icon-btn" id="handoff-close" aria-label="關閉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

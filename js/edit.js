@@ -72,11 +72,12 @@ async function loadEditFiles(files, onFirst, insertAt) {
   for (const f of files) {
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
     const bytes = new Uint8Array(await f.arrayBuffer());
-    let lib, pj;
-    try { lib = await PDFDocument.load(bytes); pj = await openPdfjs(bytes); }
+    let pj;
+    // Parse with pdf-lib only to check the file; the parsed copy is dropped and rebuilt at export time.
+    try { await PDFDocument.load(bytes); pj = await openPdfjs(bytes); }
     catch (e) { toast(loadErr(f.name, e), 'err'); continue; }
     const docId = uid();
-    edit.docs[docId] = { name: f.name, lib, pj };
+    edit.docs[docId] = { name: f.name, bytes, pj };
     if (!edit.pages.length) $('#edit-name').value = baseName(f.name) + '-編輯.pdf';
     const fresh = [];
     for (let i = 0; i < pj.numPages; i++) fresh.push({ id: uid(), docId, index: i, baseRot: 0, rot: 0, annots: [], selected: false, view: null, thumb: null, tw: 1, th: 1 });
@@ -220,7 +221,7 @@ $('#edit-clear').addEventListener('click', e => {
   const b = e.currentTarget;
   if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = '再按一次確認清空'; setTimeout(() => { b.dataset.armed = ''; b.textContent = '清空重來'; }, 3000); return; }
   b.dataset.armed = ''; b.textContent = '清空重來';
-  Object.values(edit.docs).forEach(d => d.pj.destroy());
+  Object.values(edit.docs).forEach(d => d.pj.destroy()); releaseThumbs(Object.values(edit.meta));
   edit.docs = {}; edit.pages = []; edit.meta = {}; editHist.undo = []; editHist.redo = []; renderEdit();
 });
 
@@ -271,12 +272,14 @@ async function exportEdit(onlySel, btn) {
     // Redacted pages are rebuilt from an image instead, so they are not copied.
     const copied = new Map(), byDoc = new Map();
     pages.filter(p => !isRedacted(p)).forEach(p => { if (!byDoc.has(p.docId)) byDoc.set(p.docId, []); byDoc.get(p.docId).push(p); });
+    const libs = {};
+    for (const docId of byDoc.keys()) libs[docId] = await PDFDocument.load(edit.docs[docId].bytes);
     for (const [docId, list] of byDoc) {
       let rest = list;
       while (rest.length) {
         const seen = new Set(), round = [], later = [];
         rest.forEach(p => (seen.has(p.index) ? later : (seen.add(p.index), round)).push(p));
-        const res = await out.copyPages(edit.docs[docId].lib, round.map(p => p.index));
+        const res = await out.copyPages(libs[docId], round.map(p => p.index));
         round.forEach((p, k) => copied.set(p, res[k]));
         rest = later;
       }
@@ -318,8 +321,7 @@ async function exportEdit(onlySel, btn) {
     check();
     const bytes = await out.save({ useObjectStreams: true });
     const name = ensurePdf($('#edit-name').value);
-    await saveFile(name, bytes);
-    offerNext(pdfFile(bytes, name), 'pdf', 'edit');
+    await deliver(pdfFile(bytes, name), 'pdf', 'edit');
   }).catch(err => toast('匯出失敗：' + err.message, 'err'));
 }
 $('#edit-export').addEventListener('click', e => exportEdit(false, e.currentTarget));

@@ -14,11 +14,15 @@ async function loadUm(files) {
   const maxPx = 24e6; if (w * h > maxPx) { const s = Math.sqrt(maxPx / (w * h)); w = Math.round(w * s); h = Math.round(h * s); }
   Object.assign(um, { name: f.name, w, h, history: [], token: (um.token || 0) + 1 });
   um.mime = /jpe?g/i.test(f.type) || /\.jpe?g$/i.test(f.name) ? 'image/jpeg' : 'image/png';
-  [umImg, umMask, umOrig].forEach(c => { c.width = w; c.height = h; });
+  // Memory: the photo itself is the only full-size canvas. The brush mask is stored at most 2000 px wide
+  // (strokes are wide and get dilated anyway), and the "看原圖" copy is decoded from the file only while shown.
+  um.ms = Math.min(1, 2000 / Math.max(w, h)); um.file = f;
+  umImg.width = w; umImg.height = h;
+  umMask.width = Math.max(1, Math.round(w * um.ms)); umMask.height = Math.max(1, Math.round(h * um.ms));
+  umOrig.width = umOrig.height = 0; um.origReady = false;
   uctx.drawImage(bmp, 0, 0, w, h);
-  umOrig.getContext('2d').drawImage(bmp, 0, 0, w, h);
   bmp.close && bmp.close();
-  mctxU.clearRect(0, 0, w, h);
+  mctxU.clearRect(0, 0, umMask.width, umMask.height);
   $('#um-name').value = f.name.replace(/\.[^.]+$/, '') + '-去浮水印.' + (um.mime === 'image/jpeg' ? 'jpg' : 'png');
   $('#um-meta').textContent = w === ow ? `${w} × ${h} px` : `${w} × ${h} px（原圖 ${ow} × ${oh}，已縮小以便處理）`;
   $('#um-empty').hidden = true; $('#um-work').hidden = false;
@@ -77,10 +81,11 @@ $('#um-paint').addEventListener('click', () => setUmMode('paint'));
 $('#um-erase').addEventListener('click', () => setUmMode('erase'));
 $('#um-pan').addEventListener('click', () => setUmMode('pan'));
 $('#um-size').addEventListener('input', () => { $('#um-size-v').textContent = $('#um-size').value; setCursorSize(); });
-$('#um-clear').addEventListener('click', () => mctxU.clearRect(0, 0, um.w, um.h));
+$('#um-clear').addEventListener('click', () => mctxU.clearRect(0, 0, umMask.width, umMask.height));
 const umPt = e => { const r = umMask.getBoundingClientRect(); return [(e.clientX - r.left) / um.scale, (e.clientY - r.top) / um.scale, e.clientX - r.left, e.clientY - r.top]; };
 function umStroke(a, b) {
   mctxU.save();
+  mctxU.setTransform(um.ms, 0, 0, um.ms, 0, 0); // draw in picture coordinates
   mctxU.globalCompositeOperation = um.mode === 'erase' ? 'destination-out' : 'source-over';
   mctxU.strokeStyle = mctxU.fillStyle = '#ff2a4a';
   mctxU.lineWidth = +$('#um-size').value / um.scale; mctxU.lineCap = mctxU.lineJoin = 'round';
@@ -123,14 +128,15 @@ function makeUmWorker() {
     return new Worker(URL.createObjectURL(new Blob([code], { type: 'text/javascript' })));
   } catch (e) { return null; }
 }
-let umWorker = makeUmWorker();
+let umWorker; // created the first time something is removed
 /* Cancelling stops the worker outright and starts a fresh one for next time. */
 function runFill(px, mask, W, H, signal) {
   const local = () => { umAlgoFactory().fillRegion(px, mask, W, H); return px; };
+  if (umWorker === undefined) umWorker = makeUmWorker();
   if (!umWorker) return new Promise(r => setTimeout(() => r(local()), 30));
   const copy = px.slice();
   return new Promise((resolve, reject) => {
-    const onAbort = () => { umWorker.terminate(); umWorker = makeUmWorker(); reject(new Cancelled()); };
+    const onAbort = () => { umWorker.terminate(); umWorker = undefined; reject(new Cancelled()); };
     if (signal) signal.addEventListener('abort', onAbort, { once: true });
     umWorker.onmessage = e => { signal && signal.removeEventListener('abort', onAbort); e.data.ok ? resolve(e.data.px) : reject(new Error(e.data.msg)); };
     umWorker.onerror = () => { signal && signal.removeEventListener('abort', onAbort); umWorker = null; px.set(copy); resolve(local()); };
@@ -138,16 +144,21 @@ function runFill(px, mask, W, H, signal) {
   });
 }
 async function removeMarked(signal) {
-  const W = um.w, H = um.h;
-  const md = mctxU.getImageData(0, 0, W, H).data;
-  let x0 = W, y0 = H, x1 = -1, y1 = -1;
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (md[(y * W + x) * 4 + 3] > 24) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-  if (x1 < 0) { toast('先用筆刷塗抹要去除的區域'); return false; }
+  const W = um.w, H = um.h, MW = umMask.width, MH = umMask.height, ms = um.ms;
+  const md = mctxU.getImageData(0, 0, MW, MH).data;
+  let mx0 = MW, my0 = MH, mx1 = -1, my1 = -1;
+  for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) if (md[(y * MW + x) * 4 + 3] > 24) { if (x < mx0) mx0 = x; if (x > mx1) mx1 = x; if (y < my0) my0 = y; if (y > my1) my1 = y; }
+  if (mx1 < 0) { toast('先用筆刷塗抹要去除的區域'); return false; }
+  const x0 = Math.max(0, Math.floor(mx0 / ms)), y0 = Math.max(0, Math.floor(my0 / ms));
+  const x1 = Math.min(W - 1, Math.ceil((mx1 + 1) / ms)), y1 = Math.min(H - 1, Math.ceil((my1 + 1) / ms));
   const pad = Math.max(48, Math.round(Math.max(x1 - x0, y1 - y0) * .75));
   const cx0 = Math.max(0, x0 - pad), cy0 = Math.max(0, y0 - pad), cx1 = Math.min(W - 1, x1 + pad), cy1 = Math.min(H - 1, y1 + pad);
   const cw = cx1 - cx0 + 1, chh = cy1 - cy0 + 1;
   let mask = new Uint8Array(cw * chh);
-  for (let y = 0; y < chh; y++) for (let x = 0; x < cw; x++) if (md[((y + cy0) * W + x + cx0) * 4 + 3] > 24) mask[y * cw + x] = 1;
+  for (let y = 0; y < chh; y++) {
+    const row = Math.min(MH - 1, Math.floor((y + cy0) * ms)) * MW;
+    for (let x = 0; x < cw; x++) if (md[(row + Math.min(MW - 1, Math.floor((x + cx0) * ms))) * 4 + 3] > 24) mask[y * cw + x] = 1;
+  }
   mask = dilateMask(mask, cw, chh, 2);
   // Undo keeps only the region that changes, not the whole picture (a 24 MP photo is ~96 MB per full copy).
   const before = uctx.getImageData(cx0, cy0, cw, chh);
@@ -159,7 +170,7 @@ async function removeMarked(signal) {
     if (token !== um.token) return false; // a different image was loaded meanwhile
     uctx.putImageData(new ImageData(out, cw, chh), cx0, cy0);
     um.history.push({ x: cx0, y: cy0, data: before }); if (um.history.length > 8) um.history.shift();
-    mctxU.clearRect(0, 0, W, H);
+    mctxU.clearRect(0, 0, MW, MH);
   } finally { um.busy = false; }
   updateUmButtons();
   return true;
@@ -168,7 +179,18 @@ $('#um-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
   if (await removeMarked(signal)) toast('已移除，不滿意可以按「復原」');
 }).catch(err => toast('處理失敗：' + err.message, 'err')));
 $('#um-undo').addEventListener('click', () => { const s = um.history.pop(); if (s) uctx.putImageData(s.data, s.x, s.y); updateUmButtons(); });
-const showOrig = on => { umOrig.hidden = !on; };
+async function showOrig(on) {
+  um.showingOrig = on;
+  if (!on) { umOrig.hidden = true; umOrig.width = umOrig.height = 0; um.origReady = false; return; }
+  if (!um.origReady) {
+    const token = um.token, bmp = await createImageBitmap(um.file);
+    if (token !== um.token || !um.showingOrig) { bmp.close && bmp.close(); return; }
+    umOrig.width = um.w; umOrig.height = um.h;
+    umOrig.getContext('2d').drawImage(bmp, 0, 0, um.w, um.h); bmp.close && bmp.close();
+    um.origReady = true;
+  }
+  umOrig.hidden = !um.showingOrig;
+}
 $('#um-compare').addEventListener('pointerdown', () => showOrig(true));
 ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => $('#um-compare').addEventListener(ev, () => showOrig(false)));
 $('#um-compare').addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') showOrig(true); });
