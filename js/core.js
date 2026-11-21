@@ -514,6 +514,12 @@ async function imagesToPdf(files, name) {
   return pdfFile(await out.save({ useObjectStreams: true }), name || files[0].name.replace(/\.[^.]+$/, '') + '.pdf');
 }
 
+/* Some fonts (Microsoft JhengHei among them) map common characters to look-alike Kangxi radicals (⽇ U+2F47 for 日,
+   ⻑ U+2ED1 for 長), so text taken out of the PDF looks right but cannot be searched. Map them back; every character
+   stays exactly one character, so positions in the string do not move. */
+const RADICAL_FIX = { '⺠': '民', '⻄': '西', '⻑': '長', '⻝': '食', '⻣': '骨', '⻤': '鬼', '⺟': '母', '⻘': '青' };
+const fixCjk = s => s.replace(/[⺀-⿟]/g, ch => RADICAL_FIX[ch] || ch.normalize('NFKC'));
+
 /* ================= shared: page ranges ================= */
 function parseRanges(text, n) {
   const toks = String(text || '').split(/[,，、;；\s]+/).filter(Boolean);

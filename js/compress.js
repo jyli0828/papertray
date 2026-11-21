@@ -3,12 +3,27 @@
    Two ways, applied to every file in the list:
    - keep: re-encode only the photos inside the PDF (JPEG or 8-bit Flate images); text and vector graphics stay untouched.
    - raster: render every page to a JPEG; smallest for scans, but text can no longer be selected.
-   A file that does not get smaller keeps its original bytes. */
-const comp = { items: [], mode: 'keep', file: { i: 0, n: 0 } };
+   A file that does not get smaller keeps its original bytes.
+   With a size limit (「大小上限」) the strength is not chosen by hand: each file is compressed several times, stepping
+   through a ladder of settings from best to smallest (binary search), and the best-looking result under the limit wins. */
+const comp = { items: [], mode: 'keep', file: { i: 0, n: 0 }, attempt: 0 };
 const LEVELS = { light: { dpi: 150, q: .8 }, medium: { dpi: 110, q: .65 }, strong: { dpi: 72, q: .5 } };
 const KEEP_LEVELS = { light: { px: 2400, q: .82 }, medium: { px: 1600, q: .68 }, strong: { px: 1100, q: .5 } };
 /* black-and-white pages need more dots than JPEG ones to keep small print readable, but each dot is one bit */
 const BW_DPI = { light: 300, medium: 200, strong: 150 };
+/* settings tried for a size limit, best picture first */
+const TARGET_LADDER = {
+  keep: [[2400, .82], [2000, .76], [1600, .68], [1400, .6], [1100, .5], [900, .45], [700, .4], [500, .35]].map(([px, q]) => ({ px, q, label: `照片最長邊 ${px} px · JPEG ${Math.round(q * 100)}%` })),
+  raster: [[200, .85], [150, .8], [130, .72], [110, .65], [96, .58], [85, .52], [72, .5], [60, .42], [50, .35]].map(([dpi, q]) => ({ dpi, q, label: `${dpi} dpi · JPEG ${Math.round(q * 100)}%` })),
+  bw: [300, 250, 200, 170, 150, 120, 100].map(dpi => ({ dpi, label: `黑白 ${dpi} dpi` }))
+};
+/* The limit in bytes (0 = none). 1 MB is counted as 1,000,000 bytes: upload forms differ, and this stays under both. */
+function compTarget() {
+  const v = $('#comp-target').value;
+  const mb = v === 'custom' ? parseFloat($('#comp-target-custom').value) : +v;
+  return mb > 0 ? Math.round(mb * 1e6) : 0;
+}
+const fmtLimit = b => b >= 1e6 ? `${+(b / 1e6).toFixed(2)} MB` : `${Math.round(b / 1e3)} KB`;
 async function loadCompFile(files) {
   for (const f of files) {
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
@@ -32,7 +47,14 @@ function renderCompList() {
   for (const it of comp.items) {
     const li = document.createElement('li'); li.className = 'file-row'; li.dataset.id = it.id;
     let after = '';
-    if (it.out) after = it.out.kept ? ' → 沒有變小，保留原檔' : ` → ${fmtSize(it.out.bytes.length)}（−${Math.round((1 - it.out.bytes.length / it.bytes.length) * 100)}%）`;
+    if (it.out) {
+      const o = it.out;
+      after = o.under ? ' → 已經在上限以內，保留原檔'
+        : o.kept ? ' → 沒有變小，保留原檔'
+        : ` → ${fmtSize(o.bytes.length)}（−${Math.round((1 - o.bytes.length / it.bytes.length) * 100)}%）`;
+      if (o.label && !o.kept) after += ` · ${o.label}`;
+      if (o.fit === false) after += ' · <span class="over">超過上限</span>';
+    }
     li.innerHTML = `<span class="doc-ico-sm" aria-hidden="true"></span>
       <div class="file-main"><div class="file-name"></div><div class="file-meta">${it.pages} 頁 · ${fmtSize(it.bytes.length)} · ${it.paper}${after}</div></div>
       <div class="row-btns"><button class="icon-btn danger" data-act="remove" aria-label="移除">${ICON.x}</button></div>`;
@@ -66,7 +88,11 @@ function setCompMode(m) {
   clearCompResults(); renderCompList();
 }
 function updateCompSpecs() {
-  const bw = comp.mode === 'raster' && $('#comp-color').value === 'bw';
+  const bw = comp.mode === 'raster' && $('#comp-color').value === 'bw', target = compTarget();
+  $('#comp-target-custom-wrap').hidden = $('#comp-target').value !== 'custom';
+  document.querySelector('#panel-compress .levels').classList.toggle('is-off', !!target);
+  $('#comp-target-note').hidden = !target;
+  $('#comp-target-note').textContent = target ? `會自動試壓幾次，找出不超過 ${fmtLimit(target)}、畫質最好的設定（上面的強度不使用）；比一般壓縮多花幾倍時間。` : '';
   document.querySelectorAll('#panel-compress .spec').forEach(s => { s.textContent = s.dataset[bw ? 'bw' : comp.mode === 'keep' ? 'keep' : 'raster']; });
   $('#comp-note').textContent = comp.mode === 'keep'
     ? '文字、表格和向量圖完全不動，仍可選取和搜尋；只把裡面的照片縮小、重新壓縮。照片多的檔案效果最好。'
@@ -77,9 +103,14 @@ $('#comp-m-keep').addEventListener('click', () => setCompMode('keep'));
 $('#comp-m-raster').addEventListener('click', () => setCompMode('raster'));
 document.querySelectorAll('input[name="level"]').forEach(r => r.addEventListener('change', () => { clearCompResults(); renderCompList(); }));
 $('#comp-color').addEventListener('change', () => { updateCompSpecs(); clearCompResults(); renderCompList(); });
+$('#comp-target').addEventListener('change', () => {
+  updateCompSpecs(); clearCompResults(); renderCompList();
+  if ($('#comp-target').value === 'custom') $('#comp-target-custom').focus();
+});
+$('#comp-target-custom').addEventListener('input', () => { updateCompSpecs(); clearCompResults(); renderCompList(); });
 
 function progress(i, n, unit = '頁') {
-  const f = comp.file, pre = f.n > 1 ? `第 ${f.i + 1} / ${f.n} 份 · ` : '';
+  const f = comp.file, pre = (f.n > 1 ? `第 ${f.i + 1} / ${f.n} 份 · ` : '') + (comp.attempt ? `第 ${comp.attempt} 次試壓 · ` : '');
   $('#comp-progress').hidden = false;
   $('#comp-bar').style.width = ((f.i + (n ? Math.min(i, n) / n : 1)) / Math.max(1, f.n) * 100) + '%';
   $('#comp-plabel').textContent = pre + (i < n ? `處理第 ${i + 1} / ${n} ${unit}` : (n ? `完成 ${n} ${unit}` : '完成'));
@@ -392,23 +423,50 @@ async function compressKeepText(bytes, lv, gray, check, signal) {
   return { bytes: await doc.save({ useObjectStreams: true }), changed, found: cands.length };
 }
 
+/* Binary search down the ladder for the first (best) setting whose result fits under the limit. Sizes shrink
+   (almost always) as the settings get stronger, so about log2(steps) + 1 tries are enough. */
+async function compressToTarget(bytes, target, color, check, signal) {
+  const keep = comp.mode === 'keep', gray = color !== 'color';
+  const ladder = keep ? TARGET_LADDER.keep : color === 'bw' ? TARGET_LADDER.bw : TARGET_LADDER.raster;
+  const run = st => keep ? compressKeepText(bytes, st, gray, check, signal)
+    : color === 'bw' ? compressBW(bytes, st.dpi, check) : compressRaster(bytes, st, gray, check);
+  let lo = 0, hi = ladder.length - 1, best = null, smallest = null;
+  comp.attempt = 0;
+  while (lo <= hi) {
+    check();
+    const mid = (lo + hi) >> 1; comp.attempt++;
+    const r = await run(ladder[mid]); r.label = ladder[mid].label;
+    if (!smallest || r.bytes.length < smallest.bytes.length) smallest = r;
+    if (r.bytes.length <= target) { best = r; hi = mid - 1; } else lo = mid + 1;
+    if (keep && !r.found) break; // no photos to shrink: every setting gives the same file
+  }
+  comp.attempt = 0;
+  return { ...(best || smallest), fit: !!best };
+}
+
 $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中…', async (check, signal) => {
   clearCompResults(); renderCompList();
   const lvKey = levelVal(), color = $('#comp-color').value, gray = color !== 'color', keep = comp.mode === 'keep';
-  comp.file.n = comp.items.length;
+  const target = compTarget();
+  comp.file.n = comp.items.length; comp.attempt = 0;
   let changed = 0;
-  for (let i = 0; i < comp.items.length; i++) {
-    check();
-    comp.file.i = i;
-    const it = comp.items[i];
-    const res = keep ? await compressKeepText(it.bytes, KEEP_LEVELS[lvKey], gray, check, signal)
-      : color === 'bw' ? await compressBW(it.bytes, BW_DPI[lvKey], check)
-      : await compressRaster(it.bytes, LEVELS[lvKey], gray, check);
-    const kept = res.bytes.length >= it.bytes.length;
-    it.out = { bytes: kept ? it.bytes : res.bytes, kept };
-    changed += res.changed || 0;
-    renderCompList();
-  }
+  try {
+    for (let i = 0; i < comp.items.length; i++) {
+      check();
+      comp.file.i = i;
+      const it = comp.items[i];
+      if (target && it.bytes.length <= target) { it.out = { bytes: it.bytes, kept: true, under: true }; renderCompList(); continue; }
+      const res = target ? await compressToTarget(it.bytes, target, color, check, signal)
+        : keep ? await compressKeepText(it.bytes, KEEP_LEVELS[lvKey], gray, check, signal)
+        : color === 'bw' ? await compressBW(it.bytes, BW_DPI[lvKey], check)
+        : await compressRaster(it.bytes, LEVELS[lvKey], gray, check);
+      const kept = res.bytes.length >= it.bytes.length;
+      it.out = { bytes: kept ? it.bytes : res.bytes, kept, label: res.label };
+      if (target) it.out.fit = it.out.bytes.length <= target;
+      changed += res.changed || 0;
+      renderCompList();
+    }
+  } finally { comp.attempt = 0; }
   comp.file.i = comp.items.length - 1; progress(1, 1);
   const before = comp.items.reduce((s, x) => s + x.bytes.length, 0), after = comp.items.reduce((s, x) => s + x.out.bytes.length, 0);
   const max = Math.max(before, after, 1);
@@ -416,11 +474,17 @@ $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中�
   $('#bar-after').style.width = (after / max * 100) + '%';
   $('#v-before').textContent = fmtSize(before); $('#v-after').textContent = fmtSize(after);
   const pct = Math.round((1 - after / before) * 100), multi = comp.items.length > 1;
-  const big = $('#comp-pct'), warn = $('#comp-warn'), keptN = comp.items.filter(x => x.out.kept).length;
+  const big = $('#comp-pct'), warn = $('#comp-warn');
+  const keptN = comp.items.filter(x => x.out.kept && !x.out.under).length, overN = comp.items.filter(x => x.out.fit === false).length;
   big.textContent = after < before ? `−${pct}%` : '±0%'; big.classList.toggle('worse', after >= before);
   $('#comp-pct-label').textContent = (after < before ? `省下 ${fmtSize(before - after)}` : '沒有變小') + (keep ? `，重新壓縮 ${changed} 張照片` : '');
-  warn.hidden = !keptN && !(keep && pct < 10);
-  warn.textContent = keptN
+  warn.hidden = !overN && !keptN && !(keep && pct < 10 && !target);
+  warn.textContent = overN
+    ? (multi ? `${overN} 份` : '這份檔案') + `壓到最小仍超過 ${fmtLimit(target)}。`
+      + (keep ? '改用「整頁轉成圖片」可以再小很多（文字會無法選取）。'
+        : color === 'color' ? '改用灰階或黑白會再小一些；或先用「拆分」分成幾份再上傳。'
+        : '可以先用「拆分」分成幾份再上傳。')
+    : keptN
     ? (multi ? `${keptN} 份壓縮後沒有變小，下載時會保留原檔。` : '壓縮後沒有變小，下載的會是原檔。')
       + (keep ? '如果是掃描檔，改用「整頁轉成圖片」會有明顯效果。' : '這類檔案主要是文字和向量圖形，改用「保留文字」或保留原檔即可。')
     : '這份檔案的照片不多，縮減有限。如果是掃描檔，改用「整頁轉成圖片」會小很多。';

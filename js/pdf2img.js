@@ -1,5 +1,6 @@
 'use strict';
-/* ================= PDF -> IMAGES ================= */
+/* ================= PDF -> IMAGES (or text) =================
+   Format 「文字 TXT」 pulls the text out of the chosen pages instead of drawing them: one .txt file for all of them. */
 const p2i = { name: '', pj: null, pages: [] };
 async function loadP2i(files) {
   const f = files[0];
@@ -52,20 +53,22 @@ function renderP2iCard(p) {
 }
 function p2iOpts() {
   const fmt = $('#p2i-fmt').value;
-  return { fmt, dpi: +$('#p2i-dpi').value, q: +$('#p2i-q').value, mime: fmt === 'png' ? 'image/png' : 'image/jpeg' };
+  return { fmt, dpi: +$('#p2i-dpi').value, q: +$('#p2i-q').value, mime: fmt === 'png' ? 'image/png' : fmt === 'txt' ? 'text/plain' : 'image/jpeg' };
 }
 function updateP2iSummary() {
   const sel = p2i.pages.filter(p => p.selected);
   const n = p2i.pages.length, { fmt, dpi } = p2iOpts();
   $('#p2i-stat').textContent = `${n} 頁 · 已選 ${sel.length}`;
   $('#p2i-selall').textContent = sel.length === n ? '取消全選' : '全選';
-  const first = sel.find(p => p.w);
+  const first = sel.find(p => p.w), txt = fmt === 'txt';
   const px = first ? ` · 每張約 ${Math.round(first.w * dpi / 72)} × ${Math.round(first.h * dpi / 72)} px` : '';
-  $('#p2i-summary').textContent = sel.length ? `${sel.length} 張 ${fmt.toUpperCase()}${px}` : '請至少選一頁';
+  $('#p2i-summary').textContent = !sel.length ? '請至少選一頁' : txt ? `${sel.length} 頁的文字 → 1 個 TXT` : `${sel.length} 張 ${fmt.toUpperCase()}${px}`;
   const go = $('#p2i-go');
   go.disabled = !sel.length;
-  go.textContent = sel.length > 1 ? `轉成 ${sel.length} 張圖片` : '轉成圖片';
+  go.textContent = txt ? '抽出文字' : sel.length > 1 ? `轉成 ${sel.length} 張圖片` : '轉成圖片';
+  $('#p2i-dpi-wrap').hidden = $('#p2i-q-wrap').hidden = txt;
   $('#p2i-q-wrap').style.opacity = fmt === 'png' ? .45 : 1; $('#p2i-q').disabled = fmt === 'png';
+  document.querySelectorAll('#p2i-grid [data-act="one"]').forEach(b => { b.title = txt ? '只抽出這一頁的文字' : '只下載這一頁'; });
 }
 ['#p2i-fmt', '#p2i-dpi', '#p2i-q'].forEach(s => $(s).addEventListener('change', updateP2iSummary));
 async function pageToBlob(index, o) {
@@ -81,6 +84,36 @@ async function pageToBlob(index, o) {
   pg.cleanup(); cv.width = cv.height = 0;
   return blob;
 }
+/* ---------- text ----------
+   pdf.js gives the text as runs, each with its position. Runs are taken in the order the file stores them (that
+   usually follows columns and reading order); a run whose baseline moves starts a new line, a wider gap within a line
+   becomes a space, and a larger step down leaves an empty line between paragraphs. */
+function runsToText(items, vp) {
+  let out = '', prev = null;
+  for (const it of items) {
+    if (!it.str || !it.transform) continue;
+    const t = pdfjsLib.Util.transform(vp.transform, it.transform);
+    const h = Math.hypot(t[2], t[3]) || 10, x = t[4], y = t[5], w = (it.width || 0) * vp.scale;
+    if (prev) {
+      const dy = y - prev.y, lh = Math.max(h, prev.h);
+      if (Math.abs(dy) > lh * .5 || x < prev.x - lh * 2) { // a new line
+        out = out.replace(/[ \t]+$/, '');
+        out += dy > lh * 1.9 ? '\n\n' : '\n';
+      } else if (x - prev.end > lh * .25 && !/\s$/.test(out) && !/^\s/.test(it.str)) out += ' ';
+    }
+    out += fixCjk(it.str);
+    prev = { x, y, h, end: x + w };
+  }
+  return out.replace(/[ \t]+\n/g, '\n').trim();
+}
+async function pageText(index) {
+  const pg = await p2i.pj.getPage(index + 1);
+  const vp = pg.getViewport({ scale: 1 });
+  const tc = await pg.getTextContent();
+  pg.cleanup();
+  return runsToText(tc.items, vp);
+}
+const NO_TEXT = '（這一頁沒有文字，可能是掃描的圖片）';
 const p2iFileName = (index, o) => `${baseName(p2i.name)}-${String(index + 1).padStart(String(p2i.pages.length).length, '0')}.${o.fmt}`;
 function p2iProgress(i, n) {
   $('#p2i-progress').hidden = false;
@@ -92,6 +125,7 @@ async function exportP2i(pages, btn) {
   const mini = btn.classList.contains('mini');
   await (mini ? busy(btn, '', () => go(() => {})) : runJob(btn, '轉換中…', go)).catch(err => toast('轉換失敗：' + err.message, 'err'));
   async function go(check) {
+    if (o.fmt === 'txt') return goText(check);
     if (pages.length === 1) {
       p2iProgress(0, 1);
       const blob = await pageToBlob(pages[0].index, o);
@@ -111,6 +145,26 @@ async function exportP2i(pages, btn) {
     p2iProgress(pages.length, pages.length);
     const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
     await deliver(new File([blob], `${baseName(p2i.name)}-${o.fmt}.zip`, { type: 'application/zip' }), 'zip', 'pdf2img');
+  }
+  async function goText(check) {
+    const parts = []; let empty = 0;
+    for (let i = 0; i < pages.length; i++) {
+      check();
+      p2iProgress(i, pages.length);
+      const t = await pageText(pages[i].index);
+      if (!t) empty++;
+      parts.push(pages.length > 1 ? `──── 第 ${pages[i].index + 1} 頁 ────\n\n${t || NO_TEXT}` : t);
+    }
+    p2iProgress(pages.length, pages.length);
+    if (empty === pages.length) {
+      toast(pages.length > 1 ? '這些頁面都沒有文字，可能是掃描檔（圖片），需要 OCR 才能辨識文字。' : '這一頁沒有文字，可能是掃描的圖片，需要 OCR 才能辨識文字。', 'err');
+      return;
+    }
+    if (empty) toast(`有 ${empty} 頁沒有文字（可能是掃描的圖片），其他頁已抽出`);
+    const name = pages.length === 1 && mini ? p2iFileName(pages[0].index, o) : `${baseName(p2i.name)}.txt`;
+    const file = new File(['\ufeff' + parts.join('\n\n\n')], name, { type: 'text/plain;charset=utf-8' }); // BOM: older Notepad and Excel read it as UTF-8
+    if (mini) { await saveFile(name, file); offerNext(file, 'text', 'pdf2img'); }
+    else await deliver(file, 'text', 'pdf2img');
   }
 }
 $('#p2i-grid').addEventListener('click', e => {
@@ -135,7 +189,7 @@ $('#p2i-selall').addEventListener('click', () => {
 });
 $('#p2i-go').addEventListener('click', e => exportP2i(p2i.pages.filter(p => p.selected), e.currentTarget));
 bindInput($('#p2i-input'), loadP2i);
-registerTarget('pdf', 'pdf2img', '轉成圖片', loadP2i);
+registerTarget('pdf', 'pdf2img', '轉成圖片／文字', loadP2i);
 acceptFiles($('#panel-pdf2img'), $('#p2i-drop'), loadP2i);
 $('#p2i-change').addEventListener('click', () => $('#p2i-input').click());
 $('#p2i-sample').addEventListener('click', async () => {

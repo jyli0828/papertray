@@ -2,7 +2,9 @@
 /* ================= SCAN: straighten a phone photo of a document =================
    Drag the four corners onto the paper's corners; the picture inside is pulled into a flat rectangle
    (perspective correction), then optionally cleaned up: shadows evened out, paper made white, grey or black & white.
-   Used from 「圖片轉 PDF」 (the 校正 button on each picture). The original file is kept so it can be adjusted again. */
+   Used from 「圖片轉 PDF」 (the 校正 button on each picture) and 「證件影印」. The original file is kept so it can be
+   adjusted again. openScan(it, done): done() runs after the picture was corrected or restored (default: redraw the
+   image list of 圖片轉 PDF). */
 const sc = { it: null, bmp: null, quad: null, rot: 0, scale: 1, view: 'edit', token: 0 };
 const scDlg = $('#sc-dialog'), scCanvas = $('#sc-canvas'), scSvg = $('#sc-svg');
 
@@ -184,13 +186,13 @@ function scanRender(bmp, quadN, mode, rot, maxLong) {
 }
 
 /* ---------- dialog ---------- */
-async function openScan(it) {
+async function openScan(it, done) {
   const token = ++sc.token;
   const src = it.scan ? it.scan.src : it.file;
   let bmp; try { bmp = await createImageBitmap(src); } catch (e) { toast('這張圖片無法讀取', 'err'); return; }
   if (token !== sc.token) { bmp.close && bmp.close(); return; }
   if (sc.bmp && sc.bmp.close) sc.bmp.close();
-  Object.assign(sc, { it, bmp, view: 'edit', rot: it.scan ? it.scan.rot : 0 });
+  Object.assign(sc, { it, bmp, view: 'edit', rot: it.scan ? it.scan.rot : 0, done: done || renderImgs });
   $('#sc-filter').value = it.scan ? it.scan.mode : ($('#sc-filter').dataset.last || 'enhance');
   sc.quad = it.scan ? it.scan.quad.map(p => p.slice()) : (detectQuad(bmp) || FULL_QUAD());
   $('#sc-reset').hidden = !it.scan;
@@ -280,7 +282,7 @@ $('#sc-reset').addEventListener('click', async () => {
   const isJpg = src.type === 'image/jpeg' || /\.jpe?g$/i.test(src.name), isPng = src.type === 'image/png' || /\.png$/i.test(src.name);
   replaceImgItem(it, src, bmp.width, bmp.height, isJpg && jpegOrientation(await src.arrayBuffer()) === 1 ? 'jpg' : isPng ? 'png' : 'other');
   bmp.close && bmp.close();
-  closeScan(); renderImgs(); toast('已還原成原圖');
+  const done = sc.done; closeScan(); done(); toast('已還原成原圖');
 });
 $('#sc-apply').addEventListener('click', e => busy(e.currentTarget, '處理中…', async () => {
   const it = sc.it; if (!it) return;
@@ -294,6 +296,6 @@ $('#sc-apply').addEventListener('click', e => busy(e.currentTarget, '處理中�
   const w = out.width, h = out.height; out.width = out.height = 0;
   replaceImgItem(it, file, w, h, png ? 'png' : 'jpg');
   it.scan = { src, quad: sc.quad.map(p => p.slice()), mode, rot: sc.rot };
-  closeScan(); renderImgs(); toast('已校正');
+  const done = sc.done; closeScan(); done(); toast('已校正');
 }).catch(err => toast('校正失敗：' + err.message, 'err')));
 window.addEventListener('resize', () => { if (scDlg.open) drawScan(); });

@@ -52,7 +52,7 @@ async function pageTextMap(pg) {
       if (dy > fh * .5) { text += '\n'; map.push(null); }
       else if (gap > fh * .15) { text += ' '; map.push(null); }
     }
-    for (let i = 0; i < it.str.length; i++) { text += it.str[i]; map.push([k, i]); }
+    for (let i = 0; i < it.str.length; i++) { text += fixCjk(it.str[i]); map.push([k, i]); }
     if (it.hasEOL) { text += '\n'; map.push(null); prev = null; } else prev = it;
   });
   return { text, map, items: tc.items };

@@ -1,6 +1,6 @@
 'use strict';
 /* ================= tabs ================= */
-const TABS = ['merge', 'split', 'edit', 'sign', 'form', 'redact', 'watermark', 'resize', 'compress', 'img2pdf', 'pdf2img', 'imgtool', 'unmark'];
+const TABS = ['merge', 'split', 'edit', 'sign', 'form', 'redact', 'watermark', 'resize', 'compress', 'img2pdf', 'idcard', 'pdf2img', 'imgtool', 'unmark'];
 function showTab(name) {
   if (!TABS.includes(name)) name = 'merge';
   TABS.forEach(t => {
@@ -10,6 +10,7 @@ function showTab(name) {
   });
   releaseCaches(name);
   if (name === 'unmark') requestAnimationFrame(fitUm);
+  if (name === 'idcard') requestAnimationFrame(drawIdPreview);
   if (name === 'watermark' && wm.pj) requestAnimationFrame(renderWmPage);
 }
 /* Leaving a tool frees what pdf.js cached for its files (decoded images, fonts); the files stay open and are

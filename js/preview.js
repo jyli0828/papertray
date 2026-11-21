@@ -2,14 +2,16 @@
 /* ================= PAGE PREVIEW =================
    Click a thumbnail to see the page large, or look at a finished result before downloading it.
    ← → (or the arrow buttons) step through pages, Esc closes.
-   get(i) → { page: pdf.js page, rotation, label } or { image: ImageBitmap, label }.
-   opts.download shows a 下載 button; opts.onClose runs when the preview closes (to free a result's resources). */
+   get(i) → { page: pdf.js page, rotation, label }, { image: ImageBitmap, label } or { text, label }.
+   opts.download shows a 下載 button, opts.copy a 複製全部 button; opts.onClose runs when the preview closes (to free a
+   result's resources). */
 const pv = { n: 0, i: 0, get: null, token: 0, task: null, opts: {} };
 const pvDlg = $('#pv-dialog');
 function openPreview(n, i, get, opts = {}) {
   if (pvDlg.open) closePreviewResources();
   Object.assign(pv, { n, i, get, opts });
   $('#pv-download').hidden = !opts.download;
+  $('#pv-copy').hidden = !opts.copy;
   if (!pvDlg.open) pvDlg.showModal();
   renderPreview();
 }
@@ -23,7 +25,9 @@ async function renderPreview() {
   try { info = await pv.get(pv.i); } catch (e) { return; }
   if (token !== pv.token || !info) return;
   if (info.label) $('#pv-title').textContent = info.label;
-  const stage = $('#pv-stage'), cv = $('#pv-canvas');
+  const stage = $('#pv-stage'), cv = $('#pv-canvas'), ta = $('#pv-text');
+  ta.hidden = info.text === undefined; cv.hidden = !ta.hidden;
+  if (!ta.hidden) { ta.value = info.text; ta.scrollTop = 0; return; }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const fit = (w, h) => Math.max(.05, Math.min((stage.clientWidth - 32) / w, (stage.clientHeight - 32) / h, 3));
   if (info.image) {
@@ -47,10 +51,11 @@ $('#pv-prev').addEventListener('click', () => stepPreview(-1));
 $('#pv-next').addEventListener('click', () => stepPreview(1));
 $('#pv-close').addEventListener('click', () => pvDlg.close());
 $('#pv-download').addEventListener('click', e => { if (pv.opts.download) busy(e.currentTarget, '準備中…', pv.opts.download); });
+$('#pv-copy').addEventListener('click', () => { if (pv.opts.copy) pv.opts.copy(); });
 /* The big picture (and a result's own decoded copy) is only needed while the preview is open. */
 function closePreviewResources() {
   pv.token++;
-  const cv = $('#pv-canvas'); cv.width = cv.height = 0;
+  const cv = $('#pv-canvas'); cv.width = cv.height = 0; $('#pv-text').value = '';
   const done = pv.opts.onClose; pv.opts = {};
   if (done) { try { done(); } catch (e) {} }
 }
@@ -58,6 +63,7 @@ pvDlg.addEventListener('close', closePreviewResources);
 pvDlg.addEventListener('cancel', closePreviewResources);
 $('#pv-close').addEventListener('click', closePreviewResources);
 pvDlg.addEventListener('keydown', e => {
+  if (e.target.id === 'pv-text') return; // arrow keys move the cursor in the text
   if (e.key === 'ArrowLeft') { e.preventDefault(); stepPreview(-1); }
   if (e.key === 'ArrowRight') { e.preventDefault(); stepPreview(1); }
 });
@@ -72,6 +78,11 @@ async function openResultPreview() {
   if (!lastResult) return;
   const { file, kind } = lastResult;
   const download = () => saveFile(file.name, file);
+  if (kind === 'text') {
+    const text = (await file.text()).replace(/^\ufeff/, '');
+    openPreview(1, 0, async () => ({ text, label: `${file.name} · ${text.replace(/\s/g, '').length} 字` }), { download, copy: () => copyText(text) });
+    return;
+  }
   if (kind === 'image') {
     const bmp = await createImageBitmap(file);
     openPreview(1, 0, async () => ({ image: bmp, label: `${file.name} · ${bmp.width} × ${bmp.height} px` }), { download, onClose: () => bmp.close && bmp.close() });
@@ -92,3 +103,11 @@ $('#auto-dl').addEventListener('change', e => {
   try { localStorage.setItem('papertray.autodl', autoDownload ? '1' : '0'); } catch (err) {}
   toast(autoDownload ? '完成後會直接下載' : '完成後會先開啟預覽，不會自動下載');
 });
+/* Copy to the clipboard; older browsers (or a page without clipboard permission) fall back to selecting the text. */
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); toast('已複製到剪貼簿'); return; } catch (e) {}
+  const ta = $('#pv-text');
+  if (!ta.hidden) { ta.focus(); ta.select(); }
+  try { if (document.execCommand('copy')) { toast('已複製到剪貼簿'); return; } } catch (e) {}
+  toast('無法自動複製，文字已選取，請按 Ctrl+C');
+}

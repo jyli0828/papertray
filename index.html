@@ -67,7 +67,11 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="9" height="9" rx="1.5"/><path d="m2 12 3-3 3 3M13.5 9.5H17m0 0-1.5-1.5M17 9.5 15.5 11"/><path d="M15 3h4l3 3v15h-9v-6"/></svg>
       <span>圖片轉 PDF</span>
     </button>
-    <button class="tab" role="tab" id="tab-pdf2img" aria-controls="panel-pdf2img" data-tab="pdf2img" title="每頁存成 JPG 或 PNG">
+    <button class="tab" role="tab" id="tab-idcard" aria-controls="panel-idcard" data-tab="idcard" title="身分證、健保卡正反面印在同一張 A4">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2h14v20H5z"/><rect x="7.5" y="4.5" width="9" height="6" rx="1"/><rect x="7.5" y="13.5" width="9" height="6" rx="1"/><circle cx="10" cy="7.5" r="1"/></svg>
+      <span>證件影印</span>
+    </button>
+    <button class="tab" role="tab" id="tab-pdf2img" aria-controls="panel-pdf2img" data-tab="pdf2img" title="每頁存成 JPG 或 PNG，或抽出文字存成 TXT">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h5l3 3v8H2z"/><path d="M11 17.5h3.5m0 0L13 16m1.5 1.5L13 19"/><rect x="15" y="12" width="7" height="9" rx="1.5"/><path d="m15 19 2-2 2 2 1-1 2 2"/></svg>
       <span>PDF 轉圖片</span>
     </button>
@@ -246,8 +250,25 @@
             <option value="bw">黑白（文字掃描檔最小）</option>
           </select>
         </label>
+        <label class="optfield" style="min-width:220px">大小上限
+          <select id="comp-target">
+            <option value="0" selected>不限（依上面的強度）</option>
+            <option value="0.5">500 KB 以下</option>
+            <option value="1">1 MB 以下</option>
+            <option value="2">2 MB 以下</option>
+            <option value="3">3 MB 以下</option>
+            <option value="5">5 MB 以下</option>
+            <option value="10">10 MB 以下</option>
+            <option value="20">20 MB 以下</option>
+            <option value="custom">自訂…</option>
+          </select>
+        </label>
+        <label class="optfield" id="comp-target-custom-wrap" style="min-width:140px" hidden>上限（MB）
+          <input type="number" id="comp-target-custom" min="0.05" step="0.1" value="2" inputmode="decimal">
+        </label>
       </div>
       <p class="note" id="comp-note"></p>
+      <p class="note" id="comp-target-note" hidden></p>
       <div class="footer-bar">
         <span class="summary" id="comp-hint">壓縮在你的裝置上進行，頁數多時需要一點時間。</span>
         <button class="btn primary" id="comp-go">開始壓縮</button>
@@ -319,11 +340,101 @@
     </div>
   </section>
 
+  <!-- ID CARD COPY -->
+  <section class="panel" id="panel-idcard" role="tabpanel" aria-labelledby="tab-idcard" hidden>
+    <div class="panel-head">
+      <h2>證件影印</h2>
+      <p>拍下證件正反面，自動裁切拉正，依實際大小排在同一張 A4，就像影印的一樣。</p>
+    </div>
+    <div class="id-layout">
+      <div class="id-controls">
+        <div class="id-slots">
+          <div class="id-slot" data-side="0">
+            <span class="id-slot-label">正面</span>
+            <label class="drop id-drop">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+              <span>拖到這裡或點一下選擇</span>
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif">
+            </label>
+            <div class="id-card" hidden>
+              <img alt="正面">
+              <div class="id-card-btns">
+                <button class="btn mini-btn" data-act="scan" title="調整四個角、旋轉">校正</button>
+                <button class="icon-btn danger" data-act="remove" aria-label="移除正面"></button>
+              </div>
+            </div>
+          </div>
+          <div class="id-slot" data-side="1">
+            <span class="id-slot-label">反面</span>
+            <label class="drop id-drop">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+              <span>拖到這裡或點一下選擇</span>
+              <input type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif">
+            </label>
+            <div class="id-card" hidden>
+              <img alt="反面">
+              <div class="id-card-btns">
+                <button class="btn mini-btn" data-act="scan" title="調整四個角、旋轉">校正</button>
+                <button class="icon-btn danger" data-act="remove" aria-label="移除反面"></button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <p class="hint">把證件放在深色桌面上拍，自動裁切最準。也可以一次拖入兩張，或按 Ctrl+V 貼上。<button class="link-btn" id="id-sample">用範例試試</button></p>
+        <div class="optgrid">
+          <label class="optfield">證件種類
+            <select id="id-type">
+              <option value="card" selected>卡片：身分證、健保卡、駕照、居留證（85.6 × 54 mm）</option>
+              <option value="passport">護照資料頁（125 × 88 mm）</option>
+            </select>
+          </label>
+          <label class="optfield">大小
+            <select id="id-scale">
+              <option value="1" selected>實際大小</option>
+              <option value="1.5">放大 150%</option>
+              <option value="2">放大 200%</option>
+            </select>
+          </label>
+          <label class="optfield">排列
+            <select id="id-arrange">
+              <option value="stack" selected>上下</option>
+              <option value="side">左右</option>
+            </select>
+          </label>
+          <label class="optfield">色彩
+            <select id="id-color">
+              <option value="color" selected>彩色</option>
+              <option value="gray">灰階（像影印）</option>
+            </select>
+          </label>
+        </div>
+        <label class="optfield">註記文字（壓在證件上，防止影本被挪用）
+          <input type="text" id="id-note" placeholder="例如：僅供申請 OO 銀行開戶使用，他用無效" spellcheck="false">
+        </label>
+        <button class="link-btn" id="id-note-date" style="align-self:flex-start">加上今天日期</button>
+        <div class="opts">
+          <label><input type="checkbox" id="id-border" checked>外框線</label>
+        </div>
+      </div>
+      <div class="wm-preview">
+        <div class="wm-page"><canvas id="id-canvas"></canvas></div>
+        <span class="hint" id="id-prev-hint">A4 預覽</span>
+      </div>
+    </div>
+    <div class="footer-bar">
+      <span class="summary" id="id-summary"></span>
+      <div class="go">
+        <label class="name-field">檔名 <input type="text" id="id-name" value="證件影本.pdf" spellcheck="false"></label>
+        <button class="btn primary" id="id-go" disabled>產生 PDF</button>
+      </div>
+    </div>
+  </section>
+
   <!-- PDF -> IMAGES -->
   <section class="panel" id="panel-pdf2img" role="tabpanel" aria-labelledby="tab-pdf2img" hidden>
     <div class="panel-head">
       <h2>PDF 轉圖片</h2>
-      <p>每一頁存成一張圖片；選了多頁會打包成 ZIP。</p>
+      <p>每一頁存成一張圖片，選了多頁會打包成 ZIP；格式選「文字 TXT」可以把文字抽出來。</p>
     </div>
     <div id="p2i-empty">
       <label class="drop" id="p2i-drop">
@@ -348,9 +459,10 @@
           <select id="p2i-fmt">
             <option value="jpg" selected>JPG（檔案小，適合照片）</option>
             <option value="png">PNG（無損，適合文字與線條）</option>
+            <option value="txt">文字 TXT（抽出文字，可複製）</option>
           </select>
         </label>
-        <label class="optfield">解析度
+        <label class="optfield" id="p2i-dpi-wrap">解析度
           <select id="p2i-dpi">
             <option value="72">72 dpi（螢幕預覽）</option>
             <option value="150" selected>150 dpi（一般使用）</option>
@@ -969,12 +1081,13 @@
     <span class="mono" id="pv-title">第 1 頁</span>
     <span class="pv-hint">← → 換頁　Esc 關閉</span>
     <span style="flex:1"></span>
+    <button class="btn" id="pv-copy" hidden>複製全部</button>
     <button class="btn primary" id="pv-download" hidden>下載</button>
     <button class="icon-btn" id="pv-prev" aria-label="上一頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 6-6 6 6 6"/></svg></button>
     <button class="icon-btn" id="pv-next" aria-label="下一頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg></button>
     <button class="icon-btn" id="pv-close" aria-label="關閉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
   </div>
-  <div class="pv-stage" id="pv-stage"><canvas id="pv-canvas"></canvas></div>
+  <div class="pv-stage" id="pv-stage"><canvas id="pv-canvas"></canvas><textarea class="pv-text" id="pv-text" readonly hidden aria-label="抽出的文字"></textarea></div>
 </dialog>
 <div class="handoff" id="handoff" role="region" aria-label="處理結果" hidden>
   <div class="handoff-text"><span class="handoff-label">完成</span><span class="handoff-name" id="handoff-name"></span></div>
@@ -1003,6 +1116,7 @@
 <script src="js/compress.js"></script>
 <script src="js/img2pdf.js"></script>
 <script src="js/scan.js"></script>
+<script src="js/idcard.js"></script>
 <script src="js/pdf2img.js"></script>
 <script src="js/imgtool.js"></script>
 <script src="js/unmark.js"></script>
