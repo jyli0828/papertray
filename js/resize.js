@@ -137,3 +137,7 @@ $('#rs-sample').addEventListener('click', async () => {
   }
   loadResize([pdfFile(await doc.save(), 'mixed-sizes.pdf')]);
 });
+registerHolder('resize', () => rs.bytes ? rs.bytes.length : 0, () => {
+  Object.assign(rs, { name: '', bytes: null, n: 0 });
+  $('#rs-empty').hidden = false; $('#rs-work').hidden = true;
+});

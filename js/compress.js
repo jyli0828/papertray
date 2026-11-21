@@ -507,3 +507,5 @@ $('#comp-save').addEventListener('click', e => busy(e.currentTarget, '準備中�
   await saveFile(name, await zip.generateAsync({ type: 'blob', compression: 'STORE' }));
 }).catch(err => toast('下載失敗：' + err.message, 'err')));
 setCompMode('keep');
+registerHolder('compress', () => comp.items.reduce((n, it) => n + it.bytes.length + (it.out && it.out.bytes !== it.bytes ? it.out.bytes.length : 0), 0),
+  () => { comp.items = []; clearCompResults(); renderCompList(); });

@@ -520,6 +520,43 @@ async function imagesToPdf(files, name) {
 const RADICAL_FIX = { '⺠': '民', '⻄': '西', '⻑': '長', '⻝': '食', '⻣': '骨', '⻤': '鬼', '⺟': '母', '⻘': '青' };
 const fixCjk = s => s.replace(/[⺀-⿟]/g, ch => RADICAL_FIX[ch] || ch.normalize('NFKC'));
 
+/* ---------- memory held by tools that are not on screen ----------
+   Every tool keeps its files until they are replaced or cleared, so after a few big files in different tools the
+   page can hold hundreds of MB. Each tool registers how much it holds (roughly: file bytes plus decoded pictures)
+   and how to let go of it. Switching tabs shows a notice when the other tools hold a lot together; 釋放 clears them.
+   The editor's files belong to 編輯、簽名、遮蔽個資 alike, so those three count as one place. */
+const HOLDERS = [];
+function registerHolder(tab, size, release) { HOLDERS.push({ tab, size, release }); }
+const MEM_NOTE_MIN = 50 * 1048576;
+const memGroup = t => ['edit', 'sign', 'redact'].includes(t) ? 'edit' : t;
+let memShownFor = null, memDismissedAt = 0;
+function heldElsewhere(active) {
+  return HOLDERS.filter(h => memGroup(h.tab) !== memGroup(active) && !$('#panel-' + h.tab).querySelector('.is-running'))
+    .map(h => { let bytes = 0; try { bytes = h.size() || 0; } catch (e) {} return { ...h, bytes }; })
+    .filter(h => h.bytes > 0).sort((a, b) => b.bytes - a.bytes);
+}
+function checkMemory(active) {
+  const note = $('#mem-note'), list = heldElsewhere(active), total = list.reduce((n, h) => n + h.bytes, 0);
+  // After 「不用」 the notice stays away until the other tools hold clearly more than they did then.
+  if (total < MEM_NOTE_MIN || total < memDismissedAt + 20 * 1048576) { note.hidden = true; memShownFor = null; return; }
+  memShownFor = active;
+  const mb = b => b < 1048576 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${+(b / 1048576).toFixed(b < 10485760 ? 1 : 0)} MB`;
+  const names = list.slice(0, 3).map(h => `${$('#tab-' + h.tab + ' span').textContent} ${mb(h.bytes)}`).join('、') + (list.length > 3 ? ` 等 ${list.length} 個工具` : '');
+  $('#mem-text').textContent = `其他工具還留著檔案（${names}，共約 ${mb(total)}）。不再需要的話可以釋放，電腦或手機會順一些；那些工具會回到空白狀態。`;
+  note.hidden = false;
+}
+$('#mem-free').addEventListener('click', () => {
+  const list = heldElsewhere(memShownFor), total = list.reduce((n, h) => n + h.bytes, 0);
+  for (const h of list) { try { h.release(); } catch (e) {} }
+  $('#mem-note').hidden = true; memDismissedAt = 0;
+  toast(`已釋放約 ${fmtSize(total)}，${list.length} 個工具已清空`);
+});
+$('#mem-close').addEventListener('click', () => {
+  memDismissedAt = heldElsewhere(memShownFor).reduce((n, h) => n + h.bytes, 0);
+  $('#mem-note').hidden = true;
+});
+const canvasBytes = sel => [...document.querySelectorAll(sel)].reduce((n, c) => n + c.width * c.height * 4, 0);
+
 /* ================= shared: page ranges ================= */
 function parseRanges(text, n) {
   const toks = String(text || '').split(/[,，、;；\s]+/).filter(Boolean);

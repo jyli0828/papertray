@@ -75,14 +75,14 @@ async function loadEditFiles(files, onFirst, insertAt) {
       catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); continue; }
     }
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 或圖片`, 'err'); continue; }
-    const { bytes, owned } = await fileBytes(f);
+    const { bytes, owned } = await fileBytes(f), size = bytes.length; // read now: pdf.js may take the bytes over
     if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); continue; }
     // pdf.js keeps the only copy of the file; export asks it for the bytes back (pj.getData()).
     let pj;
     try { pj = await openPdfjs(bytes, owned); }
     catch (e) { toast(loadErr(f.name, e), 'err'); continue; }
     const docId = uid();
-    edit.docs[docId] = { name: f.name, pj };
+    edit.docs[docId] = { name: f.name, pj, size };
     if (!edit.pages.length) { $('#edit-name').value = baseName(f.name) + '-編輯.pdf'; fillDocInfo(pj); }
     const fresh = [];
     for (let i = 0; i < pj.numPages; i++) fresh.push({ id: uid(), docId, index: i, baseRot: 0, rot: 0, annots: [], selected: false, view: null, thumb: null, tw: 1, th: 1 });
@@ -226,10 +226,14 @@ $('#edit-clear').addEventListener('click', e => {
   const b = e.currentTarget;
   if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = '再按一次確認清空'; setTimeout(() => { b.dataset.armed = ''; b.textContent = '清空重來'; }, 3000); return; }
   b.dataset.armed = ''; b.textContent = '清空重來';
+  clearEdit();
+});
+function clearEdit() {
   Object.values(edit.docs).forEach(d => d.pj.destroy()); releaseThumbs(Object.values(edit.meta));
   edit.docs = {}; edit.pages = []; edit.meta = {}; editHist.undo = []; editHist.redo = []; renderEdit();
   MD_FIELDS.forEach(k => { $('#md-' + k).value = ''; });
-});
+}
+registerHolder('edit', () => Object.values(edit.docs).reduce((n, d) => n + (d.size || 0), 0), clearEdit);
 
 /* ---------- export options: page numbers, header and footer, document info ---------- */
 const MD_FIELDS = ['title', 'author', 'subject', 'keywords'];

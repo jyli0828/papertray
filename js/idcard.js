@@ -258,3 +258,5 @@ $('#id-sample').addEventListener('click', async () => {
   await addIdFiles(files);
 });
 renderIdSides();
+registerHolder('idcard', () => idc.sides.reduce((n, it) => n + (it ? it.size + (it.scan ? it.scan.src.size : 0) + (it.bmp ? it.bmp.width * it.bmp.height * 4 : 0) : 0), 0),
+  () => { dropIdSide(0); dropIdSide(1); renderIdSides(); });

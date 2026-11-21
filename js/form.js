@@ -9,13 +9,13 @@ const ff = { name: '', pj: null, fields: [], vals: new Map(), token: 0 };
 async function loadForm(files) {
   const f = files[0];
   if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const { bytes, owned } = await fileBytes(f);
+  const { bytes, owned } = await fileBytes(f), size = bytes.length; // read now: pdf.js may take the bytes over
   if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); return; }
   let pj;
   try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (ff.pj) ff.pj.destroy();
   const token = ++ff.token;
-  Object.assign(ff, { name: f.name, pj, fields: [], vals: new Map() });
+  Object.assign(ff, { name: f.name, pj, fields: [], vals: new Map(), size });
   $('#ff-name').value = baseName(f.name) + '-已填.pdf';
   $('#ff-fname').textContent = f.name;
   $('#ff-empty').hidden = true; $('#ff-work').hidden = false;
@@ -279,4 +279,11 @@ $('#ff-sample').addEventListener('click', async () => {
   const notes = form.createTextField('notes'); notes.enableMultiline(); notes.addToPage(p, { x: 170, y: 290, width: 370, height: 74, ...box }); notes.setFontSize(11);
   p.drawText('Signature: ______________________     Date: ____________', { x: 50, y: 200, size: 12, font, color: soft });
   loadForm([pdfFile(await doc.save(), 'membership-form.pdf')]);
+});
+registerHolder('form', () => ff.pj ? ff.size + canvasBytes('#ff-pages canvas') : 0, () => {
+  ff.token++; ff.pj.destroy();
+  const box = $('#ff-pages'); box.querySelectorAll('canvas').forEach(c => { c.width = c.height = 0; });
+  forgetCards(box); box.innerHTML = '';
+  Object.assign(ff, { name: '', pj: null, fields: [], vals: new Map(), size: 0 });
+  $('#ff-empty').hidden = false; $('#ff-work').hidden = true;
 });

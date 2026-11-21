@@ -100,3 +100,5 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   await deliver(pdfFile(bytes, name), 'pdf', 'merge');
 }).catch(err => toast('合併失敗：' + err.message, 'err')));
 registerTarget('pdf', 'merge', '合併', f => addMergeFiles(f));
+registerHolder('merge', () => merge.items.reduce((n, it) => n + (it.sample ? 0 : it.size), 0),
+  () => { merge.items = []; renderMerge(); });

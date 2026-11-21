@@ -104,3 +104,6 @@ $('#it-sample').addEventListener('click', async () => {
   }
   addImgTool(files);
 });
+registerHolder('imgtool', () => itool.items.reduce((n, it) => n + it.size + (it.out ? it.out.size : 0), 0), () => {
+  itool.items.forEach(it => URL.revokeObjectURL(it.url)); itool.items = []; renderImgTool();
+});

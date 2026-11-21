@@ -10,7 +10,7 @@ async function loadP2i(files) {
   try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (p2i.pj) p2i.pj.destroy();
   releaseThumbs(p2i.pages);
-  p2i.name = f.name; p2i.pj = pj;
+  p2i.name = f.name; p2i.pj = pj; p2i.size = size;
   p2i.pages = Array.from({ length: pj.numPages }, (_, i) => ({ id: uid(), index: i, selected: true, thumb: null, tw: 1, th: 1, w: 0, h: 0 }));
   $('#p2i-fname').textContent = f.name;
   $('#p2i-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)}`;
@@ -194,4 +194,10 @@ acceptFiles($('#panel-pdf2img'), $('#p2i-drop'), loadP2i);
 $('#p2i-change').addEventListener('click', () => $('#p2i-input').click());
 $('#p2i-sample').addEventListener('click', async () => {
   loadP2i([asFile(await makeSample('Quarterly Report', 3, [.04, .48, .42]), 'quarterly-report.pdf')]);
+});
+registerHolder('pdf2img', () => p2i.pj ? p2i.size : 0, () => {
+  p2i.pj.destroy(); releaseThumbs(p2i.pages);
+  forgetCards($('#p2i-grid')); $('#p2i-grid').innerHTML = '';
+  Object.assign(p2i, { name: '', pj: null, pages: [], size: 0 });
+  $('#p2i-empty').hidden = false; $('#p2i-work').hidden = true;
 });

@@ -125,3 +125,6 @@ $('#img-go').addEventListener('click', e => runJob(e.currentTarget, '轉換中�
   const name = ensurePdf($('#img-name').value);
   await deliver(pdfFile(bytes, name), 'pdf', 'img2pdf');
 }).catch(err => toast('轉換失敗：' + err.message, 'err')));
+registerHolder('img2pdf', () => imgs.items.reduce((n, it) => n + it.size + (it.scan ? it.scan.src.size : 0), 0), () => {
+  imgs.items.forEach(it => URL.revokeObjectURL(it.url)); imgs.items = []; renderImgs();
+});

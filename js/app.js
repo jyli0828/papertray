@@ -9,6 +9,7 @@ function showTab(name) {
     $('#panel-' + t).hidden = t !== name;
   });
   releaseCaches(name);
+  checkMemory(name);
   if (name === 'unmark') requestAnimationFrame(fitUm);
   if (name === 'idcard') requestAnimationFrame(drawIdPreview);
   if (name === 'watermark' && wm.pj) requestAnimationFrame(renderWmPage);

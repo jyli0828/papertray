@@ -17,7 +17,7 @@ async function loadSplit(files) {
     const vp = (await pj.getPage(i + 1)).getViewport({ scale: 1 });
     pages.push({ id: uid(), index: i, thumb: null, tw: 1, th: 1, w: vp.width, h: vp.height });
   }
-  Object.assign(split, { name: f.name, pj, pages });
+  Object.assign(split, { name: f.name, pj, pages, size });
   $('#split-fname').textContent = f.name;
   $('#split-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)}`;
   const half = Math.ceil(pj.numPages / 2);
@@ -100,3 +100,9 @@ acceptFiles($('#panel-split'), $('#split-drop'), loadSplit);
 $('#split-change').addEventListener('click', () => $('#split-input').click());
 registerTarget('pdf', 'split', '拆分', loadSplit);
 $('#split-sample').addEventListener('click', async () => loadSplit([asFile(await makeSample('Quarterly Report', 6, [.04, .48, .42]), 'quarterly-report.pdf')]));
+registerHolder('split', () => split.pj ? split.size : 0, () => {
+  split.pj.destroy(); releaseThumbs(split.pages);
+  forgetCards($('#split-grid')); $('#split-grid').innerHTML = '';
+  Object.assign(split, { name: '', pj: null, pages: [], size: 0 });
+  $('#split-empty').hidden = false; $('#split-work').hidden = true;
+});

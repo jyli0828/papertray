@@ -9,7 +9,7 @@ async function loadWm(files) {
   let pj;
   try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (wm.pj) wm.pj.destroy();
-  Object.assign(wm, { name: f.name, pj, n: pj.numPages, cur: 0 });
+  Object.assign(wm, { name: f.name, pj, n: pj.numPages, cur: 0, size });
   $('#wm-fname').textContent = f.name;
   $('#wm-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)}`;
   $('#wm-name').value = baseName(f.name) + '-浮水印.pdf';
@@ -186,4 +186,10 @@ let wmResizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(wmResizeTimer);
   wmResizeTimer = setTimeout(() => { if (wm.pj && !$('#panel-watermark').hidden) renderWmPage(); }, 150);
+});
+registerHolder('watermark', () => wm.pj ? wm.size + canvasBytes('#wm-canvas, #wm-over') : 0, () => {
+  wm.renderToken = (wm.renderToken || 0) + 1; wm.pj.destroy();
+  for (const c of [$('#wm-canvas'), $('#wm-over')]) c.width = c.height = 0;
+  Object.assign(wm, { name: '', pj: null, n: 0, cur: 0, size: 0 });
+  $('#wm-empty').hidden = false; $('#wm-work').hidden = true;
 });

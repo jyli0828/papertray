@@ -226,3 +226,11 @@ $('#um-sample').addEventListener('click', async () => {
   const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .92));
   loadUm([new File([blob], 'landscape.jpg', { type: 'image/jpeg' })]);
 });
+registerHolder('unmark', () => um.w ? um.w * um.h * 4 + umMask.width * umMask.height * 4 + umOrig.width * umOrig.height * 4
+  + um.history.reduce((n, h) => n + h.data.data.length, 0) : 0, () => {
+  um.token = (um.token || 0) + 1;
+  for (const c of [umImg, umMask, umOrig]) c.width = c.height = 0;
+  Object.assign(um, { name: '', w: 0, h: 0, history: [], file: null, origReady: false });
+  updateUmButtons();
+  $('#um-empty').hidden = false; $('#um-work').hidden = true;
+});
