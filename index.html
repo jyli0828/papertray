@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>紙匣</title>
-<meta name="description" content="紙匣：合併、拆分、編輯、簽名、壓縮 PDF，圖片與 PDF 互轉。檔案只在你的瀏覽器裡處理。">
+<meta name="description" content="紙匣：合併、拆分、編輯、簽名、填寫 PDF 表單、壓縮 PDF，圖片與 PDF 互轉。檔案只在你的瀏覽器裡處理。">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,7 +18,7 @@
     <img class="brand-mark" src="icon.svg" alt="" width="44" height="44">
     <div class="brand-text">
       <h1>紙匣</h1>
-      <p>PDF 與圖片的隨手工具：合併、拆分、編輯、簽名、遮蔽個資、加浮水印、調整尺寸、壓縮，圖片與 PDF 互轉。</p>
+      <p>PDF 與圖片的隨手工具：合併、拆分、編輯、簽名、填表單、遮蔽個資、加浮水印、調整尺寸、壓縮，圖片與 PDF 互轉。</p>
     </div>
     <div class="brand-side">
       <span class="privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>檔案只在你的瀏覽器裡處理，不會上傳</span>
@@ -42,6 +42,10 @@
     <button class="tab" role="tab" id="tab-sign" aria-controls="panel-sign" data-tab="sign" title="在 PDF 上簽名">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17c2-3 3.5-6 5-6s.5 5 2 5 2.5-3 4-3 1 2 2.5 2"/><path d="M3 21h18"/><path d="m15 4 3 3-6 6H9v-3z"/></svg>
       <span>簽名</span>
+    </button>
+    <button class="tab" role="tab" id="tab-form" aria-controls="panel-form" data-tab="form" title="填寫 PDF 表單欄位">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><rect x="7" y="7" width="10" height="3" rx=".6"/><path d="m7.5 15 1.5 1.5 3-3M14 15.5h3"/></svg>
+      <span>填表單</span>
     </button>
     <button class="tab" role="tab" id="tab-redact" aria-controls="panel-redact" data-tab="redact" title="塗黑並真正刪除個人資料">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"/><rect x="7.5" y="9" width="9" height="3.2" rx=".6" fill="currentColor"/><path d="M8 16h8"/></svg>
@@ -85,8 +89,8 @@
     </div>
     <label class="drop compact" id="merge-drop">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-      <span><strong>加入 PDF 檔案</strong>　拖到這裡，或點一下選擇（可多選）</span>
-      <input type="file" id="merge-input" accept="application/pdf,.pdf" multiple>
+      <span><strong>加入 PDF 或圖片</strong>　拖到這裡、點一下選擇（可多選），或按 Ctrl+V 貼上；圖片會變成一頁 A4</span>
+      <input type="file" id="merge-input" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple>
     </label>
     <div class="sample-note" id="merge-sample-note" hidden>
       <span class="chip">範例</span><span>目前列出的是兩份範例檔，加入你自己的檔案時會自動移除。</span>
@@ -112,8 +116,8 @@
       <label class="drop" id="edit-drop">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
         <strong>把 PDF 拖到這裡，或點一下選擇</strong>
-        <span>可以一次放入多份，頁面會依序排在一起</span>
-        <input type="file" id="edit-input" accept="application/pdf,.pdf" multiple>
+        <span>可以一次放入多份，頁面會依序排在一起；圖片會變成一頁 A4</span>
+        <input type="file" id="edit-input" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple>
       </label>
       <p class="hint" style="margin-top:10px">沒有檔案在手邊？<button class="link-btn" id="edit-sample">用範例檔試試</button></p>
     </div>
@@ -122,19 +126,75 @@
         <button class="btn" id="edit-undo" disabled title="復原（Ctrl+Z）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>復原</button>
         <button class="btn" id="edit-redo" disabled title="重做（Ctrl+Y）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>重做</button>
         <span class="sep"></span>
-        <label class="btn add-label" title="插入另一份 PDF 的全部頁面"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>插入 PDF<input type="file" id="edit-input-more" accept="application/pdf,.pdf" multiple></label>
+        <label class="btn add-label" title="插入另一份 PDF 的全部頁面，或把圖片插入成一頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>插入 PDF<input type="file" id="edit-input-more" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple></label>
         <button class="btn" id="edit-blank" title="插入一張空白頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M12 11v6M9 14h6"/></svg>空白頁</button>
         <span class="hint" id="edit-insert-hint">插入到最後</span>
         <span class="sep"></span>
         <button class="btn" id="edit-selall">全選</button>
         <button class="btn" id="edit-rot-sel" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>旋轉選取</button>
         <button class="btn danger" id="edit-del-sel" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>刪除選取</button>
-        <span class="sep"></span>
-        <label class="check"><input type="checkbox" id="edit-numbers"> 加上頁碼</label>
         <span class="stat mono" id="edit-stat"></span>
       </div>
       <p class="hint keys" id="edit-keys"><kbd>Delete</kbd> 刪除　<kbd>R</kbd> 旋轉（<kbd>Shift</kbd>+<kbd>R</kbd> 反向）　<kbd>D</kbd> 複製　<kbd>←</kbd><kbd>→</kbd> 移動　<kbd>Ctrl</kbd>+<kbd>A</kbd> 全選　<kbd>Esc</kbd> 取消選取　<kbd>Ctrl</kbd>+<kbd>Z</kbd> 復原</p>
       <div class="page-grid" id="edit-grid" style="margin-top:12px"></div>
+      <details class="opts-box" id="edit-opts">
+        <summary>頁碼、頁首頁尾、文件資訊<span class="opts-sum" id="edit-opts-sum"></span></summary>
+        <div class="opts-body">
+          <fieldset class="opts-sec">
+            <legend><label class="check"><input type="checkbox" id="edit-numbers"> 加上頁碼</label></legend>
+            <div class="optgrid">
+              <label class="optfield">格式
+                <select id="pn-fmt">
+                  <option value="n">1</option>
+                  <option value="nN" selected>1 / 10</option>
+                  <option value="zh">第 1 頁</option>
+                  <option value="zhN">第 1 頁，共 10 頁</option>
+                  <option value="dash">- 1 -</option>
+                  <option value="en">Page 1 of 10</option>
+                </select>
+              </label>
+              <label class="optfield">位置
+                <select id="pn-pos">
+                  <option value="bc" selected>下方置中</option>
+                  <option value="br">右下</option>
+                  <option value="bl">左下</option>
+                  <option value="tc">上方置中</option>
+                  <option value="tr">右上</option>
+                  <option value="tl">左上</option>
+                </select>
+              </label>
+              <label class="optfield">起始數字<input type="number" id="pn-start" value="1" min="0" max="99999"></label>
+              <label class="optfield">文字大小 (pt)<input type="number" id="pn-size" value="10" min="6" max="36"></label>
+            </div>
+            <label class="check"><input type="checkbox" id="pn-skip"> 第 1 頁（封面）不加頁碼，從第 2 頁開始數</label>
+          </fieldset>
+          <fieldset class="opts-sec">
+            <legend>頁首與頁尾文字</legend>
+            <div class="optgrid hf-grid">
+              <label class="optfield">頁首<input type="text" id="hf-head" placeholder="例如：機密文件" spellcheck="false"></label>
+              <label class="optfield">位置
+                <select id="hf-head-pos"><option value="l">靠左</option><option value="c" selected>置中</option><option value="r">靠右</option></select>
+              </label>
+              <label class="optfield">頁尾<input type="text" id="hf-foot" placeholder="例如：{檔名}　{日期}" spellcheck="false"></label>
+              <label class="optfield">位置
+                <select id="hf-foot-pos"><option value="l" selected>靠左</option><option value="c">置中</option><option value="r">靠右</option></select>
+              </label>
+            </div>
+            <p class="hint">可以用 <span class="mono">{頁}</span>（第幾頁）、<span class="mono">{總頁}</span>、<span class="mono">{日期}</span>、<span class="mono">{檔名}</span>。文字大小和頁碼相同；和頁碼放在同一邊時，記得錯開左右位置。</p>
+          </fieldset>
+          <fieldset class="opts-sec">
+            <legend>文件資訊</legend>
+            <div class="optgrid">
+              <label class="optfield">標題<input type="text" id="md-title" spellcheck="false"></label>
+              <label class="optfield">作者<input type="text" id="md-author" spellcheck="false"></label>
+              <label class="optfield">主旨<input type="text" id="md-subject" spellcheck="false"></label>
+              <label class="optfield">關鍵字<input type="text" id="md-keywords" placeholder="用逗號隔開" spellcheck="false"></label>
+            </div>
+            <label class="check"><input type="checkbox" id="md-strip"> 不記錄建立程式與日期</label>
+            <p class="hint">放入第一份檔案時會帶入它原本的資訊；欄位留空就不寫入。標題會顯示在 PDF 閱讀器的視窗上。</p>
+          </fieldset>
+        </div>
+      </details>
       <div class="footer-bar" style="margin-top:18px">
         <button class="btn ghost danger" id="edit-clear">清空重來</button>
         <div class="go">
@@ -221,11 +281,12 @@
     </div>
     <label class="drop compact" id="img-drop">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-      <span><strong>加入圖片</strong>　JPG、PNG、WebP，拖到這裡或點一下選擇（可多選）</span>
-      <input type="file" id="img-input" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,.jpg,.jpeg,.png,.webp" multiple>
+      <span><strong>加入圖片</strong>　JPG、PNG、WebP、HEIC，拖到這裡、點一下選擇（可多選），或按 Ctrl+V 貼上</span>
+      <input type="file" id="img-input" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple>
     </label>
     <ul class="file-list" id="img-list"></ul>
     <p class="hint" id="img-empty">還沒有圖片。沒有圖片在手邊？<button class="link-btn" id="img-sample">用範例圖片試試</button></p>
+    <p class="hint">用手機翻拍的文件，按該張的「校正」可以拉正歪斜、去掉陰影，變得像掃描的一樣。</p>
     <div class="optgrid">
       <label class="optfield">頁面大小
         <select id="img-size">
@@ -391,6 +452,44 @@
     </div>
   </section>
 
+  <!-- FILL FORM -->
+  <section class="panel" id="panel-form" role="tabpanel" aria-labelledby="tab-form" hidden>
+    <div class="panel-head">
+      <h2>填寫 PDF 表單</h2>
+      <p>直接在欄位上打字、勾選、選擇，完成後匯出。</p>
+    </div>
+    <div id="ff-empty">
+      <label class="drop" id="ff-drop">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        <strong>把可填寫的 PDF 拖到這裡，或點一下選擇</strong>
+        <span>政府機關、學校、銀行提供的申請表常有可填寫欄位</span>
+        <input type="file" id="ff-input" accept="application/pdf,.pdf">
+      </label>
+      <p class="hint" style="margin-top:10px">沒有檔案在手邊？<button class="link-btn" id="ff-sample">用範例表單試試</button></p>
+    </div>
+    <div id="ff-work" hidden style="display:flex;flex-direction:column;gap:16px">
+      <div class="doc-card">
+        <svg class="doc-ico" viewBox="0 0 40 48" fill="none" aria-hidden="true"><path d="M4 3h22l10 10v32H4z" fill="currentColor" opacity=".14"/><path d="M4 3h22l10 10v32H4z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M26 3v10h10" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+        <div style="min-width:0">
+          <div class="file-name" id="ff-fname"></div>
+          <div class="file-meta" id="ff-fmeta"></div>
+        </div>
+        <label class="btn add-label" id="ff-change">換一個檔案<input type="file" id="ff-input-2" accept="application/pdf,.pdf"></label>
+      </div>
+      <p class="note" id="ff-none" hidden><span id="ff-none-text"></span> <button class="link-btn" id="ff-to-edit">送到「編輯」</button></p>
+      <p class="hint">淡藍色的框是可以填寫的欄位，按 Tab 可以跳到下一格。中文也可以填。</p>
+      <div class="ff-pages" id="ff-pages"></div>
+      <div class="footer-bar">
+        <label class="check"><input type="checkbox" id="ff-flatten"> 壓平：填好的內容變成固定的文字，別人無法再修改</label>
+        <div class="go">
+          <button class="btn ghost" id="ff-reset">清除填寫</button>
+          <label class="name-field">檔名 <input type="text" id="ff-name" value="已填表單.pdf" spellcheck="false"></label>
+          <button class="btn primary" id="ff-go">匯出 PDF</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <!-- REDACT -->
   <section class="panel" id="panel-redact" role="tabpanel" aria-labelledby="tab-redact" hidden>
     <div class="panel-head">
@@ -403,6 +502,7 @@
         <p class="hint" style="margin:0">PDF 上只蓋一個黑色方塊並不安全，底下的文字還是能被複製出來。這裡匯出時，有遮蔽的頁面會整頁重新畫成圖片，黑框下的內容就不存在了。</p>
         <p class="hint" style="margin:0">代價是那幾頁的文字會變成無法選取或搜尋；沒有遮蔽的頁面完全不受影響。</p>
         <p class="hint" style="margin:0">放入檔案後會開啟第 1 頁。要遮其他頁，到「編輯」分頁按該頁的筆形按鈕，選「遮蔽」；同一個位置要遮很多頁時，可以用「把選取的項目也放到」一次套用。最後在「編輯」分頁匯出 PDF。</p>
+        <p class="hint" style="margin:0">右側的「自動尋找」可以一次找出所有頁面上的身分證字號、手機號碼、Email 或你輸入的關鍵字，自動加上遮蔽框。掃描檔沒有文字可以搜尋，要用手動框選。</p>
       </div>
       <div class="sign-step">
         <h3>選擇要處理的 PDF</h3>
@@ -598,8 +698,8 @@
     </div>
     <label class="drop compact" id="it-drop">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-      <span><strong>加入圖片</strong>　JPG、PNG、WebP，拖到這裡或點一下選擇（可多選）</span>
-      <input type="file" id="it-input" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,.jpg,.jpeg,.png,.webp" multiple>
+      <span><strong>加入圖片</strong>　JPG、PNG、WebP、HEIC，拖到這裡、點一下選擇（可多選），或按 Ctrl+V 貼上</span>
+      <input type="file" id="it-input" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple>
     </label>
     <ul class="file-list" id="it-list"></ul>
     <p class="hint" id="it-empty">還沒有圖片。沒有圖片在手邊？<button class="link-btn" id="it-sample">用範例照片試試</button></p>
@@ -650,8 +750,8 @@
       <label class="drop" id="um-drop">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
         <strong>把圖片拖到這裡，或點一下選擇</strong>
-        <span>JPG、PNG、WebP</span>
-        <input type="file" id="um-input" accept="image/jpeg,image/png,image/webp,image/bmp,.jpg,.jpeg,.png,.webp">
+        <span>JPG、PNG、WebP、HEIC，也可以按 Ctrl+V 貼上</span>
+        <input type="file" id="um-input" accept="image/jpeg,image/png,image/webp,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif">
       </label>
       <p class="hint" style="margin-top:10px">沒有圖片在手邊？<button class="link-btn" id="um-sample">用範例圖片試試</button></p>
     </div>
@@ -769,6 +869,23 @@
       </div>
       <div class="ed-panel" id="te-redact-panel" hidden>
         <p class="hint">在頁面上按住拖曳，框住要遮住的內容。框好的範圍可以移動和縮放。</p>
+        <div class="apply-box" id="rf-box">
+          <b style="font-size:14px">自動尋找</b>
+          <div class="rf-checks">
+            <label><input type="checkbox" data-rf="id" checked> 身分證／居留證號</label>
+            <label><input type="checkbox" data-rf="mobile" checked> 手機號碼</label>
+            <label><input type="checkbox" data-rf="phone"> 市話</label>
+            <label><input type="checkbox" data-rf="email" checked> Email</label>
+            <label><input type="checkbox" data-rf="card"> 信用卡號</label>
+            <label><input type="checkbox" data-rf="birth"> 日期（生日等）</label>
+          </div>
+          <label class="field">其他關鍵字（用逗號隔開）<input type="text" id="rf-words" placeholder="例如：王小明, 台北市" spellcheck="false"></label>
+          <label class="optfield">範圍
+            <select id="rf-scope"><option value="all">所有頁面</option><option value="page">只有這一頁</option></select>
+          </label>
+          <button class="btn" id="rf-go">尋找並加上遮蔽框</button>
+          <p class="hint" id="rf-result" style="margin:0" hidden></p>
+        </div>
         <p class="note">匯出時，有遮蔽的頁面會整頁轉成圖片：框住的文字和圖片會真正刪除，無法再選取或還原；這一頁其他文字也會變成無法選取。沒有遮蔽的頁面不受影響。</p>
       </div>
       <button class="btn danger" id="te-del" disabled>刪除選取的項目</button>
@@ -809,6 +926,44 @@
   </div>
 </dialog>
 
+<dialog class="editor" id="sc-dialog" aria-label="校正翻拍的文件">
+  <div class="ed">
+    <div class="ed-stage" id="sc-stage">
+      <div class="sc-wrap" id="sc-wrap">
+        <canvas id="sc-canvas"></canvas>
+        <svg id="sc-svg" aria-hidden="true"></svg>
+      </div>
+    </div>
+    <div class="ed-side">
+      <h3>校正翻拍的文件</h3>
+      <p class="hint" id="sc-hint">拖曳四個圓點，對準文件的四個角。</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="sc-auto">自動找紙張</button>
+        <button class="btn" id="sc-full">整張圖片</button>
+      </div>
+      <label class="optfield">色彩
+        <select id="sc-filter">
+          <option value="none">原色（只拉正）</option>
+          <option value="enhance" selected>增強（去陰影、紙張變白）</option>
+          <option value="gray">灰階</option>
+          <option value="bw">黑白（文字最清楚、檔案最小）</option>
+        </select>
+      </label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="sc-rotl" title="向左轉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11a8 8 0 1 1 2.3 5.7M4 4v7h7"/></svg>向左轉</button>
+        <button class="btn" id="sc-rotr" title="向右轉"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>向右轉</button>
+      </div>
+      <button class="btn" id="sc-preview">預覽結果</button>
+      <span class="spacer"></span>
+      <div class="ed-actions">
+        <button class="btn ghost" id="sc-reset" hidden>還原成原圖</button>
+        <button class="btn" id="sc-cancel">取消</button>
+        <button class="btn primary" id="sc-apply">套用</button>
+      </div>
+    </div>
+  </div>
+</dialog>
+
 <dialog class="viewer" id="pv-dialog" aria-label="頁面預覽">
   <div class="pv-bar">
     <span class="mono" id="pv-title">第 1 頁</span>
@@ -842,10 +997,12 @@
 <script src="js/editor-dialog.js"></script>
 <script src="js/signatures.js"></script>
 <script src="js/redact.js"></script>
+<script src="js/form.js"></script>
 <script src="js/watermark.js"></script>
 <script src="js/resize.js"></script>
 <script src="js/compress.js"></script>
 <script src="js/img2pdf.js"></script>
+<script src="js/scan.js"></script>
 <script src="js/pdf2img.js"></script>
 <script src="js/imgtool.js"></script>
 <script src="js/unmark.js"></script>

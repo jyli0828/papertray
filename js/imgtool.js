@@ -3,6 +3,7 @@
 const itool = { items: [] };
 const IT_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 async function addImgTool(files) {
+  files = await prepImages(files);
   for (const f of files) {
     if (!isImage(f)) { toast(`「${f.name}」不是支援的圖片格式`, 'err'); continue; }
     try {

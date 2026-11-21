@@ -22,6 +22,7 @@ function jpegOrientation(buf) {
   return 1;
 }
 async function addImages(files) {
+  files = await prepImages(files);
   for (const f of files) {
     if (!isImage(f)) { toast(`「${f.name}」不是支援的圖片格式`, 'err'); continue; }
     try {
@@ -45,8 +46,9 @@ function renderImgs() {
     li.className = 'file-row'; li.draggable = true; li.dataset.id = it.id;
     li.innerHTML = `<img class="img-thumb" alt="" draggable="false">
       <span class="idx">${i + 1}</span>
-      <div class="file-main"><div class="file-name"></div><div class="file-meta">${it.w} × ${it.h} px · ${fmtSize(it.size)}</div></div>
+      <div class="file-main"><div class="file-name"></div><div class="file-meta">${it.w} × ${it.h} px · ${fmtSize(it.size)}${it.scan ? ' <span class="chip soft">已校正</span>' : ''}</div></div>
       <div class="row-btns">
+        <button class="btn mini-btn" data-act="scan" title="拉正翻拍的文件、去陰影、轉黑白">${ICON.scan}校正</button>
         <button class="icon-btn" data-act="up" aria-label="上移" ${i === 0 ? 'disabled' : ''}>${ICON.up}</button>
         <button class="icon-btn" data-act="down" aria-label="下移" ${i === n - 1 ? 'disabled' : ''}>${ICON.down}</button>
         <button class="icon-btn danger" data-act="remove" aria-label="移除">${ICON.x}</button>
@@ -65,6 +67,7 @@ $('#img-list').addEventListener('click', e => {
   const a = imgs.items, i = a.findIndex(x => x.id === id);
   if (b.dataset.act === 'up' && i > 0) [a[i - 1], a[i]] = [a[i], a[i - 1]];
   if (b.dataset.act === 'down' && i < a.length - 1) [a[i + 1], a[i]] = [a[i], a[i + 1]];
+  if (b.dataset.act === 'scan') { openScan(a[i]); return; }
   if (b.dataset.act === 'remove') { URL.revokeObjectURL(a[i].url); a.splice(i, 1); }
   renderImgs();
 });

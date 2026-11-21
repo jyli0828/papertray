@@ -6,15 +6,23 @@ const $ = (s, r = document) => r.querySelector(s);
    pdf-lib (makes PDFs), pdf.js (reads and draws PDFs) and JSZip are not loaded with the page: opening 紙匣 costs
    only its own code, and each library arrives on the first action that uses it. tools/build.py swaps these paths
    for cdnjs addresses in the bundled pages. */
-const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.js', jszip: 'lib/jszip.min.js' };
+const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.js', jszip: 'lib/jszip.min.js', heic: 'lib/heic2any.min.js' };
+/* Tried when the local copy is missing (heic2any is large, so lib/ may not have it). */
+const LIB_FALLBACK = { heic: 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js' };
 const libLoads = {};
 function loadScript(key) {
-  return libLoads[key] || (libLoads[key] = new Promise((resolve, reject) => {
-    const sc = document.createElement('script'); sc.src = LIBS[key];
-    sc.onload = resolve;
-    sc.onerror = () => { delete libLoads[key]; reject(new Error('函式庫載入失敗，請檢查網路連線後再試一次')); };
+  const add = src => new Promise((resolve, reject) => {
+    const sc = document.createElement('script'); sc.src = src;
+    sc.onload = resolve; sc.onerror = () => { sc.remove(); reject(); };
     document.head.append(sc);
-  }));
+  });
+  return libLoads[key] || (libLoads[key] = (async () => {
+    try { await add(LIBS[key]); }
+    catch (e) {
+      try { if (LIB_FALLBACK[key] && LIB_FALLBACK[key] !== LIBS[key]) { await add(LIB_FALLBACK[key]); return; } } catch (e2) {}
+      delete libLoads[key]; throw new Error('函式庫載入失敗，請檢查網路連線後再試一次');
+    }
+  })());
 }
 /* Until pdf-lib is loaded, PDFDocument.load / .create load it first. Every other pdf-lib name is only used on
    a document those calls returned, so by then the real values are in place. */
@@ -22,10 +30,10 @@ let PDFDocument = {
   load: async (...a) => (await needPdfLib()).load(...a),
   create: async (...a) => (await needPdfLib()).create(...a)
 };
-let degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber;
+let degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber, PDFBool;
 async function needPdfLib() {
   if (!window.PDFLib) await loadScript('pdflib');
-  ({ PDFDocument, degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber } = window.PDFLib);
+  ({ PDFDocument, degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber, PDFBool } = window.PDFLib);
   return PDFDocument;
 }
 let WORKER_URL = null;
@@ -95,6 +103,7 @@ const ICON = {
   text: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg>',
   pen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c2-1 3-3 5-3s1.5 2 3.5 2 2-1.5 3-1.5"/><path d="m14 4 4 4-8 8H6v-4z"/></svg>',
   copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h2"/></svg>',
+  scan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="m8 9 8-1 1 8-9 1z"/></svg>',
   trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>'
 };
 
@@ -220,6 +229,7 @@ async function saveFile(filename, bytes, mime) {
 window.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
 window.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files.length) e.preventDefault(); });
 function acceptFiles(area, highlight, handler) {
+  const panel = area.closest('.panel'); if (panel && !panel._paste) panel._paste = handler; // Ctrl+V goes to the same place
   area.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); highlight && highlight.classList.add('is-over'); } });
   area.addEventListener('dragleave', e => { if (highlight && !area.contains(e.relatedTarget)) highlight.classList.remove('is-over'); });
   area.addEventListener('drop', e => {
@@ -229,6 +239,28 @@ function acceptFiles(area, highlight, handler) {
     e.preventDefault(); e.stopPropagation(); handler(files);
   });
 }
+/* Ctrl+V: pictures (a screenshot, a copied image) or files copied in the file manager go to the open tool,
+   exactly as if they were dropped on it. Plain text pastes into text fields as usual. */
+document.addEventListener('paste', e => {
+  if (document.querySelector('dialog[open]')) return;
+  const cd = e.clipboardData; if (!cd) return;
+  // Copying from Word or a web page carries a picture of the text too; in a text field the text is what was meant.
+  if (e.target.closest && e.target.closest('input, textarea, [contenteditable]') && [...cd.types].includes('text/plain')) return;
+  let files = [...(cd.files || [])];
+  if (!files.length) files = [...(cd.items || [])].filter(it => it.kind === 'file').map(it => it.getAsFile()).filter(Boolean);
+  if (!files.length) return;
+  const panel = document.querySelector('.panel:not([hidden])');
+  if (!panel || !panel._paste) return;
+  e.preventDefault();
+  const t = new Date(), stamp = [t.getHours(), t.getMinutes(), t.getSeconds()].map(n => String(n).padStart(2, '0')).join('');
+  files = files.map((f, i) => {
+    // Screenshots arrive as "image.png" (or with no name at all); give them a name worth keeping.
+    if (f.name && !/^image\.\w+$/i.test(f.name)) return f;
+    const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+    return new File([f], `貼上的圖片-${stamp}${files.length > 1 ? '-' + (i + 1) : ''}.${ext}`, { type: f.type });
+  });
+  panel._paste(files);
+});
 function bindInput(input, handler) {
   input.addEventListener('change', () => { const f = [...input.files]; input.value = ''; if (f.length) handler(f); });
 }
@@ -433,7 +465,54 @@ function sizeThumbImg(img, tw, th, rot) {
   img.style.transform = `translate(-50%,-50%) rotate(${rot || 0}deg)`;
 }
 
-const isImage = f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp)$/i.test(f.name);
+const isImage = f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp|hei[cf])$/i.test(f.name);
+const isHeic = f => /^image\/hei[cf]/i.test(f.type) || /\.hei[cf]$/i.test(f.name);
+/* iPhone photos (HEIC) become JPEG before any tool sees them. Safari can decode HEIC itself; other browsers
+   use heic2any, loaded the first time it is needed. Other files pass through untouched. */
+async function prepImages(files) {
+  const out = [];
+  for (const f of files) {
+    if (!isHeic(f)) { out.push(f); continue; }
+    const name = f.name.replace(/\.hei[cf]$/i, '') + '.jpg';
+    try {
+      let blob = null;
+      try {
+        const bmp = await createImageBitmap(f);
+        const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
+        cv.getContext('2d').drawImage(bmp, 0, 0); bmp.close && bmp.close();
+        blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .92)); cv.width = cv.height = 0;
+      } catch (e) { blob = null; }
+      if (!blob) {
+        toast(`正在轉換「${f.name}」…`);
+        if (!window.heic2any) await loadScript('heic');
+        const r = await window.heic2any({ blob: f, toType: 'image/jpeg', quality: .92 });
+        blob = Array.isArray(r) ? r[0] : r;
+      }
+      out.push(new File([blob], name, { type: 'image/jpeg' }));
+    } catch (e) {
+      toast(`「${f.name}」無法轉換：${(e && e.message) || 'HEIC 解碼失敗'}`, 'err');
+    }
+  }
+  return out;
+}
+/* One A4 page per picture (10 mm margin, turned to match the picture), for tools that work on PDFs. */
+async function imagesToPdf(files, name) {
+  const out = await PDFDocument.create();
+  for (const f of files) {
+    const bmp = await createImageBitmap(f); // applies the photo's rotation (EXIF)
+    const w = bmp.width, h = bmp.height;
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(bmp, 0, 0); bmp.close && bmp.close();
+    const png = f.type === 'image/png' || /\.png$/i.test(f.name);
+    const blob = await new Promise(r => cv.toBlob(r, png ? 'image/png' : 'image/jpeg', .92)); cv.width = cv.height = 0;
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const img = png ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+    let [pw, ph] = [595.28, 841.89]; if (w > h) [pw, ph] = [ph, pw];
+    const m = 28.35, s = Math.min((pw - m * 2) / w, (ph - m * 2) / h);
+    out.addPage([pw, ph]).drawImage(img, { x: (pw - w * s) / 2, y: (ph - h * s) / 2, width: w * s, height: h * s });
+  }
+  return pdfFile(await out.save({ useObjectStreams: true }), name || files[0].name.replace(/\.[^.]+$/, '') + '.pdf');
+}
 
 /* ================= shared: page ranges ================= */
 function parseRanges(text, n) {

@@ -5,7 +5,7 @@ const umImg = $('#um-img'), umMask = $('#um-mask'), umOrig = $('#um-orig'), umWr
 const uctx = umImg.getContext('2d', { willReadFrequently: true });
 const mctxU = umMask.getContext('2d', { willReadFrequently: true });
 async function loadUm(files) {
-  const f = files[0];
+  const [f] = await prepImages(files.slice(0, 1)); if (!f) return;
   if (!isImage(f)) { toast(`「${f.name}」不是支援的圖片格式`, 'err'); return; }
   let bmp;
   try { bmp = await createImageBitmap(f); } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); return; }

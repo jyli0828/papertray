@@ -3,15 +3,21 @@
 const merge = { items: [] };
 async function addMergeFiles(files, isSample) {
   if (!isSample && merge.items.some(i => i.sample)) merge.items = merge.items.filter(i => !i.sample);
-  for (const f of files) {
-    if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
+  for (let f of files) {
+    let fromImage = false;
+    if (!isPdf(f) && isImage(f)) {
+      // A picture (an ID card photo next to a form, say) becomes a one-page A4 PDF in the list.
+      try { const [img] = await prepImages([f]); if (!img) continue; f = await imagesToPdf([img]); fromImage = true; }
+      catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); continue; }
+    }
+    if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 或圖片`, 'err'); continue; }
     const { bytes } = await fileBytes(f);
     if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); continue; }
     try {
       // Only the page count is needed now; pdf.js reads just the page tree. The full parse happens once, when merging.
       let pages = f.pages;
       if (!pages) { const pj = await openPdfjs(bytes); pages = pj.numPages; pj.destroy(); }
-      merge.items.push({ id: uid(), name: f.name, size: bytes.length, bytes, pages, range: '', sample: !!isSample });
+      merge.items.push({ id: uid(), name: f.name, size: bytes.length, bytes, pages, range: '', sample: !!isSample, fromImage });
     } catch (e) { toast(loadErr(f.name, e), 'err'); }
   }
   renderMerge();
@@ -33,7 +39,7 @@ function renderMerge() {
     li.className = 'file-row'; li.draggable = true; li.dataset.id = it.id;
     li.innerHTML = `<span class="grip" aria-hidden="true">${ICON.grip}</span><span class="idx">${i + 1}</span>
       <div class="file-main"><div class="file-name"></div>
-        <div class="file-meta">${it.pages} 頁 · ${fmtSize(it.size)}${it.sample ? ' <span class="chip">範例</span>' : ''}
+        <div class="file-meta">${it.pages} 頁 · ${fmtSize(it.size)}${it.sample ? ' <span class="chip">範例</span>' : ''}${it.fromImage ? ' <span class="chip soft">圖片轉成 A4</span>' : ''}
           <label class="row-range">取頁 <input type="text" data-range spellcheck="false" placeholder="全部" aria-label="要合併的頁碼"></label></div>
         <div class="row-err" hidden></div></div>
       <div class="row-btns">

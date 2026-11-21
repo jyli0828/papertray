@@ -69,8 +69,12 @@ document.addEventListener('keydown', e => {
 /* insertAt: position in the page list for the new pages (default: the end). */
 async function loadEditFiles(files, onFirst, insertAt) {
   let at = insertAt == null ? null : insertAt;
-  for (const f of files) {
-    if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
+  for (let f of files) {
+    if (!isPdf(f) && isImage(f)) { // a picture is inserted as an A4 page
+      try { const [img] = await prepImages([f]); if (!img) continue; f = await imagesToPdf([img]); }
+      catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); continue; }
+    }
+    if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 或圖片`, 'err'); continue; }
     const { bytes, owned } = await fileBytes(f);
     if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); continue; }
     // pdf.js keeps the only copy of the file; export asks it for the bytes back (pj.getData()).
@@ -79,7 +83,7 @@ async function loadEditFiles(files, onFirst, insertAt) {
     catch (e) { toast(loadErr(f.name, e), 'err'); continue; }
     const docId = uid();
     edit.docs[docId] = { name: f.name, pj };
-    if (!edit.pages.length) $('#edit-name').value = baseName(f.name) + '-編輯.pdf';
+    if (!edit.pages.length) { $('#edit-name').value = baseName(f.name) + '-編輯.pdf'; fillDocInfo(pj); }
     const fresh = [];
     for (let i = 0; i < pj.numPages; i++) fresh.push({ id: uid(), docId, index: i, baseRot: 0, rot: 0, annots: [], selected: false, view: null, thumb: null, tw: 1, th: 1 });
     if (at == null) edit.pages.push(...fresh); else { edit.pages.splice(at, 0, ...fresh); at += fresh.length; }
@@ -224,7 +228,64 @@ $('#edit-clear').addEventListener('click', e => {
   b.dataset.armed = ''; b.textContent = '清空重來';
   Object.values(edit.docs).forEach(d => d.pj.destroy()); releaseThumbs(Object.values(edit.meta));
   edit.docs = {}; edit.pages = []; edit.meta = {}; editHist.undo = []; editHist.redo = []; renderEdit();
+  MD_FIELDS.forEach(k => { $('#md-' + k).value = ''; });
 });
+
+/* ---------- export options: page numbers, header and footer, document info ---------- */
+const MD_FIELDS = ['title', 'author', 'subject', 'keywords'];
+/* The first file's own title, author… are offered as the starting values (a new PDF would otherwise lose them). */
+async function fillDocInfo(pj) {
+  if (MD_FIELDS.some(k => $('#md-' + k).value.trim())) return;
+  try {
+    const { info } = await pj.getMetadata();
+    const v = { title: info.Title, author: info.Author, subject: info.Subject, keywords: info.Keywords };
+    MD_FIELDS.forEach(k => { if (typeof v[k] === 'string') $('#md-' + k).value = v[k].trim(); });
+  } catch (e) {}
+  updateOptsSummary();
+}
+function updateOptsSummary() {
+  const parts = [];
+  if ($('#edit-numbers').checked) parts.push('頁碼');
+  if ($('#hf-head').value.trim()) parts.push('頁首');
+  if ($('#hf-foot').value.trim()) parts.push('頁尾');
+  if (MD_FIELDS.some(k => $('#md-' + k).value.trim())) parts.push('文件資訊');
+  $('#edit-opts-sum').textContent = parts.length ? '已設定：' + parts.join('、') : '';
+}
+$('#edit-opts').addEventListener('input', updateOptsSummary);
+$('#edit-opts').addEventListener('change', updateOptsSummary);
+const PN_FMT = {
+  n: (n) => `${n}`, nN: (n, N) => `${n} / ${N}`, zh: (n) => `第 ${n} 頁`, zhN: (n, N) => `第 ${n} 頁，共 ${N} 頁`,
+  dash: (n) => `- ${n} -`, en: (n, N) => `Page ${n} of ${N}`
+};
+function stampOptions() {
+  const size = Math.max(6, Math.min(36, +$('#pn-size').value || 10));
+  return {
+    size,
+    num: $('#edit-numbers').checked ? { fmt: PN_FMT[$('#pn-fmt').value] || PN_FMT.nN, pos: $('#pn-pos').value,
+      start: Math.max(0, Math.round(+$('#pn-start').value || 0)), skip: $('#pn-skip').checked } : null,
+    head: $('#hf-head').value.trim() ? { text: $('#hf-head').value.trim(), pos: 't' + $('#hf-head-pos').value } : null,
+    foot: $('#hf-foot').value.trim() ? { text: $('#hf-foot').value.trim(), pos: 'b' + $('#hf-foot-pos').value } : null
+  };
+}
+/* Draw one line of small grey text in a page corner or edge (pos: t/b + l/c/r), upright on the page as shown.
+   Plain Latin text is drawn as real text (Helvetica); Chinese and other text as a sharp picture, like 加文字. */
+async function drawLabel(out, page, text, pos, size, font, R) {
+  const cb = page.getCropBox(), view = [cb.x, cb.y, cb.x + cb.width, cb.y + cb.height];
+  const [dw, dh] = dispSize(view, R), m = 24;
+  const base = pos[0] === 't' ? m + size * .75 : dh - m + 2; // baseline, in the page's display space
+  const place = w => pos[1] === 'l' ? m : pos[1] === 'r' ? dw - m - w : (dw - w) / 2;
+  let tw = null; try { tw = font.widthOfTextAtSize(text, size); } catch (e) { tw = null; }
+  if (tw != null) {
+    const [ux, uy] = displayToUser(view, R, place(tw), base);
+    page.drawText(text, { x: ux, y: uy, size, font, color: rgb(.33, .36, .4), rotate: degrees(R) });
+    return;
+  }
+  const a = { text, size, color: '#545c66' };
+  await ensureFont(text, size); measureAnnot(a);
+  const png = await out.embedPng(await renderTextPng(a));
+  const [ux, uy] = displayToUser(view, R, place(a.wPt), base + size * .3);
+  page.drawImage(png, { x: ux, y: uy, width: a.wPt, height: a.hPt, rotate: degrees(R) });
+}
 
 /* ---------- redaction ----------
    A redacted page is re-made from a picture of itself with the boxes painted black, so nothing under them survives
@@ -268,7 +329,7 @@ async function exportEdit(onlySel, btn) {
   if (!pages.length) { toast('沒有可匯出的頁面'); return; }
   if (!pages.every(fillMeta)) { toast('頁面還在載入，請稍候再匯出'); return; }
   await runJob(btn, '產生中…', async check => {
-    const out = await PDFDocument.create();
+    const out = await PDFDocument.create({ updateMetadata: false });
     // Copy pages per source file. A page used twice (duplicated) needs its own copy, so repeats go in later rounds.
     // Redacted pages are rebuilt from an image instead, so they are not copied.
     const copied = new Map(), byDoc = new Map();
@@ -285,8 +346,11 @@ async function exportEdit(onlySel, btn) {
         rest = later;
       }
     }
-    const numbering = $('#edit-numbers').checked;
-    const font = numbering ? await out.embedFont(StandardFonts.Helvetica) : null;
+    const st = stampOptions(), name = ensurePdf($('#edit-name').value);
+    const font = st.num || st.head || st.foot ? await out.embedFont(StandardFonts.Helvetica) : null;
+    const numbered = st.num ? pages.length - (st.num.skip ? 1 : 0) : 0, lastNo = st.num ? st.num.start + numbered - 1 : 0;
+    const fill = t => t.replace(/\{總頁\}/g, pages.length).replace(/\{日期\}/g, todayText($('#te-datefmt').value))
+      .replace(/\{檔名\}/g, baseName(name));
     const sigCache = new Map();
     for (let i = 0; i < pages.length; i++) {
       check();
@@ -310,18 +374,20 @@ async function exportEdit(onlySel, btn) {
         }
         page.drawImage(png, { x: a.ux - ox, y: a.uy - oy, width: a.wPt, height: a.hPt, rotate: degrees(a.rot), ...extra });
       }
-      if (font) {
-        const label = `${i + 1} / ${pages.length}`, size = 10;
-        const tw = font.widthOfTextAtSize(label, size);
-        const cb = page.getCropBox(); const view = [cb.x, cb.y, cb.x + cb.width, cb.y + cb.height];
-        const [dw, dh] = dispSize(view, R);
-        const [ux, uy] = displayToUser(view, R, dw / 2 - tw / 2, dh - 22);
-        page.drawText(label, { x: ux, y: uy, size, font, color: rgb(.33, .36, .4), rotate: degrees(R) });
+      if (st.num && !(st.num.skip && i === 0)) {
+        const n = st.num.start + i - (st.num.skip ? 1 : 0);
+        await drawLabel(out, page, st.num.fmt(n, lastNo), st.num.pos, st.size, font, R);
       }
+      for (const hf of [st.head, st.foot]) if (hf) await drawLabel(out, page, fill(hf.text).replace(/\{頁\}/g, i + 1), hf.pos, st.size, font, R);
     }
     check();
+    const md = Object.fromEntries(MD_FIELDS.map(k => [k, $('#md-' + k).value.trim()]));
+    if (md.title) out.setTitle(md.title, { showInWindowTitleBar: true });
+    if (md.author) out.setAuthor(md.author);
+    if (md.subject) out.setSubject(md.subject);
+    if (md.keywords) out.setKeywords(md.keywords.split(/[,，、;；]+/).map(s => s.trim()).filter(Boolean));
+    if (!$('#md-strip').checked) { const now = new Date(); out.setCreator('紙匣'); out.setProducer('紙匣'); out.setCreationDate(now); out.setModificationDate(now); }
     const bytes = await out.save({ useObjectStreams: true });
-    const name = ensurePdf($('#edit-name').value);
     await deliver(pdfFile(bytes, name), 'pdf', 'edit');
   }).catch(err => toast('匯出失敗：' + err.message, 'err'));
 }

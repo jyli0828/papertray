@@ -27,3 +27,108 @@ $('#redact-sample').addEventListener('click', async () => {
   p.drawText('Signature: ______________________', { x: 50, y: 360, size: 12, font, color: rgb(.4, .45, .5) });
   startRedacting([pdfFile(await doc.save(), 'application-form.pdf')]);
 });
+
+/* ---------- find and redact ----------
+   Searches the text layer of the pages (pdf.js) for ID numbers, phone numbers, e-mail addresses and the user's own
+   words, and adds a redaction box over each hit. Scanned pages have no text layer, so nothing is found there. */
+const RF_PATTERNS = {
+  id: { label: '身分證', re: /(?<![A-Za-z0-9])[A-Z](?:[1289]|[A-D])\d{8}(?!\d)/g },
+  mobile: { label: '手機', re: /(?<!\d)(?:\+?886[-\s]?|0)9\d{2}[-\s]?\d{3}[-\s]?\d{3}(?!\d)/g },
+  phone: { label: '市話', re: /(?<!\d)(?:\(0\d{1,2}\)\s?|0\d{1,2}[-\s])\d{3,4}[-\s]?\d{4}(?:\s?(?:#|轉|ext\.?)\s?\d{1,5})?(?!\d)/g },
+  email: { label: 'Email', re: /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g },
+  card: { label: '卡號', re: /(?<!\d)(?:\d{4}[-\s]?){3}\d{4}(?!\d)/g },
+  birth: { label: '日期', re: /(?<!\d)(?:(?:19|20)\d{2}|\d{2,3})\s?[/\-.年]\s?\d{1,2}\s?[/\-.月]\s?\d{1,2}日?(?!\d)/g }
+};
+/* Page text as one string, plus where each character came from (item, position in it). Items on different lines
+   are joined by a line break and items with a gap between them by a space, so patterns do not run together. */
+async function pageTextMap(pg) {
+  const tc = await pg.getTextContent();
+  let text = ''; const map = []; let prev = null;
+  tc.items.forEach((it, k) => {
+    if (typeof it.str !== 'string' || !it.str) { if (it.hasEOL && prev) { text += '\n'; map.push(null); prev = null; } return; }
+    if (prev) {
+      const fh = Math.hypot(it.transform[2], it.transform[3]) || 10;
+      const dy = Math.abs(it.transform[5] - prev.transform[5]), gap = it.transform[4] - (prev.transform[4] + prev.width);
+      if (dy > fh * .5) { text += '\n'; map.push(null); }
+      else if (gap > fh * .15) { text += ' '; map.push(null); }
+    }
+    for (let i = 0; i < it.str.length; i++) { text += it.str[i]; map.push([k, i]); }
+    if (it.hasEOL) { text += '\n'; map.push(null); prev = null; } else prev = it;
+  });
+  return { text, map, items: tc.items };
+}
+/* Box (PDF user space) around characters i0..i1-1 of one text item. Character widths are estimated with a
+   generic font and scaled to the item's real width, so a wide Chinese character gets more room than a digit. */
+function itemCharBox(it, i0, i1) {
+  const [a, b, c, d, e, f] = it.transform, n = Math.hypot(a, b) || 1, fh = Math.hypot(c, d) || n;
+  mctx.font = '10px sans-serif';
+  const ws = [...it.str].map(ch => mctx.measureText(ch).width), total = ws.reduce((s, w) => s + w, 0) || 1;
+  const k = (it.width || total) / total;
+  let t0 = 0; for (let i = 0; i < i0; i++) t0 += ws[i] * k;
+  let t1 = t0; for (let i = i0; i < i1; i++) t1 += ws[i] * k;
+  const ux = a / n, uy = b / n, vx = -uy, vy = ux, pad = 1.5;
+  const pts = [[t0 - pad, -.28 * fh], [t1 + pad, -.28 * fh], [t1 + pad, .98 * fh], [t0 - pad, .98 * fh]].map(([t, s]) => [e + ux * t + vx * s, f + uy * t + vy * s]);
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+}
+function rfPatterns() {
+  const list = [];
+  document.querySelectorAll('[data-rf]').forEach(cb => { if (cb.checked) list.push({ key: cb.dataset.rf, ...RF_PATTERNS[cb.dataset.rf] }); });
+  const words = $('#rf-words').value.split(/[,，、;；\n]+/).map(w => w.trim()).filter(Boolean);
+  if (words.length) {
+    // spaces may be slipped between characters in a PDF's text, so allow them anywhere inside a word
+    const esc = w => [...w.replace(/\s+/g, '')].map(ch => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*');
+    list.push({ key: 'word', label: '關鍵字', re: new RegExp(words.map(esc).join('|'), 'gi') });
+  }
+  return list;
+}
+const boxOverlap = (p, q) => {
+  const w = Math.min(p[2], q[2]) - Math.max(p[0], q[0]), h = Math.min(p[3], q[3]) - Math.max(p[1], q[1]);
+  return w > 0 && h > 0 ? (w * h) / Math.min((p[2] - p[0]) * (p[3] - p[1]), (q[2] - q[0]) * (q[3] - q[1])) : 0;
+};
+$('#rf-go').addEventListener('click', e => {
+  const pats = rfPatterns();
+  if (!pats.length) { toast('勾選要找的項目，或輸入關鍵字'); return; }
+  const targets = $('#rf-scope').value === 'page' ? [te.page] : edit.pages.filter(fillMeta);
+  const out = $('#rf-result');
+  runJob(e.currentTarget, '尋找中…', async check => {
+    const cache = new Map(), counts = {}; let hits = 0, pagesHit = 0, anyText = false;
+    for (const p of targets) {
+      check();
+      const key = metaKey(p);
+      if (!cache.has(key)) cache.set(key, await pageTextMap(await edit.docs[p.docId].pj.getPage(p.index + 1)));
+      const { text, map, items } = cache.get(key);
+      if (text.trim()) anyText = true;
+      const boxes = [];
+      for (const pat of pats) {
+        pat.re.lastIndex = 0;
+        for (let m; (m = pat.re.exec(text));) {
+          if (!m[0]) { pat.re.lastIndex++; continue; }
+          // split the match into runs of characters from the same text item, one box per run
+          let run = null; const runs = [];
+          for (let i = m.index; i < m.index + m[0].length; i++) {
+            const at = map[i]; if (!at) { run = null; continue; }
+            if (run && run.k === at[0] && run.i1 === at[1]) run.i1++;
+            else { run = { k: at[0], i0: at[1], i1: at[1] + 1 }; runs.push(run); }
+          }
+          if (!runs.length) continue;
+          runs.forEach(r => boxes.push(itemCharBox(items[r.k], r.i0, r.i1)));
+          counts[pat.label] = (counts[pat.label] || 0) + 1; hits++;
+        }
+      }
+      let added = 0;
+      for (const bx of boxes) {
+        if (p.annots.some(a => a.type === 'redact' && boxOverlap(annotUserBox(a, p.view), bx) > .8)) continue; // already covered
+        p.annots.push({ id: uid(), type: 'redact', ux: bx[0], uy: bx[1], wPt: bx[2] - bx[0], hPt: bx[3] - bx[1], rot: 0 });
+        added++;
+      }
+      if (added) pagesHit++;
+    }
+    if (te.page) renderAnnots();
+    out.hidden = false;
+    if (!anyText) { out.textContent = '這份檔案沒有可搜尋的文字（可能是掃描檔或照片），請直接在頁面上框選。'; return; }
+    if (!hits) { out.textContent = '沒有找到符合的內容。'; return; }
+    out.textContent = `找到 ${hits} 處（${Object.entries(counts).map(([k, v]) => `${k} ${v}`).join('、')}），已在 ${pagesHit} 頁加上遮蔽框。匯出前請逐頁確認。`;
+    toast(`已加上遮蔽框：${hits} 處`);
+  }).catch(err => toast('尋找失敗：' + err.message, 'err'));
+});
