@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>紙匣</title>
-<meta name="description" content="紙匣：合併、拆分、編輯、簽名、填寫 PDF 表單、壓縮 PDF，圖片與 PDF 互轉。檔案只在你的瀏覽器裡處理。">
+<meta name="description" content="紙匣：合併、拆分、編輯、簽名、填寫 PDF 表單、壓縮 PDF、文字辨識（OCR），圖片與 PDF 互轉。檔案只在你的瀏覽器裡處理。">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,7 +18,7 @@
     <img class="brand-mark" src="icon.svg" alt="" width="44" height="44">
     <div class="brand-text">
       <h1>紙匣</h1>
-      <p>PDF 與圖片的隨手工具：合併、拆分、編輯、簽名、填表單、遮蔽個資、加浮水印、調整尺寸、壓縮，圖片與 PDF 互轉。</p>
+      <p>PDF 與圖片的隨手工具：合併、拆分、編輯、簽名、填表單、遮蔽個資、加浮水印、調整尺寸、壓縮、文字辨識，圖片與 PDF 互轉。</p>
     </div>
     <div class="brand-side">
       <span class="privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>檔案只在你的瀏覽器裡處理，不會上傳</span>
@@ -74,6 +74,10 @@
     <button class="tab" role="tab" id="tab-pdf2img" aria-controls="panel-pdf2img" data-tab="pdf2img" title="每頁存成 JPG 或 PNG，或抽出文字存成 TXT">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h5l3 3v8H2z"/><path d="M11 17.5h3.5m0 0L13 16m1.5 1.5L13 19"/><rect x="15" y="12" width="7" height="9" rx="1.5"/><path d="m15 19 2-2 2 2 1-1 2 2"/></svg>
       <span>PDF 轉圖片</span>
+    </button>
+    <button class="tab" role="tab" id="tab-ocr" aria-controls="panel-ocr" data-tab="ocr" title="辨識掃描檔或照片裡的字，做成可以搜尋的 PDF">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V4a1 1 0 0 1 1-1h3M17 3h3a1 1 0 0 1 1 1v3M21 17v3a1 1 0 0 1-1 1h-3M7 21H4a1 1 0 0 1-1-1v-3"/><path d="M8 8h8M12 8v8M9.5 16h5"/></svg>
+      <span>文字辨識</span>
     </button>
     <button class="tab" role="tab" id="tab-imgtool" aria-controls="panel-imgtool" data-tab="imgtool" title="壓縮、縮放、轉換圖片格式">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>
@@ -440,7 +444,7 @@
   <section class="panel" id="panel-pdf2img" role="tabpanel" aria-labelledby="tab-pdf2img" hidden>
     <div class="panel-head">
       <h2>PDF 轉圖片</h2>
-      <p>每一頁存成一張圖片，選了多頁會打包成 ZIP；格式選「文字 TXT」可以把文字抽出來。</p>
+      <p>每一頁存成一張圖片，選了多頁會打包成 ZIP；格式選「文字 TXT」可以把文字抽出來，掃描的頁面會用 OCR 辨識。</p>
     </div>
     <div id="p2i-empty">
       <label class="drop" id="p2i-drop">
@@ -482,6 +486,7 @@
             <option value="0.65">低（65%）</option>
           </select>
         </label>
+        <label class="check p2i-ocr" id="p2i-ocr-wrap" hidden><input type="checkbox" id="p2i-ocr" checked> 沒有文字的頁面（掃描檔）用 OCR 辨識</label>
       </div>
       <div class="toolbar" style="position:static">
         <button class="btn" id="p2i-selall">取消全選</button>
@@ -495,6 +500,66 @@
       <div class="footer-bar">
         <span class="summary mono" id="p2i-summary"></span>
         <button class="btn primary" id="p2i-go">轉成圖片</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- OCR -->
+  <section class="panel" id="panel-ocr" role="tabpanel" aria-labelledby="tab-ocr" hidden>
+    <div class="panel-head">
+      <h2>文字辨識（OCR）</h2>
+      <p>辨識掃描檔或照片裡的字：做成可以搜尋、選取、複製文字的 PDF，或直接存成文字檔。支援繁體中文和英文。</p>
+    </div>
+    <div id="ocr-empty">
+      <label class="drop" id="ocr-drop">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        <strong>把掃描的 PDF 或照片拖到這裡，或點一下選擇</strong>
+        <span>一次處理一份 PDF；多張照片會依序變成一份 PDF 的各頁</span>
+        <input type="file" id="ocr-input" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple>
+      </label>
+      <p class="hint" style="margin-top:10px">沒有檔案在手邊？<button class="link-btn" id="ocr-sample">用範例掃描檔試試</button></p>
+    </div>
+    <div id="ocr-work" hidden style="display:flex;flex-direction:column;gap:18px">
+      <div class="doc-card">
+        <svg class="doc-ico" viewBox="0 0 40 48" fill="none" aria-hidden="true"><path d="M4 3h22l10 10v32H4z" fill="currentColor" opacity=".14"/><path d="M4 3h22l10 10v32H4z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M26 3v10h10" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+        <div style="min-width:0">
+          <div class="file-name" id="ocr-fname"></div>
+          <div class="file-meta" id="ocr-fmeta"></div>
+        </div>
+        <button class="btn" id="ocr-change">換一個檔案</button>
+      </div>
+      <div class="optgrid">
+        <label class="optfield">產生
+          <select id="ocr-out">
+            <option value="pdf" selected>可搜尋的 PDF（頁面不變，加上看不見的文字）</option>
+            <option value="txt">文字檔 TXT</option>
+          </select>
+        </label>
+        <label class="optfield">語言
+          <select id="ocr-lang">
+            <option value="chi_tra+eng" selected>繁體中文＋英文</option>
+            <option value="chi_tra">只有繁體中文</option>
+            <option value="eng">只有英文（較快）</option>
+          </select>
+        </label>
+        <label class="optfield">辨識的頁面
+          <select id="ocr-scope">
+            <option value="notext" selected>沒有文字的頁面（建議）</option>
+            <option value="all">所有頁面（原本的文字是亂碼時）</option>
+          </select>
+        </label>
+      </div>
+      <p class="note">在你的電腦上辨識，不會上傳。第一次使用要載入約 8 MB 的辨識引擎和字庫。照片請盡量拍正、拍清楚；歪斜或有陰影的照片可以先在「圖片轉 PDF」用「校正」處理。手寫字通常辨識不出來。</p>
+      <div class="progress" id="ocr-progress" hidden>
+        <div class="progress-track"><div class="progress-fill" id="ocr-bar"></div></div>
+        <span class="progress-label mono" id="ocr-plabel"></span>
+      </div>
+      <div class="footer-bar">
+        <span class="summary mono" id="ocr-summary"></span>
+        <div class="go">
+          <label class="name-field">檔名 <input type="text" id="ocr-name" value="document-可搜尋.pdf" spellcheck="false"></label>
+          <button class="btn primary" id="ocr-go">辨識文字</button>
+        </div>
       </div>
     </div>
   </section>
@@ -1001,6 +1066,7 @@
           <label class="optfield">範圍
             <select id="rf-scope"><option value="all">所有頁面</option><option value="page">只有這一頁</option></select>
           </label>
+          <label class="rf-ocr"><input type="checkbox" id="rf-ocr" checked> 掃描的頁面用 OCR 辨識文字（每頁約 5–20 秒）</label>
           <button class="btn" id="rf-go">尋找並加上遮蔽框</button>
           <p class="hint" id="rf-result" style="margin:0" hidden></p>
         </div>
@@ -1124,6 +1190,7 @@
 <script src="js/scan.js"></script>
 <script src="js/idcard.js"></script>
 <script src="js/pdf2img.js"></script>
+<script src="js/ocr.js"></script>
 <script src="js/imgtool.js"></script>
 <script src="js/unmark.js"></script>
 <script src="js/app.js"></script>

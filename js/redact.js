@@ -30,7 +30,8 @@ $('#redact-sample').addEventListener('click', async () => {
 
 /* ---------- find and redact ----------
    Searches the text layer of the pages (pdf.js) for ID numbers, phone numbers, e-mail addresses and the user's own
-   words, and adds a redaction box over each hit. Scanned pages have no text layer, so nothing is found there. */
+   words, and adds a redaction box over each hit. Scanned pages have no text layer; with 「OCR」 ticked their words
+   are read from the picture first (js/ocr.js). */
 const RF_PATTERNS = {
   id: { label: '身分證', re: /(?<![A-Za-z0-9])[A-Z](?:[1289]|[A-D])\d{8}(?!\d)/g },
   mobile: { label: '手機', re: /(?<!\d)(?:\+?886[-\s]?|0)9\d{2}[-\s]?\d{3}[-\s]?\d{3}(?!\d)/g },
@@ -57,19 +58,23 @@ async function pageTextMap(pg) {
   });
   return { text, map, items: tc.items };
 }
-/* Box (PDF user space) around characters i0..i1-1 of one text item. Character widths are estimated with a
-   generic font and scaled to the item's real width, so a wide Chinese character gets more room than a digit. */
-function itemCharBox(it, i0, i1) {
+/* Box (PDF user space) around each character of one text item, indexed like it.str. Character widths are
+   estimated with a generic font and scaled to the item's real width, so a wide Chinese character gets more room
+   than a digit. */
+function itemCharBoxes(it) {
   const [a, b, c, d, e, f] = it.transform, n = Math.hypot(a, b) || 1, fh = Math.hypot(c, d) || n;
   mctx.font = '10px sans-serif';
-  const ws = [...it.str].map(ch => mctx.measureText(ch).width), total = ws.reduce((s, w) => s + w, 0) || 1;
-  const k = (it.width || total) / total;
-  let t0 = 0; for (let i = 0; i < i0; i++) t0 += ws[i] * k;
-  let t1 = t0; for (let i = i0; i < i1; i++) t1 += ws[i] * k;
-  const ux = a / n, uy = b / n, vx = -uy, vy = ux, pad = 1.5;
-  const pts = [[t0 - pad, -.28 * fh], [t1 + pad, -.28 * fh], [t1 + pad, .98 * fh], [t0 - pad, .98 * fh]].map(([t, s]) => [e + ux * t + vx * s, f + uy * t + vy * s]);
-  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-  return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+  const ws = Array.from(it.str, (_, i) => mctx.measureText(it.str[i]).width), total = ws.reduce((s, w) => s + w, 0) || 1;
+  const k = (it.width || total) / total, ux = a / n, uy = b / n, vx = -uy, vy = ux, pad = 1.5;
+  const out = []; let t0 = 0;
+  for (let i = 0; i < it.str.length; i++) {
+    const t1 = t0 + ws[i] * k;
+    const pts = [[t0 - pad, -.28 * fh], [t1 + pad, -.28 * fh], [t1 + pad, .98 * fh], [t0 - pad, .98 * fh]].map(([t, s]) => [e + ux * t + vx * s, f + uy * t + vy * s]);
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    out.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+    t0 = t1;
+  }
+  return out;
 }
 function rfPatterns() {
   const list = [];
@@ -90,29 +95,31 @@ $('#rf-go').addEventListener('click', e => {
   const pats = rfPatterns();
   if (!pats.length) { toast('勾選要找的項目，或輸入關鍵字'); return; }
   const targets = $('#rf-scope').value === 'page' ? [te.page] : edit.pages.filter(fillMeta);
-  const out = $('#rf-result');
+  const out = $('#rf-result'), useOcr = $('#rf-ocr').checked;
   runJob(e.currentTarget, '尋找中…', async check => {
-    const cache = new Map(), counts = {}; let hits = 0, pagesHit = 0, anyText = false;
-    for (const p of targets) {
+    const counts = {}; let hits = 0, pagesHit = 0, anyText = false, ocrPages = 0;
+    for (let n = 0; n < targets.length; n++) {
       check();
-      const key = metaKey(p);
-      if (!cache.has(key)) cache.set(key, await pageTextMap(await edit.docs[p.docId].pj.getPage(p.index + 1)));
-      const { text, map, items } = cache.get(key);
+      const p = targets[n], m = edit.meta[metaKey(p)], R = (p.baseRot + p.rot) % 360;
+      // Kept with the page: reading a scanned page again would take as long as the first time.
+      if (!m.chars || (useOcr && !m.chars.ocr && !m.chars.text.trim()) || (m.chars.ocr && m.chars.R !== R)) {
+        const pg = await edit.docs[p.docId].pj.getPage(p.index + 1);
+        m.chars = await pageChars(pg, { ocr: useOcr, rotation: R, onProgress: msg => {
+          out.hidden = false; out.textContent = `第 ${n + 1} / ${targets.length} 頁是掃描的圖片，正在辨識文字（OCR）：${ocrProgressText(msg)}`;
+        } });
+        m.chars.R = R;
+      }
+      const { text, boxes: chars, ocr } = m.chars;
       if (text.trim()) anyText = true;
+      if (ocr) ocrPages++;
       const boxes = [];
       for (const pat of pats) {
         pat.re.lastIndex = 0;
-        for (let m; (m = pat.re.exec(text));) {
-          if (!m[0]) { pat.re.lastIndex++; continue; }
-          // split the match into runs of characters from the same text item, one box per run
-          let run = null; const runs = [];
-          for (let i = m.index; i < m.index + m[0].length; i++) {
-            const at = map[i]; if (!at) { run = null; continue; }
-            if (run && run.k === at[0] && run.i1 === at[1]) run.i1++;
-            else { run = { k: at[0], i0: at[1], i1: at[1] + 1 }; runs.push(run); }
-          }
-          if (!runs.length) continue;
-          runs.forEach(r => boxes.push(itemCharBox(items[r.k], r.i0, r.i1)));
+        for (let mt; (mt = pat.re.exec(text));) {
+          if (!mt[0]) { pat.re.lastIndex++; continue; }
+          const bs = spanBoxes(text, chars, mt.index, mt.index + mt[0].length, ocr ? 2 : 0); // one box per line of the match
+          if (!bs.length) continue;
+          boxes.push(...bs);
           counts[pat.label] = (counts[pat.label] || 0) + 1; hits++;
         }
       }
@@ -126,9 +133,13 @@ $('#rf-go').addEventListener('click', e => {
     }
     if (te.page) renderAnnots();
     out.hidden = false;
-    if (!anyText) { out.textContent = '這份檔案沒有可搜尋的文字（可能是掃描檔或照片），請直接在頁面上框選。'; return; }
-    if (!hits) { out.textContent = '沒有找到符合的內容。'; return; }
-    out.textContent = `找到 ${hits} 處（${Object.entries(counts).map(([k, v]) => `${k} ${v}`).join('、')}），已在 ${pagesHit} 頁加上遮蔽框。匯出前請逐頁確認。`;
+    const ocrNote = ocrPages ? `其中 ${ocrPages} 頁是用 OCR 辨識的，可能漏掉模糊或手寫的字，請特別仔細檢查。` : '';
+    if (!anyText) {
+      out.textContent = useOcr ? '頁面上辨識不出文字，請直接在頁面上框選。' : '這份檔案沒有可搜尋的文字（可能是掃描檔或照片）。勾選「掃描的頁面用 OCR 辨識文字」再找一次，或直接在頁面上框選。';
+      return;
+    }
+    if (!hits) { out.textContent = '沒有找到符合的內容。' + ocrNote; return; }
+    out.textContent = `找到 ${hits} 處（${Object.entries(counts).map(([k, v]) => `${k} ${v}`).join('、')}），已在 ${pagesHit} 頁加上遮蔽框。匯出前請逐頁確認。` + ocrNote;
     toast(`已加上遮蔽框：${hits} 處`);
   }).catch(err => toast('尋找失敗：' + err.message, 'err'));
 });

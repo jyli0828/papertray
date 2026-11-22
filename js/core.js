@@ -6,7 +6,8 @@ const $ = (s, r = document) => r.querySelector(s);
    pdf-lib (makes PDFs), pdf.js (reads and draws PDFs) and JSZip are not loaded with the page: opening 紙匣 costs
    only its own code, and each library arrives on the first action that uses it. tools/build.py swaps these paths
    for cdnjs addresses in the bundled pages. */
-const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.js', jszip: 'lib/jszip.min.js', heic: 'lib/heic2any.min.js' };
+const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.js', jszip: 'lib/jszip.min.js', heic: 'lib/heic2any.min.js',
+  tesseract: 'lib/tesseract/tesseract.min.js' };
 /* Tried when the local copy is missing (heic2any is large, so lib/ may not have it). */
 const LIB_FALLBACK = { heic: 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js' };
 const libLoads = {};

@@ -26,6 +26,13 @@ CDN = {
     'lib/pdf.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
     'lib/jszip.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
     'lib/heic2any.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js',
+    # Tesseract.js (文字辨識) is not on cdnjs; jsdelivr serves the npm packages. For the language data the bundles
+    # give a CDN address instead of a folder, and js/ocr.js then lets Tesseract fetch each language from its own
+    # @tesseract.js-data package (chi_tra, eng).
+    'lib/tesseract/tesseract.min.js': 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js',
+    'lib/tesseract/worker.min.js': 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/worker.min.js',
+    'lib/tesseract/tesseract-core-simd-lstm.wasm.js': 'https://cdn.jsdelivr.net/npm/tesseract.js-core@7.0.0/tesseract-core-simd-lstm.wasm.js',
+    'lib/tesseract/lang': 'https://cdn.jsdelivr.net/npm/@tesseract.js-data',
 }
 
 

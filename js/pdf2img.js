@@ -66,7 +66,7 @@ function updateP2iSummary() {
   const go = $('#p2i-go');
   go.disabled = !sel.length;
   go.textContent = txt ? '抽出文字' : sel.length > 1 ? `轉成 ${sel.length} 張圖片` : '轉成圖片';
-  $('#p2i-dpi-wrap').hidden = $('#p2i-q-wrap').hidden = txt;
+  $('#p2i-dpi-wrap').hidden = $('#p2i-q-wrap').hidden = txt; $('#p2i-ocr-wrap').hidden = !txt;
   $('#p2i-q-wrap').style.opacity = fmt === 'png' ? .45 : 1; $('#p2i-q').disabled = fmt === 'png';
   document.querySelectorAll('#p2i-grid [data-act="one"]').forEach(b => { b.title = txt ? '只抽出這一頁的文字' : '只下載這一頁'; });
 }
@@ -106,12 +106,14 @@ function runsToText(items, vp) {
   }
   return out.replace(/[ \t]+\n/g, '\n').trim();
 }
-async function pageText(index) {
+/* A page without a text layer (a scan) is read with OCR when 「OCR」 is ticked; onOcr(msg) reports its progress. */
+async function pageText(index, onOcr) {
   const pg = await p2i.pj.getPage(index + 1);
   const vp = pg.getViewport({ scale: 1 });
   const tc = await pg.getTextContent();
-  pg.cleanup();
-  return runsToText(tc.items, vp);
+  const t = runsToText(tc.items, vp);
+  if (t || !onOcr) { pg.cleanup(); return { text: t }; }
+  return { text: tidyOcr((await ocrPage(pg, normRot(pg.rotate), { onProgress: onOcr })).text), ocr: true };
 }
 const NO_TEXT = '（這一頁沒有文字，可能是掃描的圖片）';
 const p2iFileName = (index, o) => `${baseName(p2i.name)}-${String(index + 1).padStart(String(p2i.pages.length).length, '0')}.${o.fmt}`;
@@ -147,20 +149,25 @@ async function exportP2i(pages, btn) {
     await deliver(new File([blob], `${baseName(p2i.name)}-${o.fmt}.zip`, { type: 'application/zip' }), 'zip', 'pdf2img');
   }
   async function goText(check) {
-    const parts = []; let empty = 0;
+    const parts = [], useOcr = $('#p2i-ocr').checked; let empty = 0, ocred = 0;
     for (let i = 0; i < pages.length; i++) {
       check();
       p2iProgress(i, pages.length);
-      const t = await pageText(pages[i].index);
-      if (!t) empty++;
-      parts.push(pages.length > 1 ? `──── 第 ${pages[i].index + 1} 頁 ────\n\n${t || NO_TEXT}` : t);
+      const r = await pageText(pages[i].index, useOcr ? msg => {
+        $('#p2i-plabel').textContent = `第 ${i + 1} / ${pages.length} 頁是掃描的圖片 · ${ocrProgressText(msg)}`;
+      } : null);
+      const t = r.text;
+      if (!t) empty++; else if (r.ocr) ocred++;
+      parts.push(pages.length > 1 ? `──── 第 ${pages[i].index + 1} 頁 ────\n\n${t || (useOcr ? '（這一頁辨識不出文字）' : NO_TEXT)}` : t);
     }
     p2iProgress(pages.length, pages.length);
     if (empty === pages.length) {
-      toast(pages.length > 1 ? '這些頁面都沒有文字，可能是掃描檔（圖片），需要 OCR 才能辨識文字。' : '這一頁沒有文字，可能是掃描的圖片，需要 OCR 才能辨識文字。', 'err');
+      toast(useOcr ? '辨識不出任何文字。圖片太模糊、太暗或字太小時會這樣。'
+        : pages.length > 1 ? '這些頁面都沒有文字，可能是掃描檔（圖片）。勾選「用 OCR 辨識」再試一次。' : '這一頁沒有文字，可能是掃描的圖片。勾選「用 OCR 辨識」再試一次。', 'err');
       return;
     }
-    if (empty) toast(`有 ${empty} 頁沒有文字（可能是掃描的圖片），其他頁已抽出`);
+    if (empty) toast(useOcr ? `有 ${empty} 頁辨識不出文字，其他頁已抽出` : `有 ${empty} 頁沒有文字（可能是掃描的圖片），其他頁已抽出`);
+    else if (ocred) toast(`其中 ${ocred} 頁是用 OCR 辨識的，可能有錯字，請核對`);
     const name = pages.length === 1 && mini ? p2iFileName(pages[0].index, o) : `${baseName(p2i.name)}.txt`;
     const file = new File(['\ufeff' + parts.join('\n\n\n')], name, { type: 'text/plain;charset=utf-8' }); // BOM: older Notepad and Excel read it as UTF-8
     if (mini) { await saveFile(name, file); offerNext(file, 'text', 'pdf2img'); }
