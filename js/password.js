@@ -133,3 +133,48 @@ $('#pw-sample').addEventListener('click', async e => {
   });
 });
 updatePwLock();
+
+/* ---------- unlocking where the file was dropped ----------
+   Every tool reads PDFs through readPdf() (js/core.js), which lands here for a password-protected file. Restrictions
+   alone are lifted without asking; an opening password is asked for until it is right or the user gives up. */
+function askPdfPassword(name, wrong) {
+  const d = $('#pwask'), inp = $('#pwask-pass');
+  $('#pwask-file').textContent = `「${name}」要輸入密碼才能開啟。解除後就能繼續處理，原本的檔案不會改變。`;
+  $('#pwask-err').hidden = !wrong;
+  $('#pwask-err').textContent = !wrong ? '' : '密碼不對，請再試一次。' + (/^[a-z]\d{9}$/.test(inp.value) ? '身分證字號的英文字母通常要大寫。' : '');
+  if (!wrong) inp.value = '';
+  // Settled by the user's action itself (submit, 取消, Esc), all of which happen at once; the dialog's 'close' event
+  // is queued and can arrive late, after the next prompt has already opened.
+  const form = d.querySelector('form'), cancelBtn = $('#pwask-cancel');
+  return new Promise(resolve => {
+    const finish = value => {
+      form.removeEventListener('submit', onSubmit); cancelBtn.removeEventListener('click', onCancel); d.removeEventListener('cancel', onCancel);
+      if (d.open) d.close(); resolve(value);
+    };
+    const onSubmit = e => { e.preventDefault(); finish(inp.value || null); }; // Enter in the field, or 解除並繼續
+    const onCancel = e => { e.preventDefault(); finish(null); };                 // 取消, or Esc
+    form.addEventListener('submit', onSubmit); cancelBtn.addEventListener('click', onCancel); d.addEventListener('cancel', onCancel);
+    d.showModal(); inp.focus(); inp.select();
+  });
+}
+$('#pwask-show').addEventListener('change', e => { $('#pwask-pass').type = e.target.checked ? 'text' : 'password'; });
+async function unlockPdf(name, bytes) {
+  try {
+    const open = await pdfjsTry(bytes);
+    if (open.ok) { // no opening password, only print / copy / edit restrictions
+      const { out } = await runQpdf(['--decrypt', '/in.pdf', '/out.pdf'], bytes);
+      if (out) { toast(`已解除「${name}」的列印、複製限制`); return out; }
+    } else if (open.need) {
+      for (let wrong = false; ;) {
+        const pass = await askPdfPassword(name, wrong);
+        if (pass == null) { toast(`「${name}」沒有解除密碼，所以沒有開啟`); return null; }
+        if (!(await pdfjsTry(bytes, pass)).ok) { wrong = true; continue; }
+        const { out } = await runQpdf([`--password=${pass}`, '--decrypt', '/in.pdf', '/out.pdf'], bytes);
+        if (out) { toast(`已解除「${name}」的密碼`); return out; }
+        break;
+      }
+    }
+  } catch (e) { /* fall through to the message below */ }
+  toast(`「${name}」有密碼保護，但這份檔案的加密方式無法解除。`, 'err');
+  return null;
+}

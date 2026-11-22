@@ -27,8 +27,8 @@ const fmtLimit = b => b >= 1e6 ? `${+(b / 1e6).toFixed(2)} MB` : `${Math.round(b
 async function loadCompFile(files) {
   for (const f of files) {
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
-    const { bytes } = await fileBytes(f);
-    if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); continue; }
+    const got = await readPdf(f); if (!got) continue; // a password-protected file is unlocked here first
+    const { bytes } = got;
     let pages, paper;
     try {
       const pj = await openPdfjs(bytes), vp = (await pj.getPage(1)).getViewport({ scale: 1 });

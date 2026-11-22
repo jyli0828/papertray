@@ -213,8 +213,8 @@ async function loadOcr(files) {
     try { f = await imagesToPdf(imgs, imgs[0].name.replace(/\.[^.]+$/, '') + '.pdf'); }
     catch (e) { toast('圖片無法讀取，可能已損壞。', 'err'); return; }
   }
-  const { bytes, owned } = await fileBytes(f), size = bytes.length;
-  if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); return; }
+  const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
+  const { bytes, owned } = got, size = bytes.length;
   let pj;
   try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (ocrTab.pj) ocrTab.pj.destroy();

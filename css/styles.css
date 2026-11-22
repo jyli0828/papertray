@@ -54,20 +54,42 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .brand-mark { width: 44px; height: 44px; flex: none; border-radius: 10px; }
 .brand h1 { font-family: var(--font-display); font-weight: 700; font-size: 30px; line-height: 1.1; margin: 0; letter-spacing: -.01em; }
 .brand p { margin: 2px 0 0; color: var(--muted); font-size: 14px; text-wrap: balance; }
-.brand-text { min-width: 0; flex: 1; }
+.brand-text { min-width: 0; flex: 1 1 240px; }
 .privacy { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--accent); background: var(--accent-soft); padding: 4px 10px; border-radius: 999px; }
 .privacy svg { width: 14px; height: 14px; }
 
 /* Tool switch: one row of compact tabs on wide screens, wrapping to rows on narrow ones */
-.tabs { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; background: var(--sunk); padding: 5px; border-radius: 14px; }
+.tabs { position: relative; display: flex; flex-wrap: wrap; gap: 6px; background: var(--sunk); padding: 6px; border-radius: 14px; }
+/* Tools in their categories; a group grows with its number of tools so the rows fill evenly */
+.tab-group { flex: var(--n) 1 calc(var(--n) * 82px); display: flex; flex-direction: column; gap: 2px; min-width: 0;
+  background: color-mix(in srgb, var(--surface) 38%, transparent); border-radius: 12px; padding: 4px 4px 2px; }
+.tab-group-label { font-size: 11.5px; font-weight: 700; color: var(--muted); padding: 0 8px; letter-spacing: .04em; white-space: nowrap; }
+.tab-group-items { display: grid; grid-template-columns: repeat(var(--n), minmax(0, 1fr)); gap: 2px; }
+.tab-home { flex: 1 1 82px; align-self: stretch; justify-content: center; }
 .tab { border: 0; background: transparent; border-radius: 10px; padding: 10px 4px 8px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; color: var(--muted); font-size: 13.5px; font-weight: 500; text-align: center; }
 .tab svg { width: 22px; height: 22px; flex: none; }
 .tab span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .tab:hover { background: color-mix(in srgb, var(--surface) 55%, transparent); color: var(--ink); }
 .tab[aria-selected="true"] { background: var(--surface); box-shadow: var(--shadow); color: var(--accent); }
 .tab[aria-selected="true"] span { color: var(--ink); font-weight: 700; }
-@media (max-width: 900px) { .tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
-@media (max-width: 560px) { .tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); } .tab { font-size: 12.5px; padding: 8px 2px 6px; } }
+/* Phones: a short header and all tools in one row that scrolls sideways, so the open tool starts near the top */
+@media (max-width: 560px) {
+  body { padding-block: 14px 48px; }
+  .wrap { gap: 14px; }
+  .brand { gap: 10px; }
+  .brand-mark { width: 34px; height: 34px; }
+  .brand h1 { font-size: 24px; }
+  .brand p { display: none; }
+  .brand-text { flex: 1 1 auto; }
+  .brand-side { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 6px 12px; width: 100%; }
+  .tabs { flex-wrap: nowrap; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab-group { flex: none; }
+  .tab-group-items { grid-template-columns: repeat(var(--n), 62px); }
+  .tab-home { flex: none; width: 62px; }
+  .tab { font-size: 12px; padding: 7px 2px 5px; scroll-snap-align: start; }
+  .tab svg { width: 20px; height: 20px; }
+}
 
 /* Watermark remover */
 .um-stagebox { background: var(--sunk); border-radius: 12px; padding: 12px; display: grid; place-items: center; min-width: 0; }
@@ -540,3 +562,50 @@ select.ff-field { padding: 0 .1em; }
 .ph-tools label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
 .ph-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 560px) { .ph-edit { grid-template-columns: minmax(0, 1fr); } }
+
+/* Home: drop files for suggestions, search, every tool by category */
+.brand-mark, .brand h1 { cursor: pointer; }
+.home-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); background: var(--bg); border-radius: 10px; padding: 0 12px; }
+.home-search > svg { width: 18px; height: 18px; color: var(--muted); flex: none; }
+.home-search input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 10px 0; font-size: 15px; color: var(--ink); outline: none; }
+.home-search .keys { margin: 0; white-space: nowrap; }
+.home-search:focus-within { border-color: var(--accent); }
+.home-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px 18px; }
+.home-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.home-group h3 { margin: 0 0 2px; font-size: 13px; color: var(--muted); letter-spacing: .04em; }
+.home-tool, .home-pick { display: flex; align-items: flex-start; gap: 10px; text-align: left; border: 1px solid transparent; background: transparent; border-radius: 10px; padding: 8px 10px; cursor: pointer; min-width: 0; }
+.home-tool:hover, .home-pick:hover { background: var(--bg); border-color: var(--line); }
+.home-tool svg, .home-pick svg { width: 22px; height: 22px; flex: none; color: var(--accent); margin-top: 2px; }
+.home-tool span, .home-pick span { display: flex; flex-direction: column; min-width: 0; }
+.home-tool b, .home-pick b { font-size: 14.5px; }
+.home-tool small, .home-pick small { font-size: 12.5px; color: var(--muted); line-height: 1.45; }
+.home-suggest { border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 14px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.home-suggest-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; font-weight: 700; min-width: 0; }
+.home-suggest-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
+.home-pick { background: var(--surface); border-color: var(--line); }
+.home-picks .hint { grid-column: 1 / -1; }
+
+/* Ctrl+K tool search */
+dialog.cmdk { border: 0; padding: 0; margin: 12vh auto auto; width: min(520px, calc(100vw - 24px)); border-radius: 14px; background: var(--surface); color: var(--ink); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+dialog.cmdk::backdrop { background: rgba(8, 14, 18, .45); }
+.cmdk-box { display: flex; flex-direction: column; }
+#cmdk-q { border: 0; border-bottom: 1px solid var(--line); background: transparent; padding: 14px 16px; font-size: 16px; color: var(--ink); outline: none; }
+.cmdk-list { list-style: none; margin: 0; padding: 6px; max-height: 50vh; overflow: auto; }
+.cmdk-list li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+.cmdk-list li svg { width: 20px; height: 20px; color: var(--accent); flex: none; }
+.cmdk-list li small { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+.cmdk-list li[aria-selected="true"] { background: var(--accent-soft); }
+.cmdk-hint { padding: 8px 16px 12px; border-top: 1px solid var(--line); }
+
+/* Asking for a PDF's password where it was dropped */
+dialog.pwask { border: 0; padding: 0; width: min(440px, calc(100vw - 24px)); border-radius: 14px; background: var(--surface); color: var(--ink); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+dialog.pwask::backdrop { background: rgba(8, 14, 18, .5); }
+.pwask-box { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.pwask-box h3 { margin: 0; font-family: var(--font-display); font-size: 19px; }
+.pwask-box .pw-field { max-width: none; }
+.pwask-box code { font-family: var(--font-mono); background: var(--bg); padding: 0 5px; border-radius: 4px; color: var(--ink); }
+.pwask-btns { display: flex; gap: 8px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.pwask-btns label.check { margin-right: auto; display: inline-flex; gap: 6px; align-items: center; font-size: 14px; cursor: pointer; }
+
+.install-btn { font-size: 13px; }

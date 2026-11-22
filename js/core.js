@@ -191,7 +191,16 @@ function hasEncrypt(bytes) {
   }
   return false;
 }
-function encryptedMsg(name) { return `「${name}」有密碼保護，請先到「密碼」分頁解除，再回來處理。`; }
+/* A file's bytes for a tool that works on PDFs. A password-protected file is unlocked on the spot (js/password.js):
+   print / copy restrictions alone are lifted without asking, an opening password is asked for. Gives
+   { bytes, owned } like fileBytes(), or null when the file could not be opened or the user gave up. */
+async function readPdf(f) {
+  const r = await fileBytes(f);
+  if (!hasEncrypt(r.bytes)) return r;
+  const out = await unlockPdf(f.name, r.bytes);
+  return out ? { bytes: out, owned: true } : null;
+}
+function encryptedMsg(name) { return `「${name}」有密碼保護，可以到「密碼」分頁解除。`; }
 /* pdf.js takes ownership of the bytes it is given. Pass owned = true only when nothing else needs them afterwards;
    otherwise a copy goes to pdf.js. */
 async function openPdfjs(bytes, owned) {

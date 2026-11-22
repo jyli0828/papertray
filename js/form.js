@@ -9,8 +9,8 @@ const ff = { name: '', pj: null, fields: [], vals: new Map(), token: 0 };
 async function loadForm(files) {
   const f = files[0];
   if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const { bytes, owned } = await fileBytes(f), size = bytes.length; // read now: pdf.js may take the bytes over
-  if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); return; }
+  const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
+  const { bytes, owned } = got, size = bytes.length; // read now: pdf.js may take the bytes over
   let pj;
   try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (ff.pj) ff.pj.destroy();

@@ -6,6 +6,9 @@
 <title>紙匣</title>
 <meta name="description" content="紙匣：合併、拆分、編輯、簽名、填寫 PDF 表單、壓縮 PDF、文字辨識（OCR）、比較兩份 PDF，圖片與 PDF 互轉。檔案只在你的瀏覽器裡處理。">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="theme-color" content="#0b7a6b">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,88 +26,131 @@
     <div class="brand-side">
       <span class="privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>檔案只在你的瀏覽器裡處理，不會上傳</span>
       <label class="autodl"><input type="checkbox" id="auto-dl"> 完成後自動下載</label>
+      <button class="link-btn install-btn" id="install-app" hidden>安裝到電腦／手機，離線也能用</button>
     </div>
   </header>
 
   <nav class="tabs" role="tablist" aria-label="工具">
-    <button class="tab" role="tab" id="tab-merge" aria-controls="panel-merge" data-tab="merge" title="把多份 PDF 接成一份">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="8" height="10" rx="1.5"/><rect x="13" y="3" width="8" height="10" rx="1.5"/><path d="M7 13v3a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-3M12 18v3"/></svg>
-      <span>合併</span>
+    <button class="tab tab-home" role="tab" id="tab-home" aria-controls="panel-home" data-tab="home" title="所有工具、依檔案推薦工具">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/></svg>
+      <span>全部工具</span>
     </button>
-    <button class="tab" role="tab" id="tab-split" aria-controls="panel-split" data-tab="split" title="一份 PDF 拆成多份">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg>
-      <span>拆分</span>
-    </button>
-    <button class="tab" role="tab" id="tab-edit" aria-controls="panel-edit" data-tab="edit" title="排序、旋轉、刪頁、加文字">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="9" rx="1.5"/><rect x="3" y="15" width="7" height="6" rx="1.5"/><path d="M14 21l1-3.5 5-5 2.5 2.5-5 5z"/></svg>
-      <span>編輯</span>
-    </button>
-    <button class="tab" role="tab" id="tab-sign" aria-controls="panel-sign" data-tab="sign" title="在 PDF 上簽名">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17c2-3 3.5-6 5-6s.5 5 2 5 2.5-3 4-3 1 2 2.5 2"/><path d="M3 21h18"/><path d="m15 4 3 3-6 6H9v-3z"/></svg>
-      <span>簽名</span>
-    </button>
-    <button class="tab" role="tab" id="tab-form" aria-controls="panel-form" data-tab="form" title="填寫 PDF 表單欄位">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><rect x="7" y="7" width="10" height="3" rx=".6"/><path d="m7.5 15 1.5 1.5 3-3M14 15.5h3"/></svg>
-      <span>填表單</span>
-    </button>
-    <button class="tab" role="tab" id="tab-redact" aria-controls="panel-redact" data-tab="redact" title="塗黑並真正刪除個人資料">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"/><rect x="7.5" y="9" width="9" height="3.2" rx=".6" fill="currentColor"/><path d="M8 16h8"/></svg>
-      <span>遮蔽個資</span>
-    </button>
-    <button class="tab" role="tab" id="tab-watermark" aria-controls="panel-watermark" data-tab="watermark" title="在每頁蓋上文字或 Logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"/><path d="m8.5 16.5 7-7M10 10.5l3.5 3.5"/></svg>
-      <span>加浮水印</span>
-    </button>
-    <button class="tab" role="tab" id="tab-resize" aria-controls="panel-resize" data-tab="resize" title="統一頁面尺寸或裁掉白邊">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5" stroke-dasharray="3 2.5"/><path d="M9 9h6v6H9z"/></svg>
-      <span>調整尺寸</span>
-    </button>
-    <button class="tab" role="tab" id="tab-compress" aria-controls="panel-compress" data-tab="compress" title="縮小檔案大小">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v7m0 0-3-3m3 3 3-3M12 22v-7m0 0-3 3m3-3 3 3M4 12h16"/></svg>
-      <span>壓縮</span>
-    </button>
-    <button class="tab" role="tab" id="tab-password" aria-controls="panel-password" data-tab="password" title="解除或加上 PDF 密碼">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><circle cx="12" cy="15.5" r="1.4"/><path d="M12 17v1.5"/></svg>
-      <span>密碼</span>
-    </button>
-    <button class="tab" role="tab" id="tab-img2pdf" aria-controls="panel-img2pdf" data-tab="img2pdf" title="JPG、PNG 合成一份 PDF">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="9" height="9" rx="1.5"/><path d="m2 12 3-3 3 3M13.5 9.5H17m0 0-1.5-1.5M17 9.5 15.5 11"/><path d="M15 3h4l3 3v15h-9v-6"/></svg>
-      <span>圖片轉 PDF</span>
-    </button>
-    <button class="tab" role="tab" id="tab-idcard" aria-controls="panel-idcard" data-tab="idcard" title="身分證、健保卡正反面印在同一張 A4">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2h14v20H5z"/><rect x="7.5" y="4.5" width="9" height="6" rx="1"/><rect x="7.5" y="13.5" width="9" height="6" rx="1"/><circle cx="10" cy="7.5" r="1"/></svg>
-      <span>證件影印</span>
-    </button>
-    <button class="tab" role="tab" id="tab-idphoto" aria-controls="panel-idphoto" data-tab="idphoto" title="大頭照排成 1 吋、2 吋，印在 4×6 相紙">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="8.5" height="11" rx="1"/><rect x="13" y="3" width="8.5" height="11" rx="1"/><circle cx="6.75" cy="7.4" r="1.9"/><path d="M3.8 14c.5-2.3 1.6-3.3 2.95-3.3S9.2 11.7 9.7 14"/><circle cx="17.25" cy="7.4" r="1.9"/><path d="M14.3 14c.5-2.3 1.6-3.3 2.95-3.3s2.45 1 2.95 3.3"/><path d="M2.5 18h19M2.5 21h12" opacity=".6"/></svg>
-      <span>證件照</span>
-    </button>
-    <button class="tab" role="tab" id="tab-pdf2img" aria-controls="panel-pdf2img" data-tab="pdf2img" title="每頁存成 JPG 或 PNG，或抽出文字存成 TXT">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h5l3 3v8H2z"/><path d="M11 17.5h3.5m0 0L13 16m1.5 1.5L13 19"/><rect x="15" y="12" width="7" height="9" rx="1.5"/><path d="m15 19 2-2 2 2 1-1 2 2"/></svg>
-      <span>PDF 轉圖片</span>
-    </button>
-    <button class="tab" role="tab" id="tab-ocr" aria-controls="panel-ocr" data-tab="ocr" title="辨識掃描檔或照片裡的字，做成可以搜尋的 PDF">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V4a1 1 0 0 1 1-1h3M17 3h3a1 1 0 0 1 1 1v3M21 17v3a1 1 0 0 1-1 1h-3M7 21H4a1 1 0 0 1-1-1v-3"/><path d="M8 8h8M12 8v8M9.5 16h5"/></svg>
-      <span>文字辨識</span>
-    </button>
-    <button class="tab" role="tab" id="tab-compare" aria-controls="panel-compare" data-tab="compare" title="找出兩份 PDF 的文字差異">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="8" height="18" rx="1.5"/><rect x="13.5" y="3" width="8" height="18" rx="1.5"/><path d="M5 8h3M5 12h3M16 8h3M16 12h3"/><path d="M15.5 16h4" stroke-width="3" opacity=".55"/><path d="M4.5 16h4" stroke-width="3" opacity=".3"/></svg>
-      <span>比較</span>
-    </button>
-    <button class="tab" role="tab" id="tab-imgtool" aria-controls="panel-imgtool" data-tab="imgtool" title="壓縮、縮放、轉換圖片格式">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>
-      <span>圖片工具</span>
-    </button>
-    <button class="tab" role="tab" id="tab-unmark" aria-controls="panel-unmark" data-tab="unmark" title="塗抹後自動補上背景">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4-4a2 2 0 0 1 0-2.8L13.2 4a2 2 0 0 1 2.8 0l4 4a2 2 0 0 1 0 2.8L10 21z"/><path d="M8.5 8.7l6.8 6.8M7 21h14"/></svg>
-      <span>去浮水印</span>
-    </button>
+    <div class="tab-group" style="--n:4"><span class="tab-group-label" aria-hidden="true">整理頁面</span><div class="tab-group-items">
+      <button class="tab" role="tab" id="tab-merge" aria-controls="panel-merge" data-tab="merge" title="把多份 PDF 接成一份">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="8" height="10" rx="1.5"/><rect x="13" y="3" width="8" height="10" rx="1.5"/><path d="M7 13v3a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2v-3M12 18v3"/></svg>
+        <span>合併</span>
+      </button>
+      <button class="tab" role="tab" id="tab-split" aria-controls="panel-split" data-tab="split" title="一份 PDF 拆成多份">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12"/></svg>
+        <span>拆分</span>
+      </button>
+      <button class="tab" role="tab" id="tab-edit" aria-controls="panel-edit" data-tab="edit" title="排序、旋轉、刪頁、加文字">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="9" rx="1.5"/><rect x="3" y="15" width="7" height="6" rx="1.5"/><path d="M14 21l1-3.5 5-5 2.5 2.5-5 5z"/></svg>
+        <span>編輯</span>
+      </button>
+      <button class="tab" role="tab" id="tab-resize" aria-controls="panel-resize" data-tab="resize" title="統一頁面尺寸或裁掉白邊">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5" stroke-dasharray="3 2.5"/><path d="M9 9h6v6H9z"/></svg>
+        <span>調整尺寸</span>
+      </button>
+    </div></div>
+    <div class="tab-group" style="--n:2"><span class="tab-group-label" aria-hidden="true">填寫與簽署</span><div class="tab-group-items">
+      <button class="tab" role="tab" id="tab-sign" aria-controls="panel-sign" data-tab="sign" title="在 PDF 上簽名">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17c2-3 3.5-6 5-6s.5 5 2 5 2.5-3 4-3 1 2 2.5 2"/><path d="M3 21h18"/><path d="m15 4 3 3-6 6H9v-3z"/></svg>
+        <span>簽名</span>
+      </button>
+      <button class="tab" role="tab" id="tab-form" aria-controls="panel-form" data-tab="form" title="填寫 PDF 表單欄位">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><rect x="7" y="7" width="10" height="3" rx=".6"/><path d="m7.5 15 1.5 1.5 3-3M14 15.5h3"/></svg>
+        <span>填表單</span>
+      </button>
+    </div></div>
+    <div class="tab-group" style="--n:3"><span class="tab-group-label" aria-hidden="true">隱私與安全</span><div class="tab-group-items">
+      <button class="tab" role="tab" id="tab-redact" aria-controls="panel-redact" data-tab="redact" title="塗黑並真正刪除個人資料">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"/><rect x="7.5" y="9" width="9" height="3.2" rx=".6" fill="currentColor"/><path d="M8 16h8"/></svg>
+        <span>遮蔽個資</span>
+      </button>
+      <button class="tab" role="tab" id="tab-password" aria-controls="panel-password" data-tab="password" title="解除或加上 PDF 密碼">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><circle cx="12" cy="15.5" r="1.4"/><path d="M12 17v1.5"/></svg>
+        <span>密碼</span>
+      </button>
+      <button class="tab" role="tab" id="tab-watermark" aria-controls="panel-watermark" data-tab="watermark" title="在每頁蓋上文字或 Logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"/><path d="m8.5 16.5 7-7M10 10.5l3.5 3.5"/></svg>
+        <span>加浮水印</span>
+      </button>
+    </div></div>
+    <div class="tab-group" style="--n:4"><span class="tab-group-label" aria-hidden="true">轉換</span><div class="tab-group-items">
+      <button class="tab" role="tab" id="tab-compress" aria-controls="panel-compress" data-tab="compress" title="縮小檔案大小">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v7m0 0-3-3m3 3 3-3M12 22v-7m0 0-3 3m3-3 3 3M4 12h16"/></svg>
+        <span>壓縮</span>
+      </button>
+      <button class="tab" role="tab" id="tab-img2pdf" aria-controls="panel-img2pdf" data-tab="img2pdf" title="JPG、PNG 合成一份 PDF">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="9" height="9" rx="1.5"/><path d="m2 12 3-3 3 3M13.5 9.5H17m0 0-1.5-1.5M17 9.5 15.5 11"/><path d="M15 3h4l3 3v15h-9v-6"/></svg>
+        <span>圖片轉 PDF</span>
+      </button>
+      <button class="tab" role="tab" id="tab-pdf2img" aria-controls="panel-pdf2img" data-tab="pdf2img" title="每頁存成 JPG 或 PNG，或抽出文字存成 TXT">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h5l3 3v8H2z"/><path d="M11 17.5h3.5m0 0L13 16m1.5 1.5L13 19"/><rect x="15" y="12" width="7" height="9" rx="1.5"/><path d="m15 19 2-2 2 2 1-1 2 2"/></svg>
+        <span>PDF 轉圖片</span>
+      </button>
+      <button class="tab" role="tab" id="tab-ocr" aria-controls="panel-ocr" data-tab="ocr" title="辨識掃描檔或照片裡的字，做成可以搜尋的 PDF">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V4a1 1 0 0 1 1-1h3M17 3h3a1 1 0 0 1 1 1v3M21 17v3a1 1 0 0 1-1 1h-3M7 21H4a1 1 0 0 1-1-1v-3"/><path d="M8 8h8M12 8v8M9.5 16h5"/></svg>
+        <span>文字辨識</span>
+      </button>
+    </div></div>
+    <div class="tab-group" style="--n:1"><span class="tab-group-label" aria-hidden="true">比對</span><div class="tab-group-items">
+      <button class="tab" role="tab" id="tab-compare" aria-controls="panel-compare" data-tab="compare" title="找出兩份 PDF 的文字差異">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="8" height="18" rx="1.5"/><rect x="13.5" y="3" width="8" height="18" rx="1.5"/><path d="M5 8h3M5 12h3M16 8h3M16 12h3"/><path d="M15.5 16h4" stroke-width="3" opacity=".55"/><path d="M4.5 16h4" stroke-width="3" opacity=".3"/></svg>
+        <span>比較</span>
+      </button>
+    </div></div>
+    <div class="tab-group" style="--n:2"><span class="tab-group-label" aria-hidden="true">證件</span><div class="tab-group-items">
+      <button class="tab" role="tab" id="tab-idcard" aria-controls="panel-idcard" data-tab="idcard" title="身分證、健保卡正反面印在同一張 A4">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2h14v20H5z"/><rect x="7.5" y="4.5" width="9" height="6" rx="1"/><rect x="7.5" y="13.5" width="9" height="6" rx="1"/><circle cx="10" cy="7.5" r="1"/></svg>
+        <span>證件影印</span>
+      </button>
+      <button class="tab" role="tab" id="tab-idphoto" aria-controls="panel-idphoto" data-tab="idphoto" title="大頭照排成 1 吋、2 吋，印在 4×6 相紙">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="8.5" height="11" rx="1"/><rect x="13" y="3" width="8.5" height="11" rx="1"/><circle cx="6.75" cy="7.4" r="1.9"/><path d="M3.8 14c.5-2.3 1.6-3.3 2.95-3.3S9.2 11.7 9.7 14"/><circle cx="17.25" cy="7.4" r="1.9"/><path d="M14.3 14c.5-2.3 1.6-3.3 2.95-3.3s2.45 1 2.95 3.3"/><path d="M2.5 18h19M2.5 21h12" opacity=".6"/></svg>
+        <span>證件照</span>
+      </button>
+    </div></div>
+    <div class="tab-group" style="--n:2"><span class="tab-group-label" aria-hidden="true">圖片</span><div class="tab-group-items">
+      <button class="tab" role="tab" id="tab-imgtool" aria-controls="panel-imgtool" data-tab="imgtool" title="壓縮、縮放、轉換圖片格式">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>
+        <span>圖片工具</span>
+      </button>
+      <button class="tab" role="tab" id="tab-unmark" aria-controls="panel-unmark" data-tab="unmark" title="塗抹後自動補上背景">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 21-4-4a2 2 0 0 1 0-2.8L13.2 4a2 2 0 0 1 2.8 0l4 4a2 2 0 0 1 0 2.8L10 21z"/><path d="M8.5 8.7l6.8 6.8M7 21h14"/></svg>
+        <span>去浮水印</span>
+      </button>
+    </div></div>
   </nav>
   <div class="mem-note" id="mem-note" role="status" hidden>
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/><path d="M9 9h6v6H9zM9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></svg>
     <span id="mem-text"></span>
     <span class="mem-btns"><button class="btn" id="mem-free">釋放記憶體</button><button class="btn ghost" id="mem-close">不用</button></span>
   </div>
+
+  <!-- HOME -->
+  <section class="panel" id="panel-home" role="tabpanel" aria-labelledby="tab-home" hidden>
+    <div class="panel-head">
+      <h2>要處理什麼？</h2>
+      <p>把檔案放進來，紙匣會建議適合的工具；也可以直接挑一個工具。</p>
+    </div>
+    <label class="drop" id="home-drop">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+      <strong>把 PDF 或圖片拖到這裡，或點一下選擇</strong>
+      <span>可以一次放入多個檔案，也可以按 Ctrl+V 貼上</span>
+      <input type="file" id="home-input" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp,image/gif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" multiple>
+    </label>
+    <div class="home-suggest" id="home-suggest" hidden>
+      <div class="home-suggest-head"><span id="home-files"></span><button class="link-btn" id="home-clear">換檔案</button></div>
+      <div class="home-picks" id="home-picks"></div>
+    </div>
+    <div class="home-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg>
+      <input type="search" id="home-q" placeholder="搜尋工具，例如：浮水印、OCR、簽名" aria-label="搜尋工具" autocomplete="off">
+      <span class="keys"><kbd>Ctrl</kbd><kbd>K</kbd></span>
+    </div>
+    <div class="home-groups" id="home-groups"></div>
+  </section>
 
   <!-- MERGE -->
   <section class="panel" id="panel-merge" role="tabpanel" aria-labelledby="tab-merge">
@@ -1401,6 +1447,32 @@
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
+<dialog class="pwask" id="pwask" aria-labelledby="pwask-title">
+  <form method="dialog" class="pwask-box">
+    <h3 id="pwask-title">這份檔案有密碼</h3>
+    <p class="hint" id="pwask-file"></p>
+    <label class="field pw-field">開啟密碼
+      <input type="password" id="pwask-pass" autocomplete="off" spellcheck="false">
+    </label>
+    <p class="pw-err" id="pwask-err" role="alert" hidden></p>
+    <p class="hint">電子帳單常用身分證字號（英文字母大寫）或生日，例如 <code>A123456789</code>、<code>19900412</code>、民國 <code>0790412</code>。</p>
+    <div class="pwask-btns">
+      <label class="check"><input type="checkbox" id="pwask-show"> 顯示密碼</label>
+      <!-- type="button": only 解除並繼續 submits, so Enter in the field unlocks -->
+      <button type="button" class="btn" id="pwask-cancel">取消</button>
+      <button class="btn primary" value="ok" id="pwask-ok">解除並繼續</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="cmdk" id="cmdk" aria-label="搜尋工具">
+  <div class="cmdk-box">
+    <input type="search" id="cmdk-q" placeholder="要做什麼？例如：合併、密碼、OCR" aria-label="搜尋工具" autocomplete="off">
+    <ul class="cmdk-list" id="cmdk-list" role="listbox" aria-label="工具"></ul>
+    <p class="hint cmdk-hint"><kbd>↑</kbd><kbd>↓</kbd> 選擇　<kbd>Enter</kbd> 開啟　<kbd>Esc</kbd> 關閉</p>
+  </div>
+</dialog>
+
 <script src="js/core.js"></script>
 <script src="js/samples.js"></script>
 <script src="js/inpaint.js"></script>
@@ -1425,6 +1497,7 @@
 <script src="js/password.js"></script>
 <script src="js/imgtool.js"></script>
 <script src="js/unmark.js"></script>
+<script src="js/home.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

@@ -5,7 +5,8 @@ const p2i = { name: '', pj: null, pages: [] };
 async function loadP2i(files) {
   const f = files[0];
   if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const { bytes, owned } = await fileBytes(f), size = bytes.length;
+  const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
+  const { bytes, owned } = got, size = bytes.length;
   let pj;
   try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (p2i.pj) p2i.pj.destroy();

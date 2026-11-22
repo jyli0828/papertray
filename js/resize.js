@@ -12,8 +12,8 @@ const pageDisp = page => {
 async function loadResize(files) {
   const f = files[0];
   if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const { bytes } = await fileBytes(f);
-  if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); return; }
+  const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
+  const { bytes } = got;
   let doc;
   try { doc = await PDFDocument.load(bytes); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   const counts = new Map();

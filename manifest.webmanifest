@@ -1,0 +1,17 @@
+{
+  "name": "紙匣 Papertray",
+  "short_name": "紙匣",
+  "description": "在瀏覽器裡處理 PDF 與圖片：合併、拆分、編輯、簽名、遮蔽個資、文字辨識、比較、密碼、壓縮、證件照。檔案不上傳，可離線使用。",
+  "lang": "zh-Hant",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eef1f3",
+  "theme_color": "#0b7a6b",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

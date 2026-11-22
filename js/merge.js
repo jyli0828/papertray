@@ -11,8 +11,8 @@ async function addMergeFiles(files, isSample) {
       catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); continue; }
     }
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 或圖片`, 'err'); continue; }
-    const { bytes } = await fileBytes(f);
-    if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); continue; }
+    const got = await readPdf(f); if (!got) continue; // a password-protected file is unlocked here first
+    const { bytes } = got;
     try {
       // Only the page count is needed now; pdf.js reads just the page tree. The full parse happens once, when merging.
       let pages = f.pages;

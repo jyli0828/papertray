@@ -75,8 +75,8 @@ async function loadEditFiles(files, onFirst, insertAt) {
       catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); continue; }
     }
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 或圖片`, 'err'); continue; }
-    const { bytes, owned } = await fileBytes(f), size = bytes.length; // read now: pdf.js may take the bytes over
-    if (hasEncrypt(bytes)) { toast(encryptedMsg(f.name), 'err'); continue; }
+    const got = await readPdf(f); if (!got) continue; // a password-protected file is unlocked here first
+    const { bytes, owned } = got, size = bytes.length; // read now: pdf.js may take the bytes over
     // pdf.js keeps the only copy of the file; export asks it for the bytes back (pj.getData()).
     let pj;
     try { pj = await openPdfjs(bytes, owned); }

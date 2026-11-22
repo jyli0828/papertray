@@ -18,6 +18,9 @@ python -m http.server 8000
 papertray/
 ├─ index.html           頁面結構：頁首、分頁列、每個工具的 <section>、共用對話框，最後依序載入 js/
 ├─ icon.svg             網站圖示（分頁 icon、頁首標誌）
+├─ icons/               安裝成 App 用的 PNG 圖示（tools/make_icons.py 產生）
+├─ manifest.webmanifest App 的名稱、圖示、顏色（PWA）
+├─ sw.js                service worker：離線使用
 ├─ css/styles.css       全部樣式：顏色變數（含深色模式）、共用元件、各工具版面
 ├─ js/                  程式，見下方「載入順序」
 ├─ lib/                 第三方函式庫的本機副本，見 third-party.md
@@ -26,6 +29,7 @@ papertray/
 │  └─ tesseract/        Tesseract.js、辨識核心、lang/ 繁中與英文的辨識資料
 ├─ tools/
 │  ├─ build.py          打包成單一檔案（dist/）
+│  ├─ make_icons.py     從 icon.svg 的圖形畫出 icons/ 裡的 PNG
 │  └─ wasm_to_js.py     更新 qpdf 時，把 qpdf.wasm 轉成 lib/qpdf/qpdf.wasm.js
 ├─ docs/                說明文件
 └─ dist/                build.py 的產出，不在版本控制內
@@ -63,11 +67,14 @@ papertray/
 | `password.js` | 解除／加上密碼（qpdf） |
 | `imgtool.js` | 圖片工具 |
 | `unmark.js` | 去浮水印的介面 |
-| `app.js` | 分頁切換與啟動，必須最後載入 |
+| `home.js` | 「全部工具」首頁：依放入的檔案推薦工具、搜尋工具、Ctrl+K |
+| `app.js` | 分頁切換、記住上次用的工具、註冊 service worker，必須最後載入 |
 
 ## 共用機制（`js/core.js`）
 
 **函式庫延後載入**：`LIBS` 列出 `lib/` 裡的檔案，`loadScript(key)` 第一次用到時才載入。pdf-lib 透過 `PDFDocument.load()`／`create()` 自動載入；pdf.js 用 `openPdfjs()`。剛開啟紙匣時只載入自己的程式（約 1 MB）。`tools/build.py` 會把這些路徑換成 CDN 網址。
+
+**有密碼的 PDF**：工具讀 PDF 一律用 `readPdf(f)`，有密碼的檔案會就地解除（只有限制的直接解除，要開啟密碼的會跳出輸入框，見 `js/password.js` 的 `unlockPdf()`），使用者取消時回傳 `null`。
 
 **檔案與位元組**：工具之間傳遞的 PDF 是 `pdfFile(bytes, name)`，不是 `File`，避免每經過一個工具就複製一次。`fileBytes(f)` 取得位元組，`owned` 表示是否能交給 pdf.js（pdf.js 會接管傳入的陣列）。
 
@@ -83,11 +90,23 @@ papertray/
 
 **座標**：`displayToUser()`／`userToDisplay()` 在「畫面上看到的頁面」（左上角為原點、已套用頁面旋轉）與 PDF 座標之間換算。加在頁面上的東西都存成 PDF 座標，旋轉頁面時不會跑掉。
 
+## 工具頁的結構
+
+每個工具頁都照這個順序，使用者換工具時不用重新找東西在哪裡：
+
+1. **標題列**（`.panel-head`）：`<h2>` 工具名稱，旁邊一句話說明能做什麼。
+2. **放入檔案**：
+   - 一次處理一份的工具用大的 `.drop`，下面一行「用範例試試」；
+   - 處理清單的工具（合併、壓縮、圖片轉 PDF、圖片工具）用窄的 `.drop.compact`，放在清單上方，可以一直加。
+3. **檔案**：一份檔案用 `.doc-card`（檔名、頁數與大小、「換一個檔案」）；多份用 `.file-list`；逐頁操作用 `.page-grid`。
+4. **選項**：`.optgrid` 裡的下拉選單；要邊調邊看結果的工具（加浮水印、證件影印、證件照）用左邊選項、右邊預覽的兩欄版面。
+5. **底部列**（`.footer-bar`）：左邊是摘要（會產生什麼），右邊是檔名和主要按鈕（`.btn.primary`）。只負責開啟編輯視窗的入口頁（簽名、遮蔽個資）沒有底部列。
+
 ## 新增一個工具
 
-1. `index.html`：在 `<nav class="tabs">` 加分頁按鈕（`id="tab-xxx"`、`data-tab="xxx"`、圖示用 24×24、`stroke-width="1.8"` 的線條 SVG），在其他 `<section>` 旁加 `<section class="panel" id="panel-xxx" hidden>`。
+1. `index.html`：在 `<nav class="tabs">` 裡適合的類別（`.tab-group`）加分頁按鈕，並把那一組的 `--n` 加一（`id="tab-xxx"`、`data-tab="xxx"`、`title` 寫一句話說明，首頁和 Ctrl+K 會用到；圖示用 24×24、`stroke-width="1.8"` 的線條 SVG），在其他 `<section>` 旁加 `<section class="panel" id="panel-xxx" hidden>`。工具清單、首頁、Ctrl+K 都從分頁列讀取，不用另外登記；搜尋用的同義詞加在 `js/home.js` 的 `TOOL_WORDS`。
 2. 新增 `js/xxx.js`，在 `index.html` 的 `app.js` 之前加上 `<script>`。
-3. `js/app.js`：把 `'xxx'` 加進 `TABS`（順序就是鍵盤左右切換的順序）。工具開著 pdf.js 文件的話，加進 `releaseCaches()`。
+3. `js/app.js`：工具開著 pdf.js 文件的話，加進 `releaseCaches()`。
 4. 在工具裡：
    - 放入檔案用 `acceptFiles()`、`bindInput()`；
    - 長時間的處理用 `runJob()`；
@@ -98,20 +117,25 @@ papertray/
 5. `css/styles.css`：先用現有的元件（`.drop`、`.doc-card`、`.optgrid`、`.footer-bar`、`.progress`、`.note`）；新的顏色用 `:root` 的變數，深色模式也要看過。
 6. 文件：README 的工具表、`docs/features.md`；用了新的函式庫就更新 `docs/third-party.md` 和 `tools/build.py` 的 `CDN` 表。
 
-## 打包與發布
+## 發布
+
+**線上版**：https://jyli0828.github.io/papertray/ ，由 GitHub Pages 直接提供 `main` 分支的檔案，不需要建置。推送到 `main` 後約一分鐘更新。線上版用的是 `lib/` 裡的函式庫，和本機伺服器完全相同，所以文字辨識等全部功能都能用。
+
+**可以安裝、離線使用（PWA）**：
+- `manifest.webmanifest` 是 App 的名稱、圖示和顏色；`icons/` 裡的 PNG 由 `python tools/make_icons.py` 從 `icon.svg` 的圖形畫出來，改了圖示要重新產生。
+- `sw.js` 是 service worker：
+  - 紙匣自己的檔案「先問網路」，所以改版後下次開啟就是新版，沒網路時用快取；
+  - `lib/` 的函式庫「先用快取」，第一次造訪就先存好 pdf-lib、PDF.js、JSZip，其他（文字辨識、qpdf、HEIC）第一次用到時才存。
+- 只在 http(s) 網址註冊，直接雙擊開啟時不會啟用。
+- 快取的格式改變時，把 `sw.js` 的 `CACHE` 改名，舊快取會在新版啟用時刪掉。
+
+**單一檔案版**：
 
 ```powershell
 python tools/build.py
 ```
 
-產生 `dist/` 裡的兩個檔案：
-
-- `紙匣.html`：單一檔案版，CSS、JS 和圖示都內嵌，可以直接寄給別人。
-- `artifact.html`：同樣內容，去掉 `<html>`／`<head>`／`<body>` 外框，用來發布到 Claude Artifact。
-
-兩者都把 `lib/` 的路徑換成 `tools/build.py` 裡 `CDN` 表的網址（cdnjs 或 jsdelivr），所以需要網路。程式裡還有沒對應到 CDN 的 `'lib/…'` 路徑時，打包會失敗並列出來。
-
-線上版：https://claude.ai/artifact/LrA1FQYwq2f55Y6jAAwKY1 ，用 `dist/artifact.html` 發布，改版後要重新發布。
+產生 `dist/紙匣.html`，CSS、JS 和圖示都內嵌，可以直接寄給別人。函式庫改從 `tools/build.py` 裡 `CDN` 表的網址（cdnjs 或 jsdelivr）載入，所以需要網路；它不含 service worker 和 App 圖示。程式裡還有沒對應到 CDN 的 `'lib/…'` 路徑時，打包會失敗並列出來。
 
 ## 更新函式庫
 
