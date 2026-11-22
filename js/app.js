@@ -1,6 +1,6 @@
 'use strict';
 /* ================= tabs ================= */
-const TABS = ['merge', 'split', 'edit', 'sign', 'form', 'redact', 'watermark', 'resize', 'compress', 'img2pdf', 'idcard', 'pdf2img', 'ocr', 'imgtool', 'unmark'];
+const TABS = ['merge', 'split', 'edit', 'sign', 'form', 'redact', 'watermark', 'resize', 'compress', 'img2pdf', 'idcard', 'pdf2img', 'ocr', 'compare', 'imgtool', 'unmark'];
 function showTab(name) {
   if (!TABS.includes(name)) name = 'merge';
   TABS.forEach(t => {
@@ -24,6 +24,7 @@ function releaseCaches(active) {
   if (active !== 'watermark' && wm.pj) docs.push(wm.pj);
   if (active !== 'form' && ff.pj) docs.push(ff.pj);
   if (active !== 'ocr' && ocrTab.pj) docs.push(ocrTab.pj);
+  if (active !== 'compare') for (const d of [cmp.a, cmp.b]) if (d) docs.push(d.pj);
   for (const d of docs) { try { const r = d.cleanup(); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
 }
 document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {

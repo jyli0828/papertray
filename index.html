@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>紙匣</title>
-<meta name="description" content="紙匣：合併、拆分、編輯、簽名、填寫 PDF 表單、壓縮 PDF、文字辨識（OCR），圖片與 PDF 互轉。檔案只在你的瀏覽器裡處理。">
+<meta name="description" content="紙匣：合併、拆分、編輯、簽名、填寫 PDF 表單、壓縮 PDF、文字辨識（OCR）、比較兩份 PDF，圖片與 PDF 互轉。檔案只在你的瀏覽器裡處理。">
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,7 +18,7 @@
     <img class="brand-mark" src="icon.svg" alt="" width="44" height="44">
     <div class="brand-text">
       <h1>紙匣</h1>
-      <p>PDF 與圖片的隨手工具：合併、拆分、編輯、簽名、填表單、遮蔽個資、加浮水印、調整尺寸、壓縮、文字辨識，圖片與 PDF 互轉。</p>
+      <p>PDF 與圖片的隨手工具：合併、拆分、編輯、簽名、填表單、遮蔽個資、加浮水印、調整尺寸、壓縮、文字辨識、比較版本，圖片與 PDF 互轉。</p>
     </div>
     <div class="brand-side">
       <span class="privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>檔案只在你的瀏覽器裡處理，不會上傳</span>
@@ -78,6 +78,10 @@
     <button class="tab" role="tab" id="tab-ocr" aria-controls="panel-ocr" data-tab="ocr" title="辨識掃描檔或照片裡的字，做成可以搜尋的 PDF">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V4a1 1 0 0 1 1-1h3M17 3h3a1 1 0 0 1 1 1v3M21 17v3a1 1 0 0 1-1 1h-3M7 21H4a1 1 0 0 1-1-1v-3"/><path d="M8 8h8M12 8v8M9.5 16h5"/></svg>
       <span>文字辨識</span>
+    </button>
+    <button class="tab" role="tab" id="tab-compare" aria-controls="panel-compare" data-tab="compare" title="找出兩份 PDF 的文字差異">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="8" height="18" rx="1.5"/><rect x="13.5" y="3" width="8" height="18" rx="1.5"/><path d="M5 8h3M5 12h3M16 8h3M16 12h3"/><path d="M15.5 16h4" stroke-width="3" opacity=".55"/><path d="M4.5 16h4" stroke-width="3" opacity=".3"/></svg>
+      <span>比較</span>
     </button>
     <button class="tab" role="tab" id="tab-imgtool" aria-controls="panel-imgtool" data-tab="imgtool" title="壓縮、縮放、轉換圖片格式">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg>
@@ -561,6 +565,66 @@
           <button class="btn primary" id="ocr-go">辨識文字</button>
         </div>
       </div>
+    </div>
+  </section>
+
+  <!-- COMPARE -->
+  <section class="panel" id="panel-compare" role="tabpanel" aria-labelledby="tab-compare" hidden>
+    <div class="panel-head">
+      <h2>比較兩份 PDF</h2>
+      <p>找出兩個版本之間改了哪些字：刪掉的標紅色、新增的標綠色。適合核對合約、報價單、規章的改版。</p>
+    </div>
+    <div class="cmp-slots">
+      <div class="cmp-slot">
+        <div class="cmp-slot-head"><span class="cmp-tag del">原本</span>舊的版本</div>
+        <label class="drop compact" id="cmp-drop-a">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+          <span><strong>選擇 PDF</strong>　或拖到這裡</span>
+          <input type="file" id="cmp-input-a" accept="application/pdf,.pdf">
+        </label>
+        <div class="doc-card" id="cmp-card-a" hidden>
+          <svg class="doc-ico" viewBox="0 0 40 48" fill="none" aria-hidden="true"><path d="M4 3h22l10 10v32H4z" fill="currentColor" opacity=".14"/><path d="M4 3h22l10 10v32H4z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M26 3v10h10" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+          <div style="min-width:0"><div class="file-name" id="cmp-name-a"></div><div class="file-meta" id="cmp-meta-a"></div></div>
+          <button class="btn" data-cmp-change="a">換檔</button>
+        </div>
+      </div>
+      <div class="cmp-slot">
+        <div class="cmp-slot-head"><span class="cmp-tag ins">新版</span>新的版本</div>
+        <label class="drop compact" id="cmp-drop-b">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+          <span><strong>選擇 PDF</strong>　或拖到這裡</span>
+          <input type="file" id="cmp-input-b" accept="application/pdf,.pdf">
+        </label>
+        <div class="doc-card" id="cmp-card-b" hidden>
+          <svg class="doc-ico" viewBox="0 0 40 48" fill="none" aria-hidden="true"><path d="M4 3h22l10 10v32H4z" fill="currentColor" opacity=".14"/><path d="M4 3h22l10 10v32H4z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M26 3v10h10" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+          <div style="min-width:0"><div class="file-name" id="cmp-name-b"></div><div class="file-meta" id="cmp-meta-b"></div></div>
+          <button class="btn" data-cmp-change="b">換檔</button>
+        </div>
+      </div>
+    </div>
+    <p class="hint" id="cmp-sample-row">沒有檔案在手邊？<button class="link-btn" id="cmp-sample">用兩份範例合約試試</button>　也可以一次拖入兩份，先放舊的、再放新的。</p>
+    <div class="footer-bar">
+      <label class="check"><input type="checkbox" id="cmp-ocr" checked> 沒有文字的頁面（掃描檔）先用 OCR 辨識</label>
+      <button class="btn primary" id="cmp-go" disabled>比較</button>
+    </div>
+    <div class="progress" id="cmp-progress" hidden>
+      <div class="progress-track"><div class="progress-fill" id="cmp-bar"></div></div>
+      <span class="progress-label mono" id="cmp-plabel"></span>
+    </div>
+    <div id="cmp-result" class="cmp-result" hidden>
+      <div class="cmp-bar">
+        <span id="cmp-sum"></span>
+        <span class="cmp-nav">
+          <button class="btn" id="cmp-prev" title="上一處（←）">上一處</button>
+          <button class="btn" id="cmp-next" title="下一處（→）">下一處</button>
+        </span>
+      </div>
+      <ol class="cmp-list" id="cmp-list"></ol>
+      <div class="cmp-view">
+        <div class="cmp-col"><div class="cmp-col-head"><span class="cmp-tag del">原本</span><span id="cmp-col-name-a"></span></div><div class="cmp-pages" id="cmp-pages-a"></div></div>
+        <div class="cmp-col"><div class="cmp-col-head"><span class="cmp-tag ins">新版</span><span id="cmp-col-name-b"></span></div><div class="cmp-pages" id="cmp-pages-b"></div></div>
+      </div>
+      <p class="note">只比較文字內容，不比較圖片、顏色、字型與排版。換行、空格和全形／半形的差別不算。點清單或頁面上的標記可以兩邊一起跳到那裡。</p>
     </div>
   </section>
 
@@ -1191,6 +1255,7 @@
 <script src="js/idcard.js"></script>
 <script src="js/pdf2img.js"></script>
 <script src="js/ocr.js"></script>
+<script src="js/compare.js"></script>
 <script src="js/imgtool.js"></script>
 <script src="js/unmark.js"></script>
 <script src="js/app.js"></script>
