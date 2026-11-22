@@ -4,7 +4,8 @@
    character, a word or number, a punctuation mark; spaces and line breaks do not count, and NFKC makes full-width and
    half-width forms equal). Lines are compared first, then the tokens inside the lines that differ, so a long document
    with a few edits stays quick and text that only moved to another line does not count as changed.
-   Results: a list of changes, and both files side by side with deleted text marked red and added text green. */
+   Results: a list of changes, and both files side by side with deleted text marked red and added text green.
+   「比對畫面」 compares how the pages look instead (see the section of that name below); it shares the result view. */
 const cmp = { a: null, b: null, res: null, active: -1 };
 const CMP_WORD = /[A-Za-z0-9À-ɏͰ-ϿЀ-ӿ]/;
 
@@ -39,6 +40,7 @@ function renderCmpSlots() {
 }
 function clearCmpResult() {
   for (const s of ['a', 'b']) { const box = $('#cmp-pages-' + s); forgetCmpPages(box); box.innerHTML = ''; }
+  if (cmp.res) for (const h of cmp.res.hunks) if (h.crops) { URL.revokeObjectURL(h.crops.a); URL.revokeObjectURL(h.crops.b); }
   $('#cmp-list').innerHTML = ''; $('#cmp-result').hidden = true; $('#cmp-progress').hidden = true;
   cmp.res = null; cmp.active = -1;
 }
@@ -185,6 +187,7 @@ $('#cmp-go').addEventListener('click', e => {
   const useOcr = $('#cmp-ocr').checked, A = cmp.a, B = cmp.b;
   runJob(e.currentTarget, '比較中…', async check => {
     clearCmpResult();
+    if (cmpMode === 'visual') { await cmpVisual(A, B, CMP_SENS[$('#cmp-sens').value] || CMP_SENS.normal, check); return; }
     const total = A.pj.numPages + B.pj.numPages;
     await cmpReadDoc(A, '原本', useOcr, check, t => cmpProgress(t, A.chars.filter(Boolean).length / total));
     await cmpReadDoc(B, '新版', useOcr, check, t => cmpProgress(t, (A.pj.numPages + B.chars.filter(Boolean).length) / total));
@@ -264,23 +267,29 @@ function showCmpResult(tooBig) {
       }
     }
   });
-  cmpPages('a', A, marks.a); cmpPages('b', B, marks.b);
+  cmpPages('a', A, marks.a, A.chars); cmpPages('b', B, marks.b, B.chars);
 }
 const escHtml = s => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-function cmpPages(side, d, marks) {
+/* geo[p] = { view, R } for every page; a mark is { k, box } in PDF user space (text) or { k, frac } as fractions
+   of the page as shown (畫面). */
+function cmpPages(side, d, marks, geo) {
   const box = $('#cmp-pages-' + side); forgetCmpPages(box); box.innerHTML = '';
-  d.chars.forEach((c, p) => {
+  geo.forEach((c, p) => {
     const [dw, dh] = dispSize(c.view, c.R);
     const el = document.createElement('div');
     el.className = 'cmp-page'; el.dataset.p = p; el.style.aspectRatio = `${dw} / ${dh}`;
     el.innerHTML = `<span class="cmp-pno mono">${p + 1}</span>`;
     for (const mk of marks.get(p) || []) {
-      const [x0, y0, x1, y1] = mk.box;
-      const [ax, ay] = userToDisplay(c.view, c.R, x0, y0), [bx, by] = userToDisplay(c.view, c.R, x1, y1);
+      let l, t, w, h;
+      if (mk.frac) { const [fx0, fy0, fx1, fy1] = mk.frac; [l, t, w, h] = [fx0, fy0, fx1 - fx0, fy1 - fy0].map(v => v * 100); }
+      else {
+        const [x0, y0, x1, y1] = mk.box;
+        const [ax, ay] = userToDisplay(c.view, c.R, x0, y0), [bx, by] = userToDisplay(c.view, c.R, x1, y1);
+        [l, t, w, h] = [Math.min(ax, bx) / dw, Math.min(ay, by) / dh, Math.abs(bx - ax) / dw, Math.abs(by - ay) / dh].map(v => v * 100);
+      }
       const m = document.createElement('span');
       m.className = `cmp-mark ${side === 'a' ? 'del' : 'ins'}${mk.caret ? ' caret' : ''}`; m.dataset.h = mk.k;
-      Object.assign(m.style, { left: Math.min(ax, bx) / dw * 100 + '%', top: Math.min(ay, by) / dh * 100 + '%',
-        width: Math.abs(bx - ax) / dw * 100 + '%', height: Math.abs(by - ay) / dh * 100 + '%' });
+      Object.assign(m.style, { left: l + '%', top: t + '%', width: w + '%', height: h + '%' });
       el.append(m);
     }
     box.append(el);
@@ -298,6 +307,154 @@ function cmpPages(side, d, marks) {
     });
   });
 }
+/* ================= 比對畫面 =================
+   Pages are paired by number (1 with 1, 2 with 2 …), drawn at the same width and compared pixel by pixel. A pixel
+   counts as changed only when nothing within `reach` pixels on the other page has nearly the same colour, so
+   anti-aliasing and a one-pixel shift are not changes. Changed pixels are counted in 8 px cells, and changed cells
+   close to each other (the letters of one word, the strokes of a signature) make one region. */
+let cmpMode = 'text';
+const CMP_VIS_W = 1000, CMP_CELL = 8;
+/* tol: colour difference (0–255 per channel) that still counts as the same; min: changed pixels a cell needs */
+const CMP_SENS = { normal: { tol: 48, reach: 1, min: 3 }, high: { tol: 20, reach: 1, min: 2 }, low: { tol: 80, reach: 2, min: 10 } };
+const CMP_NOTES = {
+  text: ['比對文字：找出刪掉和新增的字，文字只是換到別行不算改變。適合合約、報價單、規章。',
+    '只比較文字內容，不比較圖片、顏色、字型與排版。換行、空格和全形／半形的差別不算。點清單或頁面上的標記可以兩邊一起跳到那裡。'],
+  visual: ['比對畫面：逐頁比較兩份檔案看起來哪裡不一樣，圖片、印章、簽名、線條、顏色都算。適合圖面、設計稿、掃描檔。',
+    '逐頁對照：第 1 頁對第 1 頁、第 2 頁對第 2 頁⋯。中間插入或刪掉一頁、文字重新排版時，後面的內容都會標成不同，這時請改用「比對文字」。點清單或頁面上的標記可以兩邊一起跳到那裡。']
+};
+function setCmpMode(m) {
+  cmpMode = m;
+  $('#cmp-m-text').setAttribute('aria-pressed', m === 'text'); $('#cmp-m-visual').setAttribute('aria-pressed', m === 'visual');
+  $('#cmp-ocr-wrap').hidden = m !== 'text'; $('#cmp-sens-wrap').hidden = m !== 'visual';
+  [$('#cmp-mode-note').textContent, $('#cmp-note').textContent] = CMP_NOTES[m];
+  clearCmpResult();
+}
+$('#cmp-m-text').addEventListener('click', () => setCmpMode('text'));
+$('#cmp-m-visual').addEventListener('click', () => setCmpMode('visual'));
+$('#cmp-sens').addEventListener('change', clearCmpResult);
+setCmpMode('text');
+
+/* One page drawn upright, CMP_VIS_W pixels wide. */
+async function cmpRenderPage(d, i) {
+  const pg = await d.pj.getPage(i + 1), R = normRot(pg.rotate);
+  const vp1 = pg.getViewport({ scale: 1, rotation: R }), vp = pg.getViewport({ scale: CMP_VIS_W / vp1.width, rotation: R });
+  const cv = document.createElement('canvas'); cv.width = CMP_VIS_W; cv.height = Math.max(1, Math.round(vp.height));
+  const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+  pg.cleanup();
+  return { cv, data: ctx.getImageData(0, 0, cv.width, cv.height).data, geo: { view: pg.view.slice(), R } };
+}
+async function cmpGeo(d, i) { const pg = await d.pj.getPage(i + 1); return { view: pg.view.slice(), R: normRot(pg.rotate) }; }
+/* Changed pixels per cell over the top w × h of both pictures (both are w wide). */
+function cmpDiffCells(a, b, w, h, s) {
+  const C = CMP_CELL, cw = Math.ceil(w / C), ch = Math.ceil(h / C), cells = new Uint16Array(cw * ch), tol = s.tol, r = s.reach;
+  const close = (p, i, q, j) => Math.abs(p[i] - q[j]) <= tol && Math.abs(p[i + 1] - q[j + 1]) <= tol && Math.abs(p[i + 2] - q[j + 2]) <= tol;
+  const found = (p, q, x, y) => { // does q have p's colour anywhere near (x, y)?
+    const i = (y * w + x) * 4;
+    for (let dy = -r; dy <= r; dy++) {
+      const yy = y + dy; if (yy < 0 || yy >= h) continue;
+      for (let dx = -r; dx <= r; dx++) { const xx = x + dx; if (xx >= 0 && xx < w && close(p, i, q, (yy * w + xx) * 4)) return true; }
+    }
+    return false;
+  };
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 4;
+    if (close(a, i, b, i)) continue;
+    if (!found(a, b, x, y) || !found(b, a, x, y)) cells[((y / C) | 0) * cw + ((x / C) | 0)]++;
+  }
+  return { cells, cw, ch };
+}
+/* Changed cells within two cells of each other form one region: [x0, y0, x1, y1] in cells (end exclusive). */
+function cmpRegions(cells, cw, ch, min) {
+  const n = cw * ch, on = new Uint8Array(n); let count = 0;
+  for (let i = 0; i < n; i++) if (cells[i] >= min) { on[i] = 1; count++; }
+  const G = 2, seen = new Uint8Array(n), boxes = [], q = [];
+  for (let s = 0; s < n && count; s++) {
+    if (!on[s] || seen[s]) continue;
+    seen[s] = 1; q.length = 0; q.push(s);
+    let x0 = cw, y0 = ch, x1 = -1, y1 = -1;
+    for (let qi = 0; qi < q.length; qi++) {
+      const c = q[qi], cx = c % cw, cy = (c / cw) | 0;
+      if (cx < x0) x0 = cx; if (cx > x1) x1 = cx; if (cy < y0) y0 = cy; if (cy > y1) y1 = cy;
+      for (let dy = -G; dy <= G; dy++) for (let dx = -G; dx <= G; dx++) {
+        const nx = cx + dx, ny = cy + dy; if (nx < 0 || ny < 0 || nx >= cw || ny >= ch) continue;
+        const k = ny * cw + nx; if (on[k] && !seen[k]) { seen[k] = 1; q.push(k); }
+      }
+    }
+    boxes.push([x0, y0, x1 + 1, y1 + 1]);
+  }
+  return { boxes, frac: count / n };
+}
+/* The region (pixels) with a little room around it, as a small picture for the list. */
+async function cmpCrop(cv, box) {
+  const pad = 16, x0 = Math.max(0, box[0] - pad), y0 = Math.max(0, box[1] - pad);
+  const x1 = Math.min(cv.width, box[2] + pad), y1 = Math.min(cv.height, box[3] + pad), w = x1 - x0, h = y1 - y0;
+  const k = Math.min(1, 480 / w, 200 / h), c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * k)); c.height = Math.max(1, Math.round(h * k));
+  c.getContext('2d').drawImage(cv, x0, y0, w, h, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', .85)); c.width = c.height = 0;
+  return URL.createObjectURL(blob);
+}
+/* Hunks here: { vis, kind: change | page | size | del | ins, pa, pb (page in each file), boxA, boxB (fractions of the
+   page as shown, or none), crops: { a, b } }. */
+async function cmpVisual(A, B, s, check) {
+  const nA = A.pj.numPages, nB = B.pj.numPages, n = Math.max(nA, nB), hunks = [];
+  A.geo = []; B.geo = [];
+  let pagesHit = 0;
+  for (let i = 0; i < n; i++) {
+    check(); cmpProgress(`比對第 ${i + 1} / ${n} 頁的畫面`, i / n);
+    if (i >= nA || i >= nB) { // a page only one of the files has
+      const d = i >= nA ? B : A; d.geo[i] = await cmpGeo(d, i);
+      hunks.push(i >= nA ? { vis: true, kind: 'ins', pa: nA - 1, pb: i, boxB: [0, 0, 1, 1] } : { vis: true, kind: 'del', pa: i, pb: nB - 1, boxA: [0, 0, 1, 1] });
+      pagesHit++; continue;
+    }
+    const ra = await cmpRenderPage(A, i), rb = await cmpRenderPage(B, i);
+    A.geo[i] = ra.geo; B.geo[i] = rb.geo;
+    try {
+      const w = CMP_VIS_W, ha = ra.cv.height, hb = rb.cv.height;
+      if (Math.abs(ha - hb) > w * .02) { // another paper size or orientation: pixels cannot be lined up
+        hunks.push({ vis: true, kind: 'size', pa: i, pb: i, boxA: [0, 0, 1, 1], boxB: [0, 0, 1, 1] }); pagesHit++; continue;
+      }
+      await new Promise(r => setTimeout(r, 0)); // let the progress label paint
+      const h = Math.min(ha, hb), { cells, cw, ch } = cmpDiffCells(ra.data, rb.data, w, h, s);
+      const { boxes, frac } = cmpRegions(cells, cw, ch, s.min);
+      if (!boxes.length) continue;
+      pagesHit++;
+      // Most of the page changed (everything moved down a line, say): one mark says more than hundreds.
+      const whole = frac > .35 || boxes.length > 60;
+      const list = whole ? [[0, 0, cw, ch]] : boxes.sort((p, q) => p[1] - q[1] || p[0] - q[0]);
+      for (const [x0, y0, x1, y1] of list) {
+        const px = [x0 * CMP_CELL, y0 * CMP_CELL, Math.min(w, x1 * CMP_CELL), Math.min(h, y1 * CMP_CELL)];
+        const hk = { vis: true, kind: whole ? 'page' : 'change', pa: i, pb: i,
+          boxA: [px[0] / w, px[1] / ha, px[2] / w, px[3] / ha], boxB: [px[0] / w, px[1] / hb, px[2] / w, px[3] / hb] };
+        if (hunks.length < 300) hk.crops = { a: await cmpCrop(ra.cv, px), b: await cmpCrop(rb.cv, px) };
+        hunks.push(hk);
+      }
+    } finally { ra.cv.width = ra.cv.height = 0; rb.cv.width = rb.cv.height = 0; }
+  }
+  $('#cmp-progress').hidden = true;
+  cmp.res = { vis: true, A, B, hunks };
+  showCmpVisual(nA, nB, pagesHit);
+}
+function showCmpVisual(nA, nB, pagesHit) {
+  const { A, B, hunks } = cmp.res, MAX = 800;
+  $('#cmp-result').hidden = false;
+  $('#cmp-sum').innerHTML = (!hunks.length ? '<b>兩份檔案的畫面完全相同。</b>' : `<b>找到 ${hunks.length} 處不同</b>，在 ${pagesHit} 頁。`)
+    + (nA !== nB ? `頁數不同：原本 ${nA} 頁、新版 ${nB} 頁。` : '');
+  $('#cmp-prev').hidden = $('#cmp-next').hidden = !hunks.length;
+  const where = h => ({ change: `畫面不同 · 第 ${h.pa + 1} 頁`, page: `這頁大部分都不同 · 第 ${h.pa + 1} 頁`,
+    size: `頁面尺寸或方向不同 · 第 ${h.pa + 1} 頁`, del: `整頁刪除 · 原本第 ${h.pa + 1} 頁`, ins: `整頁新增 · 新版第 ${h.pb + 1} 頁` })[h.kind];
+  const list = $('#cmp-list'); list.hidden = !hunks.length;
+  list.innerHTML = hunks.slice(0, MAX).map((h, k) => `<li data-h="${k}"><button class="cmp-item"><span class="cmp-where mono">${where(h)}</span>`
+    + (h.crops ? `<span class="cmp-crops"><img class="del" alt="原本" src="${h.crops.a}"><span class="arr">→</span><img class="ins" alt="新版" src="${h.crops.b}"></span>` : '')
+    + '</button></li>').join('') + (hunks.length > MAX ? `<li class="hint">只列出前 ${MAX} 處，其他的在下方頁面上都有標示。</li>` : '');
+  $('#cmp-col-name-a').textContent = A.name; $('#cmp-col-name-b').textContent = B.name;
+  const marks = { a: new Map(), b: new Map() };
+  const put = (m, p, mk) => { if (!m.has(p)) m.set(p, []); m.get(p).push(mk); };
+  hunks.forEach((h, k) => { if (h.boxA) put(marks.a, h.pa, { k, frac: h.boxA }); if (h.boxB) put(marks.b, h.pb, { k, frac: h.boxB }); });
+  cmpPages('a', A, marks.a, A.geo); cmpPages('b', B, marks.b, B.geo);
+}
+
 /* ---------- moving between changes ---------- */
 function cmpSelect(k, from) {
   const res = cmp.res; if (!res || k < 0 || k >= res.hunks.length) return;
@@ -307,7 +464,7 @@ function cmpSelect(k, from) {
   const h = res.hunks[k];
   for (const [side, T, x, y] of [['a', res.TA, h.a0, h.a1], ['b', res.TB, h.b0, h.b1]]) {
     if (side === from) continue;
-    const pages = $('#cmp-pages-' + side), p = cmpPage(T, x, y);
+    const pages = $('#cmp-pages-' + side), p = h.vis ? (side === 'a' ? h.pa : h.pb) : cmpPage(T, x, y);
     const target = pages.querySelector(`.cmp-mark[data-h="${k}"]`) || pages.querySelector(`.cmp-page[data-p="${p}"]`);
     if (!target) continue;
     const pageEl = target.closest('.cmp-page');
@@ -370,6 +527,8 @@ async function makeAgreement(v2) {
     page.drawText(t, { x: 50, y: 720 - i * 90, size: 11.5, font });
     page.drawLine({ start: { x: 50, y: 680 - i * 90 }, end: { x: 300, y: 680 - i * 90 }, thickness: .8, color: rgb(.5, .55, .6) });
   });
+  // v2 is signed by the provider: a drawing, not text, so only 「比對畫面」 sees it.
+  if (v2) page.drawSvgPath('M0 0 C 14 -34, 30 26, 46 -4 S 78 -30, 92 2 C 104 22, 118 -18, 140 -6', { x: 70, y: 694, borderColor: rgb(.12, .22, .55), borderWidth: 1.8 });
   return pdfFile(await doc.save(), v2 ? 'agreement-v2.pdf' : 'agreement-v1.pdf');
 }
 $('#cmp-sample').addEventListener('click', async () => {

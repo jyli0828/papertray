@@ -63,7 +63,7 @@ papertray/
 | `idphoto.js` | 證件照排版 |
 | `pdf2img.js` | PDF 轉圖片、抽出文字（`runsToText()`） |
 | `ocr.js` | 文字辨識引擎與「文字辨識」分頁；`pageChars()` 是遮蔽個資、比較共用的「頁面文字＋每個字的位置」，沒有文字層時改用 OCR |
-| `compare.js` | 比較兩份 PDF（Myers diff，先比行再比字） |
+| `compare.js` | 比較兩份 PDF：比對文字（Myers diff，先比行再比字）、比對畫面（逐頁逐像素） |
 | `password.js` | 解除／加上密碼（qpdf） |
 | `imgtool.js` | 圖片工具 |
 | `unmark.js` | 去浮水印的介面 |

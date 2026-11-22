@@ -96,7 +96,7 @@
       </button>
     </div></div>
     <div class="tab-group" style="--n:1"><span class="tab-group-label" aria-hidden="true">比對</span><div class="tab-group-items">
-      <button class="tab" role="tab" id="tab-compare" aria-controls="panel-compare" data-tab="compare" title="找出兩份 PDF 的文字差異">
+      <button class="tab" role="tab" id="tab-compare" aria-controls="panel-compare" data-tab="compare" title="找出兩份 PDF 的文字或畫面差異">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="8" height="18" rx="1.5"/><rect x="13.5" y="3" width="8" height="18" rx="1.5"/><path d="M5 8h3M5 12h3M16 8h3M16 12h3"/><path d="M15.5 16h4" stroke-width="3" opacity=".55"/><path d="M4.5 16h4" stroke-width="3" opacity=".3"/></svg>
         <span>比較</span>
       </button>
@@ -783,7 +783,14 @@
   <section class="panel" id="panel-compare" role="tabpanel" aria-labelledby="tab-compare" hidden>
     <div class="panel-head">
       <h2>比較兩份 PDF</h2>
-      <p>找出兩個版本之間改了哪些字：刪掉的標紅色、新增的標綠色。適合核對合約、報價單、規章的改版。</p>
+      <p>找出兩個版本之間改了什麼：比對文字，或逐頁比對畫面。適合核對合約、報價單、圖面、規章的改版。</p>
+    </div>
+    <div class="cmp-mode">
+      <div class="seg" role="group" aria-label="比較方式">
+        <button id="cmp-m-text" aria-pressed="true">比對文字</button>
+        <button id="cmp-m-visual" aria-pressed="false">比對畫面</button>
+      </div>
+      <p class="note" id="cmp-mode-note"></p>
     </div>
     <div class="cmp-slots">
       <div class="cmp-slot">
@@ -815,7 +822,14 @@
     </div>
     <p class="hint" id="cmp-sample-row">沒有檔案在手邊？<button class="link-btn" id="cmp-sample">用兩份範例合約試試</button>　也可以一次拖入兩份，先放舊的、再放新的。</p>
     <div class="footer-bar">
-      <label class="check"><input type="checkbox" id="cmp-ocr" checked> 沒有文字的頁面（掃描檔）先用 OCR 辨識</label>
+      <label class="check" id="cmp-ocr-wrap"><input type="checkbox" id="cmp-ocr" checked> 沒有文字的頁面（掃描檔）先用 OCR 辨識</label>
+      <label class="cmp-sens" id="cmp-sens-wrap" hidden>靈敏度
+        <select id="cmp-sens">
+          <option value="normal" selected>一般</option>
+          <option value="high">高：淡色的變化也算</option>
+          <option value="low">低：忽略掃描雜點、輕微位移</option>
+        </select>
+      </label>
       <button class="btn primary" id="cmp-go" disabled>比較</button>
     </div>
     <div class="progress" id="cmp-progress" hidden>
@@ -835,7 +849,7 @@
         <div class="cmp-col"><div class="cmp-col-head"><span class="cmp-tag del">原本</span><span id="cmp-col-name-a"></span></div><div class="cmp-pages" id="cmp-pages-a"></div></div>
         <div class="cmp-col"><div class="cmp-col-head"><span class="cmp-tag ins">新版</span><span id="cmp-col-name-b"></span></div><div class="cmp-pages" id="cmp-pages-b"></div></div>
       </div>
-      <p class="note">只比較文字內容，不比較圖片、顏色、字型與排版。換行、空格和全形／半形的差別不算。點清單或頁面上的標記可以兩邊一起跳到那裡。</p>
+      <p class="note" id="cmp-note"></p>
     </div>
   </section>
 

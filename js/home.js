@@ -8,7 +8,7 @@ const TOOL_WORDS = {
   edit: '編輯 排序 旋轉 刪除 刪頁 插入 空白頁 頁碼 頁首 頁尾 標註 螢光筆 rotate', sign: '簽名 簽章 sign 日期',
   form: '表單 填寫 欄位 form', redact: '遮蔽 個資 塗黑 身分證 隱私 redact', password: '密碼 加密 解密 解鎖 帳單 對帳單 password lock',
   watermark: '浮水印 watermark logo 印章', compress: '壓縮 縮小 檔案大小 compress mb', img2pdf: '圖片 照片 轉 pdf jpg png heic 翻拍 校正',
-  pdf2img: '轉圖片 jpg png 抽出文字 txt', ocr: '文字辨識 ocr 掃描 辨識 可搜尋 複製文字', compare: '比較 差異 版本 diff 合約 改了什麼',
+  pdf2img: '轉圖片 jpg png 抽出文字 txt', ocr: '文字辨識 ocr 掃描 辨識 可搜尋 複製文字', compare: '比較 差異 版本 diff 合約 改了什麼 畫面 圖面 圖片 對照',
   idcard: '證件 影印 身分證 健保卡 駕照 正反面', idphoto: '證件照 大頭照 1吋 2吋 4x6 相紙 護照 簽證', imgtool: '圖片 壓縮 縮小 格式 webp 尺寸',
   unmark: '去浮水印 消除 修圖 移除 塗抹'
 };

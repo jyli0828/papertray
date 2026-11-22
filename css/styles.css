@@ -513,6 +513,15 @@ select.ff-field { padding: 0 .1em; }
 .cmp-text ins { color: var(--ins); background: color-mix(in srgb, var(--ins) 12%, transparent); text-decoration: none; border-radius: 3px; padding: 0 2px; }
 .cmp-text del + ins { margin-left: 6px; }
 .cmp-text del + ins::before { content: "→ "; color: var(--muted); }
+.cmp-mode { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.cmp-sens { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.cmp-sens select { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 6px 8px; font-size: 14px; color: var(--ink); max-width: 100%; }
+/* 比對畫面: the changed spot cut from both pages, old → new */
+.cmp-crops { display: flex; align-items: center; gap: 8px; margin-top: 4px; min-width: 0; }
+.cmp-crops img { display: block; max-width: calc(50% - 14px); max-height: 96px; border-radius: 4px; background: #fff; }
+.cmp-crops img.del { box-shadow: 0 0 0 2px var(--del); }
+.cmp-crops img.ins { box-shadow: 0 0 0 2px var(--ins); }
+.cmp-crops .arr { color: var(--muted); flex: none; }
 .cmp-view { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
 .cmp-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .cmp-col-head { display: flex; align-items: center; gap: 8px; font-size: 13.5px; min-width: 0; }
