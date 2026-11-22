@@ -31,6 +31,7 @@ papertray/
 │  ├─ build.py          打包成單一檔案（dist/）
 │  ├─ make_icons.py     從 icon.svg 的圖形畫出 icons/ 裡的 PNG
 │  └─ wasm_to_js.py     更新 qpdf 時，把 qpdf.wasm 轉成 lib/qpdf/qpdf.wasm.js
+├─ tests/               自動化測試：run.mjs（執行）、cases.mjs（測試案例）、helpers.js（頁面裡的輔助函式）
 ├─ docs/                說明文件
 └─ dist/                build.py 的產出，不在版本控制內
 ```
@@ -160,10 +161,24 @@ python tools/build.py
 
 ## 測試
 
-沒有自動化測試。改完用本機伺服器開啟，用相關工具的「用範例試試」跑一次，並確認：
+### 自動化測試
+
+```powershell
+node tests/run.mjs
+```
+
+不用安裝任何套件：需要 Node 22 以上和 Chrome 或 Edge（找不到時用環境變數 `CHROME` 指定執行檔）。它會開一個本機伺服器、在背景開瀏覽器，每個測試用全新的瀏覽器設定檔跑一次，約 30 秒。
+
+- `node tests/run.mjs 比較 合併`：只跑名稱含有這些字的測試；`--skip-slow` 略過文字辨識；`--headed` 開著視窗看過程。
+- 測試在 `tests/cases.mjs`：每個 `run()` 在頁面裡執行，`js/` 的所有名稱都能直接用，另外有 `tests/helpers.js` 的 `T`（`T.result()` 等工具產生結果、`T.pdfText()` 讀出 PDF 的文字、`T.eq()`／`T.ok()` 檢查）。
+- 測試失敗的情況：`run()` 丟出錯誤、逾時、主控台有錯誤或未處理的例外，或出現沒預期的錯誤提示。
+- 涵蓋每個工具的主要流程，加上修過的錯誤（全形頁碼、換檔簽名、離線快取⋯）和手機寬度沒有橫向捲動。新增工具或修好錯誤時，在 `cases.mjs` 加一個測試。
+
+### 手動檢查
+
+改了畫面時，用本機伺服器開啟，用相關工具的「用範例試試」跑一次，並確認：
 
 - 瀏覽器主控台沒有錯誤（文字辨識會印出一些 Tesseract 的 `Parameter not found` 警告，可以忽略）；
-- 手機寬度（約 375 px）沒有橫向捲動；
 - 深色模式看得清楚；
 - 動到 `lib/`、`LIBS` 或 `tools/build.py` 時，執行打包並打開 `dist/紙匣.html` 試一次。
 
