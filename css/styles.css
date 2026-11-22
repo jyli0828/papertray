@@ -530,3 +530,13 @@ select.ff-field { padding: 0 .1em; }
 .merge-mode label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
 .merge-mode .hint.warn { color: var(--danger); }
 
+/* ID photo: the frame to aim the photo, next to its tools */
+.ph-edit { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: start; }
+.ph-frame-wrap { background: var(--sunk); border-radius: 12px; padding: 12px; display: grid; place-items: center; }
+#ph-frame { display: block; box-shadow: var(--shadow); cursor: grab; touch-action: none; background: #fff; }
+#ph-frame:active { cursor: grabbing; }
+.ph-tools { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ph-tools input[type="range"] { width: 100%; accent-color: var(--accent); }
+.ph-tools label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.ph-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+@media (max-width: 560px) { .ph-edit { grid-template-columns: minmax(0, 1fr); } }

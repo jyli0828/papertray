@@ -75,6 +75,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2h14v20H5z"/><rect x="7.5" y="4.5" width="9" height="6" rx="1"/><rect x="7.5" y="13.5" width="9" height="6" rx="1"/><circle cx="10" cy="7.5" r="1"/></svg>
       <span>證件影印</span>
     </button>
+    <button class="tab" role="tab" id="tab-idphoto" aria-controls="panel-idphoto" data-tab="idphoto" title="大頭照排成 1 吋、2 吋，印在 4×6 相紙">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="8.5" height="11" rx="1"/><rect x="13" y="3" width="8.5" height="11" rx="1"/><circle cx="6.75" cy="7.4" r="1.9"/><path d="M3.8 14c.5-2.3 1.6-3.3 2.95-3.3S9.2 11.7 9.7 14"/><circle cx="17.25" cy="7.4" r="1.9"/><path d="M14.3 14c.5-2.3 1.6-3.3 2.95-3.3s2.45 1 2.95 3.3"/><path d="M2.5 18h19M2.5 21h12" opacity=".6"/></svg>
+      <span>證件照</span>
+    </button>
     <button class="tab" role="tab" id="tab-pdf2img" aria-controls="panel-pdf2img" data-tab="pdf2img" title="每頁存成 JPG 或 PNG，或抽出文字存成 TXT">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h5l3 3v8H2z"/><path d="M11 17.5h3.5m0 0L13 16m1.5 1.5L13 19"/><rect x="15" y="12" width="7" height="9" rx="1.5"/><path d="m15 19 2-2 2 2 1-1 2 2"/></svg>
       <span>PDF 轉圖片</span>
@@ -454,6 +458,72 @@
       <div class="go">
         <label class="name-field">檔名 <input type="text" id="id-name" value="證件影本.pdf" spellcheck="false"></label>
         <button class="btn primary" id="id-go" disabled>產生 PDF</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ID PHOTO -->
+  <section class="panel" id="panel-idphoto" role="tabpanel" aria-labelledby="tab-idphoto" hidden>
+    <div class="panel-head">
+      <h2>證件照排版</h2>
+      <p>一張大頭照，依 1 吋、2 吋等規格裁好，排滿一張 4×6 相紙或 A4。拿到超商或相館列印、剪開就能用，不用再去照相館加洗。</p>
+    </div>
+    <div class="id-layout">
+      <div class="id-controls">
+        <div class="optgrid">
+          <label class="optfield">規格
+            <select id="ph-spec">
+              <option value="tw2" selected>2 吋（3.5 × 4.5 cm）：身分證、護照、健保卡、駕照</option>
+              <option value="tw1">1 吋（2.8 × 3.5 cm）：履歷、報名表、證照</option>
+              <option value="us">美國簽證（5.1 × 5.1 cm）</option>
+              <option value="custom">自訂尺寸</option>
+            </select>
+          </label>
+          <label class="optfield">紙張
+            <select id="ph-paper">
+              <option value="4x6" selected>4×6 相紙（超商、相館沖印）→ JPG</option>
+              <option value="a4">A4（自己印）→ PDF</option>
+            </select>
+          </label>
+        </div>
+        <div class="optgrid" id="ph-custom" hidden>
+          <label class="optfield">寬（mm）<input type="number" id="ph-cw" min="15" max="100" step="0.5" value="30"></label>
+          <label class="optfield">高（mm）<input type="number" id="ph-ch" min="15" max="120" step="0.5" value="40"></label>
+        </div>
+        <label class="drop" id="ph-drop">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+          <strong>放入一張大頭照</strong>
+          <span>拖到這裡、點一下選擇，或按 Ctrl+V 貼上</span>
+          <input type="file" id="ph-input" accept="image/jpeg,image/png,image/webp,image/gif,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif">
+        </label>
+        <p class="hint" id="ph-sample-row">沒有照片在手邊？<button class="link-btn" id="ph-sample">用範例試試</button></p>
+        <div class="ph-edit" id="ph-edit" hidden>
+          <div class="ph-frame-wrap"><canvas id="ph-frame" tabindex="0" aria-label="照片裁切框：拖曳移動，滾輪縮放，方向鍵微調"></canvas></div>
+          <div class="ph-tools">
+            <p class="hint">拖曳照片（或用方向鍵）對準：<b>頭頂</b>碰到上面的虛線，<b>下巴</b>落在下面的色帶裡，臉在中線上。</p>
+            <label class="field">縮放<input type="range" id="ph-zoom" min="-100" max="250" value="0"></label>
+            <label class="field">旋轉（扶正歪頭）<input type="range" id="ph-rot" min="-15" max="15" step="0.5" value="0"></label>
+            <label class="field">亮度<input type="range" id="ph-bright" min="-30" max="40" value="0"></label>
+            <div class="ph-btns">
+              <button class="btn" id="ph-reset">重設</button>
+              <button class="btn" id="ph-change">換照片</button>
+            </div>
+            <label class="check"><input type="checkbox" id="ph-guides" checked> 顯示參考線</label>
+            <label class="check"><input type="checkbox" id="ph-cut" checked> 印出裁切線</label>
+          </div>
+        </div>
+        <p class="note">一般要求：最近拍攝、正面、脫帽、五官清楚、白色或淺色背景，不可修圖改變樣貌。參考線依 2 吋「頭頂到下巴 3.2–3.6 cm」等常見規定，各機關的規定不同，請以申請單位公告為準。</p>
+      </div>
+      <div class="wm-preview">
+        <div class="wm-page"><canvas id="ph-sheet"></canvas></div>
+        <span class="hint" id="ph-sheet-hint"></span>
+      </div>
+    </div>
+    <div class="footer-bar">
+      <span class="summary" id="ph-summary"></span>
+      <div class="go">
+        <label class="name-field">檔名 <input type="text" id="ph-name" value="證件照-2吋.jpg" spellcheck="false"></label>
+        <button class="btn primary" id="ph-go" disabled>產生</button>
       </div>
     </div>
   </section>
@@ -1348,6 +1418,7 @@
 <script src="js/img2pdf.js"></script>
 <script src="js/scan.js"></script>
 <script src="js/idcard.js"></script>
+<script src="js/idphoto.js"></script>
 <script src="js/pdf2img.js"></script>
 <script src="js/ocr.js"></script>
 <script src="js/compare.js"></script>
