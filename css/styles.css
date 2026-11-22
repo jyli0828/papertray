@@ -525,3 +525,8 @@ select.ff-field { padding: 0 .1em; }
 .pw-tips code { font-family: var(--font-mono); background: var(--bg); padding: 0 5px; border-radius: 4px; color: var(--ink); }
 #pw-lock-msg.bad { color: var(--danger); }
 
+/* Merge: how the files are put together */
+.merge-mode { display: flex; flex-direction: column; gap: 8px; max-width: 560px; }
+.merge-mode label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.merge-mode .hint.warn { color: var(--danger); }
+

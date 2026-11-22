@@ -62,10 +62,34 @@ function updateMergeSummary() {
     if (row) { const er = row.querySelector('.row-err'); er.hidden = !r.error; er.textContent = r.error || ''; }
     if (r.error) bad = true; else pages += r.idx.length;
   }
-  const n = merge.items.length, size = merge.items.reduce((s, x) => s + x.size, 0);
-  $('#merge-go').disabled = n < 2 || bad;
+  const n = merge.items.length, size = merge.items.reduce((s, x) => s + x.size, 0), zip = $('#merge-how').value === 'zip';
+  $('#merge-rev-wrap').hidden = !zip;
+  const hint = $('#merge-how-hint'); hint.hidden = !zip; hint.classList.toggle('warn', zip && n !== 2);
+  if (zip) {
+    if (n !== 2) hint.textContent = `交錯合併要剛好兩份檔案：先放正面，再放反面（目前 ${n} 份）。`;
+    else if (!bad) {
+      const [a, b] = merge.items.map(it => mergePicks(it).idx.length);
+      const show = mergeZipOrder().slice(0, 6).map(([k, i]) => (k ? '反' : '正') + (i + 1)).join('、');
+      hint.textContent = `順序：${show}${a + b > 6 ? '…' : ''}（數字是各檔案裡的頁碼）` + (a !== b ? `。正面 ${a} 頁、反面 ${b} 頁，數量不同，多出來的頁面接在最後；請確認沒有漏掃。` : '');
+    }
+  }
+  $('#merge-go').disabled = n < 2 || bad || (zip && n !== 2);
   $('#merge-summary').textContent = n ? `${n} 個檔案 · 合併後 ${pages} 頁 · 原始共 ${fmtSize(size)}` : '';
 }
+/* Two-sided scanning on a one-sided feeder: the fronts as one file, then the stack turned over for the backs, which
+   come out last page first. The result takes front 1, back 1, front 2, back 2 …; [file, page] pairs, 0-based. */
+function mergeZipOrder() {
+  const [fa, fb] = merge.items.map(it => mergePicks(it).idx);
+  const back = $('#merge-rev').checked ? fb.slice().reverse() : fb;
+  const out = [];
+  for (let i = 0; i < Math.max(fa.length, back.length); i++) {
+    if (i < fa.length) out.push([0, fa[i]]);
+    if (i < back.length) out.push([1, back[i]]);
+  }
+  return out;
+}
+$('#merge-how').addEventListener('change', updateMergeSummary);
+$('#merge-rev').addEventListener('change', updateMergeSummary);
 $('#merge-list').addEventListener('input', e => {
   const inp = e.target.closest('[data-range]'); if (!inp) return;
   const it = merge.items.find(x => x.id === inp.closest('.file-row').dataset.id);
@@ -88,7 +112,14 @@ bindInput($('#merge-input'), f => addMergeFiles(f));
 acceptFiles($('#panel-merge'), $('#merge-drop'), f => addMergeFiles(f));
 $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中…', async check => {
   const out = await PDFDocument.create();
-  for (const it of merge.items) {
+  if ($('#merge-how').value === 'zip' && merge.items.length === 2) {
+    const srcs = [], order = mergeZipOrder();
+    for (const it of merge.items) { check(); srcs.push(await PDFDocument.load(it.bytes)); }
+    const copied = [];
+    for (const k of [0, 1]) copied.push(await out.copyPages(srcs[k], order.filter(o => o[0] === k).map(o => o[1])));
+    const next = [0, 0];
+    for (const [k] of order) out.addPage(copied[k][next[k]++]);
+  } else for (const it of merge.items) {
     check();
     const r = mergePicks(it); if (r.error) throw new Error(`「${it.name}」${r.error}`);
     const src = await PDFDocument.load(it.bytes);

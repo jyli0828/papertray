@@ -118,6 +118,16 @@
     </div>
     <ul class="file-list" id="merge-list"></ul>
     <p class="hint" id="merge-empty" hidden>還沒有檔案。至少加入兩份 PDF 才能合併。</p>
+    <div class="merge-mode">
+      <label class="optfield">合併方式
+        <select id="merge-how">
+          <option value="seq" selected>依序接在一起</option>
+          <option value="zip">交錯：雙面掃描（第 1 份是正面、第 2 份是反面）</option>
+        </select>
+      </label>
+      <label class="check" id="merge-rev-wrap" hidden><input type="checkbox" id="merge-rev" checked> 反面是整疊翻過來掃的，頁序是倒的（最後一頁在最前面）</label>
+      <p class="hint" id="merge-how-hint" hidden></p>
+    </div>
     <div class="footer-bar">
       <span class="summary mono" id="merge-summary"></span>
       <div class="go">
