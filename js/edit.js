@@ -217,6 +217,52 @@ $('#edit-sample').addEventListener('click', async () => {
 $('#edit-selall').addEventListener('click', () => {
   const all = selCount() === edit.pages.length; edit.pages.forEach(p => { p.selected = !all; }); renderEdit();
 });
+/* ---------- blank pages ----------
+   Ticks the pages that look empty, such as the blank backs of a double-sided scan, so they can be checked and
+   deleted. A page with real text is never blank. Otherwise a picture of it is drawn without the outer 6% (scan
+   edges, punch holes, a page number in the margin) and cut into 16 px cells; a cell has ink when it holds several
+   pixels clearly darker than the paper itself. Grey paper, noise and faint show-through from the other side are not
+   dark enough, a speck of dust fills only a cell or two, and even one short line of text fills a dozen. */
+async function pageLooksBlank(pg) {
+  const tc = await pg.getTextContent();
+  const text = tc.items.map(it => it.str || '').join('').replace(/\s+/g, '');
+  if (text && !/^[\d\s\-–—./|·()第頁页PpageofOF]{1,12}$/.test(text)) return false; // only a page number does not count
+  const vp1 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 1000 / Math.max(vp1.width, vp1.height) });
+  const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+  const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+  const mx = Math.round(cv.width * .06), my = Math.round(cv.height * .06), W = cv.width - mx * 2, H = cv.height - my * 2;
+  const { data } = ctx.getImageData(mx, my, W, H);
+  pg.cleanup(); cv.width = cv.height = 0;
+  const lum = new Uint8Array(W * H), hist = new Uint32Array(256);
+  for (let i = 0, j = 0; i < data.length; i += 4, j++) hist[lum[j] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8]++;
+  let acc = 0, paper = 255;
+  for (let l = 0; l < 256; l++) { acc += hist[l]; if (acc >= lum.length / 2) { paper = l; break; } }
+  if (paper < 150) return false; // a dark or full-colour page (a cover, a photo) is not an empty one
+  const C = 16, cw = Math.ceil(W / C), cells = new Uint16Array(cw * Math.ceil(H / C)), cut = paper - 50;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (lum[y * W + x] < cut) cells[((y / C) | 0) * cw + ((x / C) | 0)]++;
+  let inked = 0; for (const c of cells) if (c >= 6) inked++;
+  return inked <= 4;
+}
+$('#edit-find-blank').addEventListener('click', e => {
+  const btn = e.currentTarget;
+  if (!edit.pages.every(fillMeta)) { toast('頁面還在載入，請稍候'); return; }
+  runJob(btn, '檢查中…', async check => {
+    const keys = [...new Set(edit.pages.map(metaKey))];
+    for (let i = 0; i < keys.length; i++) {
+      check();
+      const m = edit.meta[keys[i]]; if (m.blank !== undefined) continue;
+      $('#edit-stat').textContent = `檢查第 ${i + 1} / ${keys.length} 頁`;
+      const cut = keys[i].lastIndexOf(':'), d = edit.docs[keys[i].slice(0, cut)];
+      try { m.blank = await pageLooksBlank(await d.pj.getPage(+keys[i].slice(cut + 1) + 1)); } catch (err) { m.blank = false; }
+    }
+    // Something added on the page (a signature, text, a box) makes it not blank any more.
+    const blank = edit.pages.filter(p => edit.meta[metaKey(p)].blank && !p.annots.length);
+    edit.pages.forEach(p => { p.selected = blank.includes(p); });
+    if (!blank.length) toast('沒有找到空白頁');
+    else toast(`找到 ${blank.length} 頁空白頁，已勾選。確認沒有選錯後，按「刪除選取」或 Delete。`);
+  }).catch(err => toast('檢查失敗：' + err.message, 'err')).finally(renderEdit);
+});
 $('#edit-rot-sel').addEventListener('click', () => { pushUndo(); edit.pages.forEach(p => { if (p.selected) p.rot = (p.rot + 90) % 360; }); renderEdit(); });
 $('#edit-del-sel').addEventListener('click', () => {
   pushUndo();
