@@ -451,7 +451,7 @@ kbd { font-family: var(--font-mono); font-size: 11.5px; padding: 1px 6px; border
 /* Fill form */
 .ff-pages { display: flex; flex-direction: column; align-items: center; gap: 16px; background: var(--sunk); border-radius: 12px; padding: 16px; }
 .ff-page { position: relative; width: 100%; background: var(--paper); box-shadow: var(--shadow); container-type: inline-size; color-scheme: light; }
-.ff-page canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.ff-page img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; }
 .ff-pno { position: absolute; right: 6px; top: -1px; transform: translateY(-100%); font-size: 11.5px; color: var(--muted); }
 .ff-field { position: absolute; box-sizing: border-box; margin: 0; padding: 0 .25em; border: 1px solid rgba(29, 79, 184, .35); border-radius: 2px;
   background: rgba(29, 79, 184, .09); color: #000; font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif; line-height: 1.25; resize: none; }

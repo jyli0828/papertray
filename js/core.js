@@ -176,15 +176,33 @@ function offerNext(file, kind, fromTab) {
 function hideNext() { $('#handoff').hidden = true; document.body.classList.remove('has-handoff'); lastResult = null; }
 /* A finished PDF travels between tools as its bytes, not as a File: making a File copies them, and the next tool
    would copy them again. fileBytes() gives a tool the bytes either way; owned = false means others share them. */
-const pdfFile = (bytes, name) => ({ name: ensurePdf(name), type: 'application/pdf', size: bytes.length, bytes,
-  arrayBuffer: async () => bytes.slice().buffer, slice: (...a) => new Blob([bytes]).slice(...a) });
+/* While the result preview has lent a file's bytes to pdf.js (js/preview.js), f.bytes is null and f.lent is a promise
+   that settles when they are back; fileBytes() waits for it. */
+function pdfFile(bytes, name) {
+  const f = { name: ensurePdf(name), type: 'application/pdf', size: bytes.length, bytes, lent: null,
+    arrayBuffer: async () => { if (f.lent) await f.lent; return f.bytes.slice().buffer; },
+    slice: (...a) => new Blob([f.bytes]).slice(...a) };
+  return f;
+}
 /* A PDF handed on in memory (pdfFile) rather than a File or Blob. Test the bytes themselves: browsers now give every
    Blob a bytes() method, so a plain f.bytes check is true for any File the user picks. */
 const inMemory = f => !!f && f.bytes instanceof Uint8Array;
 async function fileBytes(f) {
+  if (f.lent) await f.lent;
   if (inMemory(f)) return { bytes: f.bytes, owned: false };
-  return { bytes: new Uint8Array(await f.arrayBuffer()), owned: true };
+  try { return { bytes: new Uint8Array(await f.arrayBuffer()), owned: true }; }
+  catch (e) { throw new Error(`「${f.name}」讀不到了：原本的檔案可能已被移動、修改或刪除，請重新放入。`); }
 }
+/* What a tool keeps of a file it reads again later, instead of the bytes: the File the user picked (only a reference
+   to the file on disk, so it takes no memory), a PDF from another tool as it is (shared, not copied), or bytes made
+   here (an unlocked file) as a Blob, which the browser holds outside the page and can move to disk. got is what
+   readPdf() gave; call this before handing got.bytes to pdf.js, which takes them over. Read it back with fileBytes(). */
+function keepFile(f, got) {
+  if (!got.unlocked && (inMemory(f) || f instanceof Blob)) return f;
+  return new Blob([got.bytes], { type: 'application/pdf' });
+}
+/* Memory a kept file takes: none for a File the user picked (on disk; a pasted one is the rare exception). */
+const heldBytes = src => !src ? 0 : inMemory(src) ? src.bytes.length : src instanceof File ? 0 : src.size || 0;
 /* Encrypted files open in pdf.js but cannot be rebuilt; spot them up front without parsing the whole file. */
 function hasEncrypt(bytes) {
   const pat = [0x2F, 0x45, 0x6E, 0x63, 0x72, 0x79, 0x70, 0x74]; // "/Encrypt"
@@ -201,7 +219,7 @@ async function readPdf(f) {
   const r = await fileBytes(f);
   if (!hasEncrypt(r.bytes)) return r;
   const out = await unlockPdf(f.name, r.bytes);
-  return out ? { bytes: out, owned: true } : null;
+  return out ? { bytes: out, owned: true, unlocked: true } : null;
 }
 function encryptedMsg(name) { return `「${name}」有密碼保護，可以到「密碼」分頁解除。`; }
 /* pdf.js takes ownership of the bytes it is given. Pass owned = true only when nothing else needs them afterwards;
@@ -220,6 +238,7 @@ const dlReady = (window.claude && typeof window.claude.use === 'function')
   : Promise.resolve();
 async function saveFile(filename, bytes, mime) {
   await dlReady;
+  if (bytes && bytes.lent) await bytes.lent;
   const blob = bytes instanceof Blob ? bytes : inMemory(bytes) ? new Blob([bytes.bytes], { type: bytes.type })
     : new Blob([bytes], { type: mime || 'application/pdf' });
   if (downloadsNS) {

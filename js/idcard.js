@@ -11,7 +11,7 @@ const ID_SIDE_NAMES = ['正面', '反面'];
 
 /* A picture becomes a side: if the card's edges are found it is cut out and flattened right away; 校正 adjusts it. */
 async function loadIdImage(f) {
-  const bmp = await createImageBitmap(f);
+  const bmp = await createImageBitmap(f); // full size, only while the card is found and cut out
   const it = { id: uid(), name: f.name, file: f, size: f.size, url: URL.createObjectURL(f), w: bmp.width, h: bmp.height, kind: 'other' };
   try {
     const quad = detectQuad(bmp);
@@ -95,12 +95,17 @@ function idLayout(o) {
   return { cards, sideFallback: o.arrange === 'side' && cards.length === 2 && !fitsSide };
 }
 
-/* ---------- one card as a picture ---------- */
-async function idBitmap(it) {
-  if (it.bmp && it.bmpFile === it.file) return it.bmp;
+/* ---------- one card as a picture ----------
+   The photo is decoded at the size it is drawn, never at full resolution (a 12 MP phone photo is 48 MB decoded; a
+   card printed at 300 dpi needs about 1000 × 640 px). The small copy for the preview is kept between redraws; the
+   one for the PDF is made for the export and closed right after. */
+async function idBitmap(it, W, H, keep) {
+  if (keep && it.bmp && it.bmpFile === it.file && it.bmp.width === W && it.bmp.height === H) return it.bmp;
+  const bmp = await createImageBitmap(it.file, { resizeWidth: W, resizeHeight: H, resizeQuality: 'high' });
+  if (!keep) return bmp;
   if (it.bmp && it.bmp.close) it.bmp.close();
-  it.bmp = await createImageBitmap(it.file); it.bmpFile = it.file;
-  return it.bmp;
+  it.bmp = bmp; it.bmpFile = it.file;
+  return bmp;
 }
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -135,13 +140,15 @@ function drawIdNote(ctx, W, H, text) {
   });
   ctx.restore();
 }
-async function idCardCanvas(c, pxPerMm, o) {
+async function idCardCanvas(c, pxPerMm, o, preview) {
   const W = Math.max(8, Math.round(c.w * pxPerMm)), H = Math.max(8, Math.round(c.h * pxPerMm)), r = c.r * pxPerMm;
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d', { willReadFrequently: o.gray });
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); // the corners outside the rounded card stay white (JPEG has no transparency)
   ctx.save(); roundRect(ctx, 0, 0, W, H, r); ctx.clip();
-  ctx.imageSmoothingQuality = 'high'; ctx.drawImage(await idBitmap(c.it), 0, 0, W, H);
+  const bmp = await idBitmap(c.it, W, H, preview);
+  ctx.drawImage(bmp, 0, 0, W, H);
+  if (!preview && bmp.close) bmp.close();
   ctx.restore();
   if (o.gray) toGray(ctx, W, H);
   if (o.note) { await ensureFont(o.note, 40); drawIdNote(ctx, W, H, o.note); }
@@ -159,7 +166,7 @@ async function drawIdPreview() {
   const cv = $('#id-canvas'), dpr = Math.min(window.devicePixelRatio || 1, 2);
   const cssW = Math.min(340, Math.max(200, $('#panel-idcard .wm-preview').clientWidth - 28)), k = cssW / A4_MM[0] * dpr;
   const parts = [];
-  for (const c of cards) parts.push(await idCardCanvas(c, k, o));
+  for (const c of cards) parts.push(await idCardCanvas(c, k, o, true));
   if (token !== idc.token) { parts.forEach(p => { p.width = p.height = 0; }); return; }
   cv.width = Math.round(A4_MM[0] * k); cv.height = Math.round(A4_MM[1] * k);
   cv.style.width = cssW + 'px'; cv.style.height = Math.round(cssW * A4_MM[1] / A4_MM[0]) + 'px';

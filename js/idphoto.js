@@ -13,6 +13,7 @@ const PH_SPECS = {
 /* margins and gaps leave room to cut while a 4×6 print still holds 8 photos of 2 吋 or 12 of 1 吋 */
 const PH_PAPER = { '4x6': { w: 101.6, h: 152.4, margin: 2.5, gap: 1.5, name: '4×6 相紙' }, a4: { w: 210, h: 297, margin: 10, gap: 3, name: 'A4' } };
 const ph = { file: null, bmp: null, cx: 0, cy: 0, k: 1, k0: 1, rot: 0, bright: 0, token: 0 };
+const PH_MAX_PX = 2400;
 
 function phSpec() {
   const key = $('#ph-spec').value, s = PH_SPECS[key];
@@ -41,8 +42,18 @@ function phSheet() {
 async function loadPh(files) {
   const [f] = (await prepImages(files)).filter(isImage);
   if (!f) { toast('請放入一張照片（JPG、PNG、HEIC）', 'err'); return; }
+  // Decoded at most 2400 px on the long side, kept for the whole session (a 12 MP phone photo would be 48 MB, this
+  // about 17 MB). A 2 吋 photo printed at 300 dpi is 413 × 531 px, so a head framed the usual way still has three
+  // times the pixels it needs.
   let bmp;
-  try { bmp = await createImageBitmap(f); } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); return; }
+  try {
+    bmp = await createImageBitmap(f);
+    const k = PH_MAX_PX / Math.max(bmp.width, bmp.height);
+    if (k < 1) {
+      const w = Math.round(bmp.width * k), h = Math.round(bmp.height * k); bmp.close();
+      bmp = await createImageBitmap(f, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
+    }
+  } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); return; }
   if (ph.bmp && ph.bmp.close) ph.bmp.close();
   Object.assign(ph, { file: f, bmp });
   phReset();

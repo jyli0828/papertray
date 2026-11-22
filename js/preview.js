@@ -77,6 +77,7 @@ const isThumbClick = e => e.target.closest('.thumb') && !e.target.closest('.sel,
 async function openResultPreview() {
   if (!lastResult) return;
   const { file, kind } = lastResult;
+  if (file.lent) await file.lent; // still being handed back from a preview that just closed
   const download = () => saveFile(file.name, file);
   if (kind === 'text') {
     const text = (await file.text()).replace(/^\ufeff/, '');
@@ -90,10 +91,19 @@ async function openResultPreview() {
   }
   const { bytes, owned } = await fileBytes(file);
   const pj = await openPdfjs(bytes, owned);
-  openPreview(pj.numPages, 0, async i => {
-    const page = await pj.getPage(i + 1);
-    return { page, rotation: page.rotate, label: `${file.name} · 第 ${i + 1} / ${pj.numPages} 頁` };
-  }, { download, onClose: () => pj.destroy() });
+  const pages = i => pj.getPage(i + 1).then(page => ({ page, rotation: page.rotate, label: `${file.name} · 第 ${i + 1} / ${pj.numPages} 頁` }));
+  if (!inMemory(file)) { openPreview(pj.numPages, 0, pages, { download, onClose: () => pj.destroy() }); return; }
+  // pdf.js now has its own copy, so the page lets go of the result's bytes while the preview is open: the file is held
+  // once, not twice. They come back from pdf.js when the preview closes; until then file.lent makes readers wait.
+  let back; file.lent = new Promise(r => { back = r; }); file.bytes = null;
+  const giveBack = async () => {
+    try { file.bytes = new Uint8Array(await pj.getData()); }
+    finally { pj.destroy(); file.lent = null; back(); }
+  };
+  openPreview(pj.numPages, 0, pages, {
+    download: async () => saveFile(file.name, new Blob([await pj.getData()], { type: 'application/pdf' })),
+    onClose: giveBack
+  });
 }
 $('#handoff-preview').addEventListener('click', e => busy(e.currentTarget, '開啟中…', openResultPreview).catch(err => toast('無法預覽：' + err.message, 'err')));
 $('#handoff-download').addEventListener('click', e => { if (lastResult) busy(e.currentTarget, '準備中…', () => saveFile(lastResult.file.name, lastResult.file)); });

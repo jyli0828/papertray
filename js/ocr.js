@@ -50,6 +50,7 @@ function ocrStop() {
 /* One picture at a time: jobs from different tools wait their turn. pdf = true also returns a one-page PDF that holds
    only the invisible text (Tesseract's own text layer), to lay over the original page. */
 function ocrRecognize(image, { langs = OCR_LANGS, pdf = false, onProgress } = {}) {
+  ocrEng.jobs = (ocrEng.jobs || 0) + 1;
   const job = ocrQueue.then(async () => {
     clearTimeout(ocrEng.idle);
     ocrEng.onProgress = onProgress || null;
@@ -58,12 +59,21 @@ function ocrRecognize(image, { langs = OCR_LANGS, pdf = false, onProgress } = {}
       const { data } = await w.recognize(image, pdf ? { pdfTitle: 'OCR', pdfTextOnly: true } : {}, { text: true, blocks: true, pdf });
       return data;
     } finally {
-      ocrEng.onProgress = null;
+      ocrEng.onProgress = null; ocrEng.jobs--;
       ocrEng.idle = setTimeout(ocrStop, 60000);
+      ocrLeave(); // finished after the user went on to a tool without OCR
     }
   });
   ocrQueue = job.catch(() => {});
   return job;
+}
+/* The engine holds well over 100 MB. It stays up for a minute after its last page only while the user is still on a
+   tool that reads text with it; going anywhere else shuts it down at once (starting it again takes a second or two). */
+const OCR_TABS = ['ocr', 'pdf2img', 'compare', 'edit', 'sign', 'redact'];
+function ocrLeave(tab) {
+  if (!tab) { const open = document.querySelector('.panel:not([hidden])'); tab = open ? open.id.replace(/^panel-/, '') : ''; }
+  // A job still running (a long document between two pages, say) keeps it; the one-minute timer stops it later.
+  if (ocrEng.worker && !ocrEng.jobs && !OCR_TABS.includes(tab) && !document.querySelector('.is-running')) ocrStop();
 }
 
 /* Text from Tesseract's blocks, with a box for every character. Tesseract puts a space between every "word", which in
@@ -93,7 +103,7 @@ function ocrText(blocks, toBox) {
     }
   }
   while (text.endsWith('\n')) { text = text.slice(0, -1); boxes.pop(); }
-  return { text, boxes, ocr: true };
+  return { text, boxes: packBoxes(boxes), ocr: true };
 }
 /* OCR one pdf.js page, drawn upright as it is shown (rotation R) at about 300 dpi. Boxes are in PDF user space. */
 async function ocrPage(pg, R, opts = {}) {
@@ -163,16 +173,26 @@ function addOcrText(page, view, R, segs, fontRef) {
   ops.push(P.endText(), P.popGraphicsState());
   page.pushOperators(...ops);
 }
-/* Text of one page with the box (PDF user space) of every character: { text, boxes, ocr }. boxes[i] is null for the
-   spaces and line breaks put between runs. Pages without a text layer are read with OCR when opts.ocr is set. */
+/* Character boxes are kept packed, four numbers per character in one Float32Array (NaN where there is none): 比較 and
+   遮蔽個資 keep them for every page, and a small array per character costs about 60 bytes against 16 here. */
+function packBoxes(list) {
+  const a = new Float32Array(list.length * 4).fill(NaN);
+  list.forEach((b, i) => { if (b) a.set(b, i * 4); });
+  return a;
+}
+const boxAt = (B, i) => { const k = i * 4; return Number.isNaN(B[k]) ? null : [B[k], B[k + 1], B[k + 2], B[k + 3]]; };
+/* Text of one page with the box (PDF user space) of every character: { text, boxes, ocr }, boxes packed as above;
+   boxAt(boxes, i) is null for the spaces and line breaks put between runs. Pages without a text layer are read with
+   OCR when opts.ocr is set. */
 async function pageChars(pg, opts = {}) {
   const { text, map, items } = await pageTextMap(pg);
   if (text.trim() || !opts.ocr) {
-    const per = new Map();
-    const boxes = map.map(at => {
-      if (!at) return null;
-      if (!per.has(at[0])) per.set(at[0], itemCharBoxes(items[at[0]]));
-      return per.get(at[0])[at[1]] || null;
+    const boxes = new Float32Array(map.length * 4).fill(NaN);
+    let item = -1, cur = null; // map runs through one item at a time, so only that item's boxes are needed
+    map.forEach((at, i) => {
+      if (!at) return;
+      if (at[0] !== item) { item = at[0]; cur = itemCharBoxes(items[item]); }
+      if (cur[at[1]]) boxes.set(cur[at[1]], i * 4);
     });
     return { text, boxes, ocr: false };
   }
@@ -189,7 +209,7 @@ function spanBoxes(text, boxes, i0, i1, pad = 0) {
   };
   const out = []; let cur = null;
   for (let i = i0; i < i1; i++) {
-    const b = boxes[i];
+    const b = boxAt(boxes, i);
     if (!b) { if (text[i] === '\n') cur = null; continue; }
     if (cur && sameRow(cur, b)) { cur[0] = Math.min(cur[0], b[0]); cur[1] = Math.min(cur[1], b[1]); cur[2] = Math.max(cur[2], b[2]); cur[3] = Math.max(cur[3], b[3]); }
     else { cur = b.slice(); out.push(cur); }

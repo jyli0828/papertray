@@ -20,6 +20,7 @@ function showTab(name) {
   if (nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: Math.max(0, tb.offsetLeft - (nav.clientWidth - tb.offsetWidth) / 2), behavior: 'smooth' });
   if (name === 'home') renderHomeGroups();
   releaseCaches(name);
+  ocrLeave(name);
   checkMemory(name);
   if (name === 'unmark') requestAnimationFrame(fitUm);
   if (name === 'idcard') requestAnimationFrame(drawIdPreview);

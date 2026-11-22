@@ -4,7 +4,8 @@
          (text stays selectable), scaled and centred. Links and form fields of the original page are not carried over.
    crop: render each page small, find where the ink is, and set the crop box around it. Nothing is re-drawn. */
 const PAPERS = { a4: [595.28, 841.89], a3: [841.89, 1190.55], a5: [419.53, 595.28], b5: [515.91, 728.5], letter: [612, 792], legal: [612, 1008] };
-const rs = { name: '', bytes: null, n: 0, mode: 'fit', first: [595.28, 841.89] };
+/* src: the file itself (on disk for a picked file), read again when the job runs */
+const rs = { name: '', src: null, size: 0, n: 0, mode: 'fit', first: [595.28, 841.89] };
 const pageDisp = page => {
   const cb = page.getCropBox(), R = ((page.getRotation().angle % 360) + 360) % 360;
   return { cb, R, view: [cb.x, cb.y, cb.x + cb.width, cb.y + cb.height], dims: R % 180 ? [cb.height, cb.width] : [cb.width, cb.height] };
@@ -16,6 +17,7 @@ async function loadResize(files) {
   const { bytes } = got;
   let doc;
   try { doc = await PDFDocument.load(bytes); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
+  const src = keepFile(f, got);
   const counts = new Map();
   doc.getPages().forEach((pg, i) => {
     const [w, h] = pageDisp(pg).dims;
@@ -23,7 +25,7 @@ async function loadResize(files) {
     const key = paperName(w, h) + (w > h ? ' 橫' : '');
     counts.set(key, (counts.get(key) || 0) + 1);
   });
-  Object.assign(rs, { name: f.name, bytes, n: doc.getPageCount() });
+  Object.assign(rs, { name: f.name, src, size: bytes.length, n: doc.getPageCount() });
   $('#rs-fname').textContent = f.name;
   $('#rs-fmeta').textContent = `${rs.n} 頁 · ${fmtSize(bytes.length)} · ` + [...counts].map(([k, v]) => `${k} ×${v}`).join('、');
   $('#rs-name').value = baseName(f.name) + '-調整尺寸.pdf';
@@ -44,7 +46,7 @@ $('#rs-m-crop').addEventListener('click', () => setRsMode('crop'));
 ['#rs-size', '#rs-orient', '#rs-scale', '#rs-margin', '#rs-pad'].forEach(s => $(s).addEventListener('change', updateRsSummary));
 function rsTarget() { return $('#rs-size').value === 'first' ? rs.first.slice() : PAPERS[$('#rs-size').value].slice(); }
 function updateRsSummary() {
-  if (!rs.bytes) return;
+  if (!rs.src) return;
   if (rs.mode === 'crop') { $('#rs-summary').textContent = `會裁切 ${rs.n} 頁的白邊`; return; }
   const [w, h] = rsTarget();
   $('#rs-summary').textContent = `${rs.n} 頁都改成 ${paperName(w, h)}（${Math.round(w * 25.4 / 72)} × ${Math.round(h * 25.4 / 72)} mm）`;
@@ -56,7 +58,7 @@ function rsProgress(i, n) {
   $('#rs-plabel').textContent = i < n ? `處理第 ${i + 1} / ${n} 頁` : `完成 ${n} 頁`;
 }
 async function resizeFit(check) {
-  const src = await PDFDocument.load(rs.bytes), out = await PDFDocument.create();
+  const src = await PDFDocument.load((await fileBytes(rs.src)).bytes), out = await PDFDocument.create();
   const orient = $('#rs-orient').value, scaleMode = $('#rs-scale').value, m = +$('#rs-margin').value;
   const pages = src.getPages();
   for (let i = 0; i < pages.length; i++) {
@@ -79,7 +81,8 @@ async function resizeFit(check) {
   return out.save({ useObjectStreams: true });
 }
 async function resizeCrop(check) {
-  const doc = await PDFDocument.load(rs.bytes), pj = await openPdfjs(rs.bytes);
+  const { bytes } = await fileBytes(rs.src);
+  const doc = await PDFDocument.load(bytes), pj = await openPdfjs(bytes);
   const pad = +$('#rs-pad').value;
   let cropped = 0;
   try {
@@ -137,7 +140,7 @@ $('#rs-sample').addEventListener('click', async () => {
   }
   loadResize([pdfFile(await doc.save(), 'mixed-sizes.pdf')]);
 });
-registerHolder('resize', () => rs.bytes ? rs.bytes.length : 0, () => {
-  Object.assign(rs, { name: '', bytes: null, n: 0 });
+registerHolder('resize', () => heldBytes(rs.src), () => {
+  Object.assign(rs, { name: '', src: null, size: 0, n: 0 });
   $('#rs-empty').hidden = false; $('#rs-work').hidden = true;
 });

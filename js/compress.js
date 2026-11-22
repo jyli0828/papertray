@@ -28,13 +28,14 @@ async function loadCompFile(files) {
   for (const f of files) {
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
     const got = await readPdf(f); if (!got) continue; // a password-protected file is unlocked here first
-    const { bytes } = got;
+    // Only the file itself is kept (on disk for a picked file); its bytes are read again when compressing.
+    const size = got.bytes.length, src = keepFile(f, got);
     let pages, paper;
     try {
-      const pj = await openPdfjs(bytes), vp = (await pj.getPage(1)).getViewport({ scale: 1 });
+      const pj = await openPdfjs(got.bytes, got.owned), vp = (await pj.getPage(1)).getViewport({ scale: 1 });
       pages = pj.numPages; paper = paperName(vp.width, vp.height); pj.destroy();
     } catch (e) { toast(loadErr(f.name, e), 'err'); continue; }
-    comp.items.push({ id: uid(), name: f.name, bytes, pages, paper, out: null });
+    comp.items.push({ id: uid(), name: f.name, src, size, pages, paper, out: null });
   }
   clearCompResults();
   renderCompList();
@@ -51,17 +52,17 @@ function renderCompList() {
       const o = it.out;
       after = o.under ? ' → 已經在上限以內，保留原檔'
         : o.kept ? ' → 沒有變小，保留原檔'
-        : ` → ${fmtSize(o.bytes.length)}（−${Math.round((1 - o.bytes.length / it.bytes.length) * 100)}%）`;
+        : ` → ${fmtSize(o.size)}（−${Math.round((1 - o.size / it.size) * 100)}%）`;
       if (o.label && !o.kept) after += ` · ${o.label}`;
       if (o.fit === false) after += ' · <span class="over">超過上限</span>';
     }
     li.innerHTML = `<span class="doc-ico-sm" aria-hidden="true"></span>
-      <div class="file-main"><div class="file-name"></div><div class="file-meta">${it.pages} 頁 · ${fmtSize(it.bytes.length)} · ${it.paper}${after}</div></div>
+      <div class="file-main"><div class="file-name"></div><div class="file-meta">${it.pages} 頁 · ${fmtSize(it.size)} · ${it.paper}${after}</div></div>
       <div class="row-btns"><button class="icon-btn danger" data-act="remove" aria-label="移除">${ICON.x}</button></div>`;
     li.querySelector('.file-name').textContent = it.name;
     list.append(li);
   }
-  const total = comp.items.reduce((s, x) => s + x.bytes.length, 0);
+  const total = comp.items.reduce((s, x) => s + x.size, 0);
   $('#comp-hint').textContent = n > 1 ? `${n} 份 · 共 ${fmtSize(total)}，會用同樣的設定依序壓縮` : '壓縮在你的裝置上進行，頁數多時需要一點時間。';
   $('#comp-go').textContent = n > 1 ? `壓縮 ${n} 份` : '開始壓縮';
 }
@@ -449,26 +450,30 @@ $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中�
   const lvKey = levelVal(), color = $('#comp-color').value, gray = color !== 'color', keep = comp.mode === 'keep';
   const target = compTarget();
   comp.file.n = comp.items.length; comp.attempt = 0;
+  const single = comp.items.length === 1;
   let changed = 0;
   try {
     for (let i = 0; i < comp.items.length; i++) {
       check();
       comp.file.i = i;
       const it = comp.items[i];
-      if (target && it.bytes.length <= target) { it.out = { bytes: it.bytes, kept: true, under: true }; renderCompList(); continue; }
-      const res = target ? await compressToTarget(it.bytes, target, color, check, signal)
-        : keep ? await compressKeepText(it.bytes, KEEP_LEVELS[lvKey], gray, check, signal)
-        : color === 'bw' ? await compressBW(it.bytes, BW_DPI[lvKey], check)
-        : await compressRaster(it.bytes, LEVELS[lvKey], gray, check);
-      const kept = res.bytes.length >= it.bytes.length;
-      it.out = { bytes: kept ? it.bytes : res.bytes, kept, label: res.label };
-      if (target) it.out.fit = it.out.bytes.length <= target;
+      if (target && it.size <= target) { it.out = { src: it.src, size: it.size, kept: true, under: true }; renderCompList(); continue; }
+      const { bytes } = await fileBytes(it.src); // read now, let go after this file
+      const res = target ? await compressToTarget(bytes, target, color, check, signal)
+        : keep ? await compressKeepText(bytes, KEEP_LEVELS[lvKey], gray, check, signal)
+        : color === 'bw' ? await compressBW(bytes, BW_DPI[lvKey], check)
+        : await compressRaster(bytes, LEVELS[lvKey], gray, check);
+      const kept = res.bytes.length >= it.size;
+      // A lone result goes to the result bar as it is; results of a batch wait for the ZIP as Blobs, outside the page.
+      const out = kept ? it.src : single ? pdfFile(res.bytes, baseName(it.name) + '-壓縮.pdf') : new Blob([res.bytes], { type: 'application/pdf' });
+      it.out = { src: out, size: kept ? it.size : res.bytes.length, kept, label: res.label };
+      if (target) it.out.fit = it.out.size <= target;
       changed += res.changed || 0;
       renderCompList();
     }
   } finally { comp.attempt = 0; }
   comp.file.i = comp.items.length - 1; progress(1, 1);
-  const before = comp.items.reduce((s, x) => s + x.bytes.length, 0), after = comp.items.reduce((s, x) => s + x.out.bytes.length, 0);
+  const before = comp.items.reduce((s, x) => s + x.size, 0), after = comp.items.reduce((s, x) => s + x.out.size, 0);
   const max = Math.max(before, after, 1);
   $('#bar-before').style.width = (before / max * 100) + '%';
   $('#bar-after').style.width = (after / max * 100) + '%';
@@ -492,20 +497,23 @@ $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中�
   $('#comp-name').value = multi ? '壓縮後的 PDF.zip' : baseName(comp.items[0].name) + '-壓縮.pdf';
   $('#comp-save').textContent = multi ? `下載全部 ${comp.items.length} 份（ZIP）` : '下載壓縮檔';
   $('#comp-result').hidden = false;
-  if (!multi && !comp.items[0].out.kept) await deliver(pdfFile(comp.items[0].out.bytes, $('#comp-name').value), 'pdf', 'compress');
+  if (!multi && !comp.items[0].out.kept) {
+    const f = comp.items[0].out.src; f.name = ensurePdf($('#comp-name').value);
+    await deliver(f, 'pdf', 'compress');
+  }
 }).catch(err => toast('壓縮失敗：' + err.message, 'err')));
 $('#comp-save').addEventListener('click', e => busy(e.currentTarget, '準備中…', async () => {
   const done = comp.items.filter(x => x.out); if (!done.length) return;
-  if (done.length === 1) { await saveFile(ensurePdf($('#comp-name').value), done[0].out.bytes); return; }
+  if (done.length === 1) { await saveFile(ensurePdf($('#comp-name').value), done[0].out.src); return; }
   const zip = await newZip(), used = new Set();
   for (const it of done) {
     let n = baseName(it.name) + '-壓縮.pdf', k = 2;
     while (used.has(n)) n = baseName(it.name) + `-壓縮-${k++}.pdf`;
-    used.add(n); zip.file(n, it.out.bytes);
+    used.add(n); zip.file(n, (await fileBytes(it.out.src)).bytes);
   }
   let name = ($('#comp-name').value || '壓縮後的 PDF').trim(); if (!/\.zip$/i.test(name)) name += '.zip';
   await saveFile(name, await zip.generateAsync({ type: 'blob', compression: 'STORE' }));
 }).catch(err => toast('下載失敗：' + err.message, 'err')));
 setCompMode('keep');
-registerHolder('compress', () => comp.items.reduce((n, it) => n + it.bytes.length + (it.out && it.out.bytes !== it.bytes ? it.out.bytes.length : 0), 0),
+registerHolder('compress', () => comp.items.reduce((n, it) => n + heldBytes(it.src) + (it.out && it.out.src !== it.src ? heldBytes(it.out.src) : 0), 0),
   () => { comp.items = []; clearCompResults(); renderCompList(); });

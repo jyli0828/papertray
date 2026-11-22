@@ -229,7 +229,7 @@ export default [
     async run() {
       showTab('compress');
       await loadCompFile([pdfFile(await makePhotoSample(), 'photos.pdf')]);
-      const before = comp.items[0].bytes.length;
+      const before = comp.items[0].size;
       const r = await T.result(() => T.click('#comp-go'), '壓縮', 90000);
       T.ok(r.file.size < before * .5, `${before} → ${r.file.size}`);
       T.ok((await T.pdfText(r.file))[0].includes('Site survey'), '文字還在');
@@ -384,6 +384,98 @@ export default [
         if (dlg.open) $('#te-done').click();
       }
       return `${checks.length} 個工具`;
+    }
+  },
+
+  /* ---------- 記憶體 ---------- */
+  {
+    name: '記憶體：合併、壓縮、調整尺寸、密碼只留檔案本身',
+    async run() {
+      const asPicked = async (labels, name) => new File([(await T.labeled(labels)).bytes], name, { type: 'application/pdf' });
+      showTab('merge');
+      await addMergeFiles([await asPicked(['M1'], 'm1.pdf'), await asPicked(['M2', 'M3'], 'm2.pdf')]);
+      T.ok(merge.items.every(it => it.src instanceof File && heldBytes(it.src) === 0), '合併清單應留 File');
+      const m = await T.result(() => T.click('#merge-go'));
+      T.eq((await T.pdfText(m.file)).map(s => s.trim()), ['M1', 'M2', 'M3']);
+      // an unlocked file is kept as a Blob of the unlocked bytes
+      const { out } = await runQpdf(['--encrypt', '--user-password=', '--owner-password=o', '--bits=256', '--print=none', '--', '/in.pdf', '/out.pdf'], (await T.labeled(['L'])).bytes);
+      await addMergeFiles([new File([out], 'locked.pdf', { type: 'application/pdf' })]);
+      const last = merge.items[merge.items.length - 1].src;
+      T.ok(!(last instanceof File) && last instanceof Blob && !hasEncrypt(new Uint8Array(await last.arrayBuffer())), '解除後的檔案存成 Blob');
+      showTab('compress');
+      await loadCompFile([new File([await makePhotoSample()], 'p1.pdf', { type: 'application/pdf' }), new File([await makePhotoSample()], 'p2.pdf', { type: 'application/pdf' })]);
+      T.ok(comp.items.every(it => heldBytes(it.src) === 0), '壓縮清單應留 File');
+      T.click('#comp-go'); await T.idle('#comp-go');
+      T.ok(comp.items.every(it => it.out && !it.out.kept && it.out.src instanceof Blob && it.out.size < it.size), '多份的結果存成 Blob');
+      showTab('resize'); await loadResize([await asPicked(['R'], 'r.pdf')]);
+      T.eq(heldBytes(rs.src), 0, '調整尺寸');
+      const r = await T.result(() => T.click('#rs-go')); T.eq((await T.pdfText(r.file))[0].trim(), 'R');
+      showTab('password'); await loadPw([await asPicked(['P'], 'p.pdf')]);
+      T.eq(heldBytes(pw.src), 0, '密碼');
+    }
+  },
+  {
+    name: '記憶體：填表單的頁面是圖片，不留畫布',
+    async run() {
+      showTab('form'); T.click('#ff-sample');
+      await T.until(() => $('#ff-pages .ff-page img'), '頁面圖片');
+      T.eq(document.querySelectorAll('#ff-pages canvas').length, 0, '畫布');
+      T.ok($('#ff-pages .ff-page img').src.startsWith('blob:'), 'Blob 圖片');
+    }
+  },
+  {
+    name: '記憶體：證件照片只解碼需要的大小',
+    async run() {
+      showTab('idcard'); T.click('#id-sample');
+      await T.until(() => idc.sides.every(s => s && s.bmp), '預覽');
+      T.ok(idc.sides.every(s => s.bmp.width < 600), '預覽用的小圖：' + idc.sides.map(s => s.bmp.width));
+      const r = await T.result(() => T.click('#id-go'));
+      const pj = await T.pdf(r.file), ops = await (await pj.getPage(1)).getOperatorList();
+      const img = await new Promise(res => (async () => { const pg = await pj.getPage(1); pg.objs.get(ops.argsArray[ops.fnArray.indexOf(pdfjsLib.OPS.paintImageXObject)][0], res); })());
+      T.ok(img.width >= 1000, '匯出仍是 300 dpi：' + img.width);
+      const big = document.createElement('canvas'); big.width = 4000; big.height = 3000;
+      big.getContext('2d').fillStyle = '#8ab'; big.getContext('2d').fillRect(0, 0, 4000, 3000);
+      const blob = await new Promise(res => big.toBlob(res, 'image/jpeg', .8));
+      showTab('idphoto'); await loadPh([new File([blob], 'big.jpg', { type: 'image/jpeg' })]);
+      T.eq([ph.bmp.width, ph.bmp.height], [2400, 1800], '證件照最長邊 2400');
+    }
+  },
+  {
+    name: '記憶體：每個字的位置存成 Float32Array',
+    async run() {
+      const pj = await T.pdf(await T.labeled(['Hello world']));
+      const c = await pageChars(await pj.getPage(1));
+      T.ok(c.boxes instanceof Float32Array && c.boxes.length === c.text.length * 4, '格式');
+      const bs = spanBoxes(c.text, c.boxes, 0, 5);
+      T.ok(bs.length === 1 && bs[0][2] > bs[0][0], 'Hello 的框：' + JSON.stringify(bs));
+    }
+  },
+  {
+    name: '記憶體：預覽結果時只留一份',
+    async run() {
+      const f = await T.labeled(['Preview'], 'pv.pdf'), size = f.size;
+      offerNext(f, 'pdf', 'test'); await openResultPreview();
+      T.ok(pvDlg.open && f.bytes === null && f.lent, '預覽時頁面放掉自己的那份');
+      T.ok(heldBytes(f) === size, '記憶體估算');
+      const waiting = fileBytes(f);
+      await T.sleep(200); $('#pv-close').click();
+      const { bytes } = await waiting;
+      T.eq(bytes.length, size, '關閉後拿回來');
+      T.ok(f.bytes === bytes && !f.lent, '還原');
+      T.eq((await T.pdfText(f))[0].trim(), 'Preview');
+    }
+  },
+  {
+    name: '記憶體：離開會用到 OCR 的工具時關掉辨識引擎',
+    slow: true, timeout: 120000,
+    async run() {
+      showTab('pdf2img');
+      const pj = await T.pdf(await T.labeled(['']));
+      await ocrRecognize(await new Promise(r => { const c = document.createElement('canvas'); c.width = c.height = 64; c.toBlob(r); }));
+      T.ok(ocrEng.worker, '引擎啟動');
+      showTab('compare'); T.ok(ocrEng.worker, '比較也會用到，留著');
+      showTab('merge'); T.ok(!ocrEng.worker, '離開後關閉');
+      pj.destroy();
     }
   },
 

@@ -34,14 +34,16 @@ async function pdfjsTry(bytes, password) {
   catch (e) { return { ok: false, need: e && e.name === 'PasswordException', wrong: e && e.code === 2 }; }
 }
 
-const pw = { name: '', bytes: null, state: '', pages: 0 }; // state: 'open' | 'restricted' | 'locked'
+/* state: 'open' | 'restricted' | 'locked'. src is the file itself (on disk for a picked file), read again for each job. */
+const pw = { name: '', src: null, state: '', pages: 0 };
+const pwBytes = async () => (await fileBytes(pw.src)).bytes;
 async function loadPw(files) {
   const f = files[0]; if (!f) return;
   if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
   const { bytes } = await fileBytes(f);
   const r = await pdfjsTry(bytes);
   if (!r.ok && !r.need) { toast(loadErr(f.name, {}), 'err'); return; }
-  Object.assign(pw, { name: f.name, bytes, pages: r.pages || 0, state: !r.ok ? 'locked' : hasEncrypt(bytes) ? 'restricted' : 'open' });
+  Object.assign(pw, { name: f.name, src: f, pages: r.pages || 0, state: !r.ok ? 'locked' : hasEncrypt(bytes) ? 'restricted' : 'open' });
   $('#pw-fname').textContent = f.name;
   $('#pw-fmeta').textContent = (pw.pages ? `${pw.pages} 頁 · ` : '') + fmtSize(bytes.length) + ' · ' +
     { locked: '有開啟密碼', restricted: '沒有開啟密碼，但限制了列印、複製或修改', open: '沒有密碼' }[pw.state];
@@ -64,8 +66,9 @@ $('#pw-unlock-go').addEventListener('click', e => {
   if (pw.state === 'locked' && !pass) { pwError('請輸入密碼'); $('#pw-old').focus(); return; }
   runJob(e.currentTarget, '解除中…', async () => {
     pwError('');
+    const bytes = await pwBytes();
     if (pw.state === 'locked') {
-      const r = await pdfjsTry(pw.bytes, pass);
+      const r = await pdfjsTry(bytes, pass);
       if (!r.ok) {
         // Many bills use the ID number; a lower-case first letter is the usual slip.
         const hint = /^[a-z]\d{9}$/.test(pass) ? '身分證字號的英文字母通常要大寫。' : '';
@@ -73,7 +76,7 @@ $('#pw-unlock-go').addEventListener('click', e => {
       }
     }
     const args = pw.state === 'locked' ? [`--password=${pass}`, '--decrypt', '/in.pdf', '/out.pdf'] : ['--decrypt', '/in.pdf', '/out.pdf'];
-    const { out } = await runQpdf(args, pw.bytes);
+    const { out } = await runQpdf(args, bytes);
     if (!out || !(await pdfjsTry(out)).ok) { pwError('解除失敗：這份檔案的加密方式無法處理。'); return; }
     await deliver(pdfFile(out, $('#pw-name').value), 'pdf', 'password');
     toast(pw.state === 'locked' ? '已解除密碼' : '已解除限制');
@@ -108,7 +111,7 @@ $('#pw-lock-go').addEventListener('click', e => {
     if (deny.includes('copy')) args.push('--extract=n');
     if (deny.includes('modify')) args.push('--modify=none');
     args.push('--', '/in.pdf', '/out.pdf');
-    const { out } = await runQpdf(args, pw.bytes);
+    const { out } = await runQpdf(args, await pwBytes());
     // Check the result before handing it over: it must open with the password, and only with it.
     if (!out || !(await pdfjsTry(out, user)).ok || (user && (await pdfjsTry(out)).ok)) throw new Error('產生的檔案驗證不通過');
     await deliver(pdfFile(out, $('#pw-lname').value), 'locked', 'password');
@@ -119,8 +122,8 @@ bindInput($('#pw-input'), loadPw);
 acceptFiles($('#panel-password'), $('#pw-drop'), loadPw);
 $('#pw-change').addEventListener('click', () => $('#pw-input').click());
 registerTarget('pdf', 'password', '加密碼', loadPw);
-registerHolder('password', () => pw.bytes ? pw.bytes.length : 0, () => {
-  Object.assign(pw, { name: '', bytes: null, state: '', pages: 0 });
+registerHolder('password', () => heldBytes(pw.src), () => {
+  Object.assign(pw, { name: '', src: null, state: '', pages: 0 });
   $('#pw-empty').hidden = false; $('#pw-work').hidden = true;
 });
 /* sample: a statement locked with a made-up ID number, as banks do */

@@ -12,12 +12,13 @@ async function addMergeFiles(files, isSample) {
     }
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 或圖片`, 'err'); continue; }
     const got = await readPdf(f); if (!got) continue; // a password-protected file is unlocked here first
-    const { bytes } = got;
+    // The list keeps the file itself (on disk for a picked file), not its bytes; they are read again when merging.
+    const size = got.bytes.length, src = keepFile(f, got);
     try {
       // Only the page count is needed now; pdf.js reads just the page tree. The full parse happens once, when merging.
       let pages = f.pages;
-      if (!pages) { const pj = await openPdfjs(bytes); pages = pj.numPages; pj.destroy(); }
-      merge.items.push({ id: uid(), name: f.name, size: bytes.length, bytes, pages, range: '', sample: !!isSample, fromImage });
+      if (!pages) { const pj = await openPdfjs(got.bytes, got.owned); pages = pj.numPages; pj.destroy(); }
+      merge.items.push({ id: uid(), name: f.name, size, src, pages, range: '', sample: !!isSample, fromImage });
     } catch (e) { toast(loadErr(f.name, e), 'err'); }
   }
   renderMerge();
@@ -114,7 +115,7 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   const out = await PDFDocument.create();
   if ($('#merge-how').value === 'zip' && merge.items.length === 2) {
     const srcs = [], order = mergeZipOrder();
-    for (const it of merge.items) { check(); srcs.push(await PDFDocument.load(it.bytes)); }
+    for (const it of merge.items) { check(); srcs.push(await PDFDocument.load((await fileBytes(it.src)).bytes)); }
     const copied = [];
     for (const k of [0, 1]) copied.push(await out.copyPages(srcs[k], order.filter(o => o[0] === k).map(o => o[1])));
     const next = [0, 0];
@@ -122,7 +123,7 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   } else for (const it of merge.items) {
     check();
     const r = mergePicks(it); if (r.error) throw new Error(`「${it.name}」${r.error}`);
-    const src = await PDFDocument.load(it.bytes);
+    const src = await PDFDocument.load((await fileBytes(it.src)).bytes);
     (await out.copyPages(src, r.idx)).forEach(p => out.addPage(p));
   }
   check();
@@ -131,5 +132,5 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   await deliver(pdfFile(bytes, name), 'pdf', 'merge');
 }).catch(err => toast('合併失敗：' + err.message, 'err')));
 registerTarget('pdf', 'merge', '合併', f => addMergeFiles(f));
-registerHolder('merge', () => merge.items.reduce((n, it) => n + (it.sample ? 0 : it.size), 0),
+registerHolder('merge', () => merge.items.reduce((n, it) => n + (it.sample ? 0 : heldBytes(it.src)), 0),
   () => { merge.items = []; renderMerge(); });

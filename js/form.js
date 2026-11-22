@@ -4,7 +4,8 @@
    On export pdf-lib writes the values into the real fields. Text that the standard PDF font cannot show
    (Chinese and most non-Latin text) gets its own appearance: a sharp picture of the text, so every viewer shows it.
    「壓平」 turns the filled fields into fixed page content. */
-const ff = { name: '', pj: null, fields: [], vals: new Map(), token: 0 };
+const ff = { name: '', pj: null, fields: [], vals: new Map(), token: 0, urls: [] };
+function releaseFormPages() { ff.urls.forEach(u => URL.revokeObjectURL(u)); ff.urls = []; }
 
 async function loadForm(files) {
   const f = files[0];
@@ -14,6 +15,7 @@ async function loadForm(files) {
   let pj;
   try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (ff.pj) ff.pj.destroy();
+  releaseFormPages();
   const token = ++ff.token;
   Object.assign(ff, { name: f.name, pj, fields: [], vals: new Map(), size });
   $('#ff-name').value = baseName(f.name) + '-已填.pdf';
@@ -44,6 +46,8 @@ async function loadForm(files) {
       if (!ff.vals.has(a.fieldName)) ff.vals.set(a.fieldName, initialValue(a));
       pageEl.append(fieldInput(fld, vp1.width));
     }
+    // Each page becomes a JPEG picture, like the thumbnails: a canvas kept on screen holds every pixel (an A4 page on
+    // a high-resolution screen is about 18 MB), the picture a few hundred KB, and the browser decodes it only while shown.
     whenVisible(pageEl, async () => {
       const p = await pj.getPage(i); if (token !== ff.token) return;
       const vp = p.getViewport({ scale: maxW * dpr / vp1.width });
@@ -52,7 +56,11 @@ async function loadForm(files) {
       // ENABLE_FORMS: everything except the form fields, which are the inputs on top
       await p.render({ canvasContext: ctx, viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE_FORMS }).promise;
       p.cleanup();
-      if (token === ff.token) pageEl.prepend(cv);
+      const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9)); cv.width = cv.height = 0;
+      if (token !== ff.token || !blob) return;
+      const img = document.createElement('img'); img.alt = ''; img.draggable = false;
+      img.src = URL.createObjectURL(blob); ff.urls.push(img.src);
+      pageEl.prepend(img);
     });
   }
   const names = new Set(ff.fields.map(x => x.a.fieldName));
@@ -280,10 +288,9 @@ $('#ff-sample').addEventListener('click', async () => {
   p.drawText('Signature: ______________________     Date: ____________', { x: 50, y: 200, size: 12, font, color: soft });
   loadForm([pdfFile(await doc.save(), 'membership-form.pdf')]);
 });
-registerHolder('form', () => ff.pj ? ff.size + canvasBytes('#ff-pages canvas') : 0, () => {
-  ff.token++; ff.pj.destroy();
-  const box = $('#ff-pages'); box.querySelectorAll('canvas').forEach(c => { c.width = c.height = 0; });
-  forgetCards(box); box.innerHTML = '';
+registerHolder('form', () => ff.pj ? ff.size : 0, () => {
+  ff.token++; ff.pj.destroy(); releaseFormPages();
+  const box = $('#ff-pages'); forgetCards(box); box.innerHTML = '';
   Object.assign(ff, { name: '', pj: null, fields: [], vals: new Map(), size: 0 });
   $('#ff-empty').hidden = false; $('#ff-work').hidden = true;
 });
