@@ -7,7 +7,7 @@ const $ = (s, r = document) => r.querySelector(s);
    only its own code, and each library arrives on the first action that uses it. tools/build.py swaps these paths
    for cdnjs addresses in the bundled pages. */
 const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.js', jszip: 'lib/jszip.min.js', heic: 'lib/heic2any.min.js',
-  tesseract: 'lib/tesseract/tesseract.min.js' };
+  tesseract: 'lib/tesseract/tesseract.min.js', qpdf: 'lib/qpdf/qpdf.js', qpdfwasm: 'lib/qpdf/qpdf.wasm.js' };
 /* Tried when the local copy is missing (heic2any is large, so lib/ may not have it). */
 const LIB_FALLBACK = { heic: 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js' };
 const libLoads = {};
@@ -115,7 +115,7 @@ function toast(msg, kind) {
 }
 function loadErr(name, e) {
   const m = String(e && (e.name + ' ' + e.message) || '');
-  if (/encrypt|password/i.test(m)) return `「${name}」有密碼保護，請先移除密碼再處理。`;
+  if (/encrypt|password/i.test(m)) return encryptedMsg(name);
   return `「${name}」無法讀取，檔案可能已損壞或不是 PDF。`;
 }
 async function busy(btn, label, fn) {
@@ -147,17 +147,18 @@ function registerTarget(kind, tab, label, load) { NEXT_TARGETS[kind].push({ tab,
 let lastResult = null;
 let autoDownload = false;
 try { autoDownload = localStorage.getItem('papertray.autodl') === '1'; } catch (e) {}
-/* deliver(file, kind, fromTab): kind is 'pdf', 'image' or 'zip' (a zip can only be downloaded) */
+/* deliver(file, kind, fromTab): kind is 'pdf', 'image', 'text', 'zip' or 'locked' (a zip or a password-protected PDF can
+   only be downloaded: no preview, no handing on) */
 async function deliver(file, kind, fromTab) {
   offerNext(file, kind, fromTab);
   if (autoDownload) await saveFile(file.name, file);
-  else if (kind !== 'zip') openResultPreview();
+  else if (kind !== 'zip' && kind !== 'locked') openResultPreview();
 }
 function offerNext(file, kind, fromTab) {
   lastResult = { file, kind };
   const bar = $('#handoff'), acts = $('#handoff-actions');
   $('#handoff-name').textContent = `${file.name}（${fmtSize(file.size)}）`;
-  $('#handoff-preview').hidden = kind === 'zip';
+  $('#handoff-preview').hidden = kind === 'zip' || kind === 'locked';
   acts.innerHTML = '';
   for (const t of NEXT_TARGETS[kind] || []) {
     if (t.tab === fromTab) continue;
@@ -190,7 +191,7 @@ function hasEncrypt(bytes) {
   }
   return false;
 }
-const encryptedMsg = name => `「${name}」有密碼保護，請先移除密碼再處理。`;
+function encryptedMsg(name) { return `「${name}」有密碼保護，請先到「密碼」分頁解除，再回來處理。`; }
 /* pdf.js takes ownership of the bytes it is given. Pass owned = true only when nothing else needs them afterwards;
    otherwise a copy goes to pdf.js. */
 async function openPdfjs(bytes, owned) {

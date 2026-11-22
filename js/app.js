@@ -1,6 +1,6 @@
 'use strict';
 /* ================= tabs ================= */
-const TABS = ['merge', 'split', 'edit', 'sign', 'form', 'redact', 'watermark', 'resize', 'compress', 'img2pdf', 'idcard', 'pdf2img', 'ocr', 'compare', 'imgtool', 'unmark'];
+const TABS = ['merge', 'split', 'edit', 'sign', 'form', 'redact', 'watermark', 'resize', 'compress', 'password', 'img2pdf', 'idcard', 'pdf2img', 'ocr', 'compare', 'imgtool', 'unmark'];
 function showTab(name) {
   if (!TABS.includes(name)) name = 'merge';
   TABS.forEach(t => {

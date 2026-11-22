@@ -33,6 +33,9 @@ CDN = {
     'lib/tesseract/worker.min.js': 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/worker.min.js',
     'lib/tesseract/tesseract-core-simd-lstm.wasm.js': 'https://cdn.jsdelivr.net/npm/tesseract.js-core@7.0.0/tesseract-core-simd-lstm.wasm.js',
     'lib/tesseract/lang': 'https://cdn.jsdelivr.net/npm/@tesseract.js-data',
+    # qpdf (密碼): the local copy ships its .wasm as base64 in a script; the bundles fetch the .wasm itself.
+    'lib/qpdf/qpdf.js': 'https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.1/dist/qpdf.js',
+    'lib/qpdf/qpdf.wasm.js': 'https://cdn.jsdelivr.net/npm/@neslinesli93/qpdf-wasm@0.3.1/dist/qpdf.wasm',
 }
 
 

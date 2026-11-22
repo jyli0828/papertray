@@ -59,13 +59,14 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .privacy svg { width: 14px; height: 14px; }
 
 /* Tool switch: one row of compact tabs on wide screens, wrapping to rows on narrow ones */
-.tabs { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; background: var(--sunk); padding: 5px; border-radius: 14px; }
+.tabs { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; background: var(--sunk); padding: 5px; border-radius: 14px; }
 .tab { border: 0; background: transparent; border-radius: 10px; padding: 10px 4px 8px; cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; color: var(--muted); font-size: 13.5px; font-weight: 500; text-align: center; }
 .tab svg { width: 22px; height: 22px; flex: none; }
 .tab span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .tab:hover { background: color-mix(in srgb, var(--surface) 55%, transparent); color: var(--ink); }
 .tab[aria-selected="true"] { background: var(--surface); box-shadow: var(--shadow); color: var(--accent); }
 .tab[aria-selected="true"] span { color: var(--ink); font-weight: 700; }
+@media (max-width: 900px) { .tabs { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .tabs { grid-template-columns: repeat(4, minmax(0, 1fr)); } .tab { font-size: 12.5px; padding: 8px 2px 6px; } }
 
 /* Watermark remover */
@@ -511,4 +512,16 @@ select.ff-field { padding: 0 .1em; }
   .cmp-view { gap: 8px; }
   .cmp-pages { padding: 6px; gap: 8px; max-height: 70vh; }
 }
+
+/* Password */
+.pw-box { display: flex; flex-direction: column; gap: 14px; }
+.pw-field { max-width: 360px; }
+.pw-field input { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 10px; font-size: 15px; color: var(--ink); font-family: var(--font-mono); letter-spacing: .02em; }
+.pw-err { margin: 0; color: var(--danger); font-size: 14px; font-weight: 500; }
+.pw-tips { font-size: 13.5px; color: var(--muted); }
+.pw-tips summary { cursor: pointer; color: var(--accent); }
+.pw-tips ul { margin: 4px 0 0; padding-left: 20px; }
+.pw-tips p { margin: 6px 0 0; }
+.pw-tips code { font-family: var(--font-mono); background: var(--bg); padding: 0 5px; border-radius: 4px; color: var(--ink); }
+#pw-lock-msg.bad { color: var(--danger); }
 

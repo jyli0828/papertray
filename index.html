@@ -63,6 +63,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v7m0 0-3-3m3 3 3-3M12 22v-7m0 0-3 3m3-3 3 3M4 12h16"/></svg>
       <span>壓縮</span>
     </button>
+    <button class="tab" role="tab" id="tab-password" aria-controls="panel-password" data-tab="password" title="解除或加上 PDF 密碼">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><circle cx="12" cy="15.5" r="1.4"/><path d="M12 17v1.5"/></svg>
+      <span>密碼</span>
+    </button>
     <button class="tab" role="tab" id="tab-img2pdf" aria-controls="panel-img2pdf" data-tab="img2pdf" title="JPG、PNG 合成一份 PDF">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="9" height="9" rx="1.5"/><path d="m2 12 3-3 3 3M13.5 9.5H17m0 0-1.5-1.5M17 9.5 15.5 11"/><path d="M15 3h4l3 3v15h-9v-6"/></svg>
       <span>圖片轉 PDF</span>
@@ -504,6 +508,87 @@
       <div class="footer-bar">
         <span class="summary mono" id="p2i-summary"></span>
         <button class="btn primary" id="p2i-go">轉成圖片</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- PASSWORD -->
+  <section class="panel" id="panel-password" role="tabpanel" aria-labelledby="tab-password" hidden>
+    <div class="panel-head">
+      <h2>PDF 密碼</h2>
+      <p>解除帳單、對帳單的開啟密碼或列印、複製限制；或幫 PDF 加上密碼再寄出。檔案內容完全不變。</p>
+    </div>
+    <div id="pw-empty">
+      <label class="drop" id="pw-drop">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        <strong>把 PDF 拖到這裡，或點一下選擇</strong>
+        <span>有密碼的會幫你解除，沒有密碼的可以加上</span>
+        <input type="file" id="pw-input" accept="application/pdf,.pdf">
+      </label>
+      <p class="hint" style="margin-top:10px">沒有檔案在手邊？<button class="link-btn" id="pw-sample">用有密碼的範例試試</button></p>
+    </div>
+    <div id="pw-work" hidden style="display:flex;flex-direction:column;gap:18px">
+      <div class="doc-card">
+        <svg class="doc-ico" viewBox="0 0 40 48" fill="none" aria-hidden="true"><path d="M4 3h22l10 10v32H4z" fill="currentColor" opacity=".14"/><path d="M4 3h22l10 10v32H4z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M26 3v10h10" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
+        <div style="min-width:0">
+          <div class="file-name" id="pw-fname"></div>
+          <div class="file-meta" id="pw-fmeta"></div>
+        </div>
+        <button class="btn" id="pw-change">換一個檔案</button>
+      </div>
+      <div class="pw-box" id="pw-unlock" hidden>
+        <p class="hint" id="pw-unlock-note"></p>
+        <label class="field pw-field" id="pw-old-row">開啟密碼
+          <input type="password" id="pw-old" data-pw autocomplete="off" spellcheck="false">
+        </label>
+        <p class="pw-err" id="pw-err" role="alert" hidden></p>
+        <details class="pw-tips">
+          <summary>不知道密碼是什麼？</summary>
+          <p>銀行、信用卡、電信、保險的電子帳單，密碼通常寫在寄件的 Email 或當初申請的說明裡。常見的有：</p>
+          <ul>
+            <li>身分證字號（英文字母大寫），例如 <code>A123456789</code></li>
+            <li>出生年月日：西元 8 碼 <code>19900412</code>，或民國 7 碼 <code>0790412</code></li>
+            <li>身分證後 4 碼加生日 4 碼（月日），例如 <code>67890412</code></li>
+            <li>公司帳單常用統一編號</li>
+          </ul>
+        </details>
+        <div class="footer-bar">
+          <label class="check"><input type="checkbox" class="pw-show"> 顯示密碼</label>
+          <div class="go">
+            <label class="name-field">檔名 <input type="text" id="pw-name" value="document.pdf" spellcheck="false"></label>
+            <button class="btn primary" id="pw-unlock-go">解除密碼</button>
+          </div>
+        </div>
+      </div>
+      <div class="pw-box" id="pw-lock" hidden>
+        <div class="optgrid">
+          <label class="field pw-field">開啟密碼
+            <input type="password" id="pw-new" data-pw autocomplete="new-password" spellcheck="false">
+          </label>
+          <label class="field pw-field">再輸入一次
+            <input type="password" id="pw-new2" data-pw autocomplete="new-password" spellcheck="false">
+          </label>
+        </div>
+        <fieldset class="opts-sec">
+          <legend>限制（開啟後也不能做的事）</legend>
+          <div class="opts">
+            <label><input type="checkbox" data-pw-deny="print" data-label="不能列印"> 不能列印</label>
+            <label><input type="checkbox" data-pw-deny="copy" data-label="不能複製文字"> 不能複製文字</label>
+            <label><input type="checkbox" data-pw-deny="modify" data-label="不能修改"> 不能修改</label>
+          </div>
+          <label class="field pw-field">權限密碼（可不填）
+            <input type="password" id="pw-owner" data-pw autocomplete="new-password" spellcheck="false" placeholder="用來解除上面的限制">
+          </label>
+        </fieldset>
+        <p class="note">使用 AES-256 加密，Adobe Reader、Chrome、Edge、手機都能用密碼開啟。<b>忘記密碼就打不開</b>，紙匣也救不回來，請記好或另外保存。限制是否生效取決於閱讀軟體，防君子不防小人；真正機密的內容請靠開啟密碼。</p>
+        <div class="footer-bar">
+          <span class="summary" id="pw-lock-msg"></span>
+          <div class="go">
+            <label class="check"><input type="checkbox" class="pw-show"> 顯示密碼</label>
+            <label class="name-field">檔名 <input type="text" id="pw-lname" value="document-加密.pdf" spellcheck="false"></label>
+            <button class="btn primary" id="pw-lock-go" disabled>加上密碼</button>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -1256,6 +1341,7 @@
 <script src="js/pdf2img.js"></script>
 <script src="js/ocr.js"></script>
 <script src="js/compare.js"></script>
+<script src="js/password.js"></script>
 <script src="js/imgtool.js"></script>
 <script src="js/unmark.js"></script>
 <script src="js/app.js"></script>
