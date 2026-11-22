@@ -178,8 +178,11 @@ function hideNext() { $('#handoff').hidden = true; document.body.classList.remov
    would copy them again. fileBytes() gives a tool the bytes either way; owned = false means others share them. */
 const pdfFile = (bytes, name) => ({ name: ensurePdf(name), type: 'application/pdf', size: bytes.length, bytes,
   arrayBuffer: async () => bytes.slice().buffer, slice: (...a) => new Blob([bytes]).slice(...a) });
+/* A PDF handed on in memory (pdfFile) rather than a File or Blob. Test the bytes themselves: browsers now give every
+   Blob a bytes() method, so a plain f.bytes check is true for any File the user picks. */
+const inMemory = f => !!f && f.bytes instanceof Uint8Array;
 async function fileBytes(f) {
-  if (f.bytes) return { bytes: f.bytes, owned: false };
+  if (inMemory(f)) return { bytes: f.bytes, owned: false };
   return { bytes: new Uint8Array(await f.arrayBuffer()), owned: true };
 }
 /* Encrypted files open in pdf.js but cannot be rebuilt; spot them up front without parsing the whole file. */
@@ -217,7 +220,7 @@ const dlReady = (window.claude && typeof window.claude.use === 'function')
   : Promise.resolve();
 async function saveFile(filename, bytes, mime) {
   await dlReady;
-  const blob = bytes instanceof Blob ? bytes : bytes && bytes.bytes ? new Blob([bytes.bytes], { type: bytes.type })
+  const blob = bytes instanceof Blob ? bytes : inMemory(bytes) ? new Blob([bytes.bytes], { type: bytes.type })
     : new Blob([bytes], { type: mime || 'application/pdf' });
   if (downloadsNS) {
     try { await downloadsNS.save({ filename, data: blob }); toast(`已儲存 ${filename}`); }
