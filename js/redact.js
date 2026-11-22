@@ -4,7 +4,7 @@ async function startRedacting(files) {
   await loadEditFiles(files, p => {
     showTab('edit'); try { history.replaceState(null, '', '#edit'); } catch (e) {}
     openTextEditor(p, 'redact');
-  });
+  }, null, true);
 }
 bindInput($('#redact-input'), startRedacting);
 acceptFiles($('#redact-drop'), $('#redact-drop'), startRedacting);

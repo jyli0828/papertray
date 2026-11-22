@@ -93,6 +93,7 @@ function wmTargets() {
   if (!txt) return { set: null };
   const r = parseRanges(txt, wm.n);
   if (r.error) return { error: r.error };
+  if (!r.ranges.length) return { error: '請輸入要套用的頁碼，或留空套用到全部頁面' };
   const set = new Set(); r.ranges.forEach(([a, b]) => { for (let i = a; i <= b; i++) set.add(i - 1); });
   return { set };
 }

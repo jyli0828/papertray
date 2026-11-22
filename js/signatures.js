@@ -112,7 +112,7 @@ renderSigLists();
 /* ================= SIGN (entry point; signing happens in the page editor) ================= */
 async function startSigning(files) {
   if (!sigs.list.length) toast('先建立一個簽名，就能直接點頁面放上去');
-  await loadEditFiles(files, p => { showTab('edit'); try { history.replaceState(null, '', '#edit'); } catch (e) {} openTextEditor(p, 'sig'); });
+  await loadEditFiles(files, p => { showTab('edit'); try { history.replaceState(null, '', '#edit'); } catch (e) {} openTextEditor(p, 'sig'); }, null, true);
 }
 bindInput($('#sign-input'), startSigning);
 registerTarget('pdf', 'sign', '簽名', startSigning);

@@ -66,8 +66,10 @@ document.addEventListener('keydown', e => {
 });
 
 /* ---------- loading ---------- */
-/* insertAt: position in the page list for the new pages (default: the end). */
-async function loadEditFiles(files, onFirst, insertAt) {
+/* insertAt: position in the page list for the new pages (default: the end). replace: the first file that opens
+   takes the place of whatever the editor held (signing or redacting a new PDF must not carry the last one along);
+   the old files are only closed once the new one has opened, so a cancelled password prompt loses nothing. */
+async function loadEditFiles(files, onFirst, insertAt, replace) {
   let at = insertAt == null ? null : insertAt;
   for (let f of files) {
     if (!isPdf(f) && isImage(f)) { // a picture is inserted as an A4 page
@@ -81,6 +83,10 @@ async function loadEditFiles(files, onFirst, insertAt) {
     let pj;
     try { pj = await openPdfjs(bytes, owned); }
     catch (e) { toast(loadErr(f.name, e), 'err'); continue; }
+    if (replace) {
+      replace = false;
+      if (edit.pages.length || editHist.undo.length) { clearEdit(); toast(`已關閉之前的檔案，改為處理「${f.name}」`); }
+    }
     const docId = uid();
     edit.docs[docId] = { name: f.name, pj, size };
     if (!edit.pages.length) { $('#edit-name').value = baseName(f.name) + '-編輯.pdf'; fillDocInfo(pj); }
@@ -312,7 +318,7 @@ function stampOptions() {
   return {
     size,
     num: $('#edit-numbers').checked ? { fmt: PN_FMT[$('#pn-fmt').value] || PN_FMT.nN, pos: $('#pn-pos').value,
-      start: Math.max(0, Math.round(+$('#pn-start').value || 0)), skip: $('#pn-skip').checked } : null,
+      start: $('#pn-start').value.trim() === '' ? 1 : Math.max(0, Math.round(+$('#pn-start').value || 0)), skip: $('#pn-skip').checked } : null,
     head: $('#hf-head').value.trim() ? { text: $('#hf-head').value.trim(), pos: 't' + $('#hf-head-pos').value } : null,
     foot: $('#hf-foot').value.trim() ? { text: $('#hf-foot').value.trim(), pos: 'b' + $('#hf-foot-pos').value } : null
   };

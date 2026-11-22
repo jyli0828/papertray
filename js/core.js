@@ -573,7 +573,8 @@ const canvasBytes = sel => [...document.querySelectorAll(sel)].reduce((n, c) => 
 
 /* ================= shared: page ranges ================= */
 function parseRanges(text, n) {
-  const toks = String(text || '').split(/[,，、;；\s]+/).filter(Boolean);
+  // NFKC turns what a Chinese input method types (１－３，５) into 1-3,5.
+  const toks = String(text || '').normalize('NFKC').split(/[,，、;；\s]+/).filter(Boolean);
   const out = [];
   for (const tok of toks) {
     let m = tok.match(/^(\d+)$/), a, b;

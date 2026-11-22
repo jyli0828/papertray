@@ -124,7 +124,7 @@ papertray/
 **可以安裝、離線使用（PWA）**：
 - `manifest.webmanifest` 是 App 的名稱、圖示和顏色；`icons/` 裡的 PNG 由 `python tools/make_icons.py` 從 `icon.svg` 的圖形畫出來，改了圖示要重新產生。
 - `sw.js` 是 service worker：
-  - 紙匣自己的檔案「先問網路」，所以改版後下次開啟就是新版，沒網路時用快取；
+  - 紙匣自己的檔案「先問網路」，所以改版後下次開啟就是新版，沒網路時用快取；第一次造訪時就把 `index.html` 連到的檔案（`js/`、`css/`、圖示）全部存好，新增的 JS 檔不用另外登記；
   - `lib/` 的函式庫「先用快取」，第一次造訪就先存好 pdf-lib、PDF.js、JSZip，其他（文字辨識、qpdf、HEIC）第一次用到時才存。
 - 只在 http(s) 網址註冊，直接雙擊開啟時不會啟用。
 - 快取的格式改變時，把 `sw.js` 的 `CACHE` 改名，舊快取會在新版啟用時刪掉。
@@ -144,7 +144,8 @@ python tools/build.py
 1. 換掉 `lib/` 裡的檔案。
 2. 同步修改 `tools/build.py` 的 `CDN` 表（版本號在網址裡）。
 3. qpdf 更新後，用 `python tools/wasm_to_js.py <qpdf.wasm 路徑> <版本>` 重新產生 `lib/qpdf/qpdf.wasm.js`。這個版本的 qpdf 只認 `locateFile`，不接受直接傳入 wasm 位元組，所以 `js/password.js` 把 base64 轉成 `blob:` 網址交給它。
-4. 更新 `docs/third-party.md`，用每個相關工具的範例試一次。
+4. 把 `sw.js` 的 `CACHE` 改名：`lib/` 的檔名沒有版本號，又是「先用快取」，不改名的話已安裝的使用者會一直用舊版。
+5. 更新 `docs/third-party.md`，用每個相關工具的範例試一次。
 
 ## 記憶體
 
