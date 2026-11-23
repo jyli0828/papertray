@@ -131,16 +131,22 @@ function makeUmWorker() {
 let umWorker; // created the first time something is removed
 /* Cancelling stops the worker outright and starts a fresh one for next time. */
 function runFill(px, mask, W, H, signal) {
-  const local = () => { umAlgoFactory().fillRegion(px, mask, W, H); return px; };
+  const local = a => { umAlgoFactory().fillRegion(a, mask, W, H); return a; };
   if (umWorker === undefined) umWorker = makeUmWorker();
-  if (!umWorker) return new Promise(r => setTimeout(() => r(local()), 30));
-  const copy = px.slice();
+  if (!umWorker) return new Promise(r => setTimeout(() => r(local(px)), 30));
+  // px goes to the worker (and is gone from here); this copy is filled on the page instead if the worker dies.
+  const copy = px.slice(), w = umWorker;
   return new Promise((resolve, reject) => {
-    const onAbort = () => { umWorker.terminate(); umWorker = undefined; reject(new Cancelled()); };
+    const onAbort = () => { w.terminate(); umWorker = undefined; reject(new Cancelled()); };
     if (signal) signal.addEventListener('abort', onAbort, { once: true });
-    umWorker.onmessage = e => { signal && signal.removeEventListener('abort', onAbort); e.data.ok ? resolve(e.data.px) : reject(new Error(e.data.msg)); };
-    umWorker.onerror = () => { signal && signal.removeEventListener('abort', onAbort); umWorker = null; px.set(copy); resolve(local()); };
-    umWorker.postMessage({ px, mask, W, H }, [px.buffer]);
+    w.onmessage = e => { signal && signal.removeEventListener('abort', onAbort); e.data.ok ? resolve(e.data.px) : reject(new Error(e.data.msg)); };
+    w.onerror = () => {
+      signal && signal.removeEventListener('abort', onAbort);
+      try { w.terminate(); } catch (e) {}
+      umWorker = null; // from now on, always on the page
+      setTimeout(() => { try { resolve(local(copy)); } catch (e) { reject(e); } }, 0);
+    };
+    w.postMessage({ px, mask, W, H }, [px.buffer]);
   });
 }
 async function removeMarked(signal) {
