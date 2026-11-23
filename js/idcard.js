@@ -79,10 +79,17 @@ function idLayout(o) {
     const w = (tall ? bh : bw) * o.scale, h = (tall ? bw : bh) * o.scale;
     return { it, w, h, r: br * o.scale };
   }).filter(Boolean);
-  const [PW, PH] = A4_MM, gap = 12;
+  const [PW, PH] = A4_MM, gap = 12, M = 10;
   let side = o.arrange === 'side' && cards.length === 2;
-  const fitsSide = cards.length < 2 || cards[0].w + gap + cards[1].w <= PW - 20;
+  const fitsSide = cards.length < 2 || cards[0].w + gap + cards[1].w <= PW - 2 * M;
   if (side && !fitsSide) side = false;
+  // Too big for the page even one above the other (a passport at 200% is wider than A4): shrink to fit.
+  let fit = 1;
+  if (cards.length) {
+    fit = side ? Math.min(1, (PH - 2 * M) / Math.max(...cards.map(c => c.h)))
+      : Math.min(1, (PW - 2 * M) / Math.max(...cards.map(c => c.w)), (PH - 2 * M - gap * (cards.length - 1)) / cards.reduce((s, c) => s + c.h, 0));
+    if (fit < 1) cards.forEach(c => { c.w *= fit; c.h *= fit; c.r *= fit; });
+  }
   if (side) {
     const tw = cards[0].w + gap + cards[1].w, th = Math.max(cards[0].h, cards[1].h);
     let x = (PW - tw) / 2;
@@ -92,7 +99,7 @@ function idLayout(o) {
     let y = (PH - th) / 2;
     for (const c of cards) { c.x = (PW - c.w) / 2; c.y = y; y += c.h + gap; }
   }
-  return { cards, sideFallback: o.arrange === 'side' && cards.length === 2 && !fitsSide };
+  return { cards, sideFallback: o.arrange === 'side' && cards.length === 2 && !fitsSide, shrunk: fit < 1 ? Math.round(o.scale * fit * 100) : 0 };
 }
 
 /* ---------- one card as a picture ----------
@@ -162,7 +169,7 @@ async function idCardCanvas(c, pxPerMm, o, preview) {
 
 /* ---------- live preview of the A4 page ---------- */
 async function drawIdPreview() {
-  const token = ++idc.token, o = idOpts(), { cards, sideFallback } = idLayout(o);
+  const token = ++idc.token, o = idOpts(), { cards, sideFallback, shrunk } = idLayout(o);
   const cv = $('#id-canvas'), dpr = Math.min(window.devicePixelRatio || 1, 2);
   const cssW = Math.min(340, Math.max(200, $('#panel-idcard .wm-preview').clientWidth - 28)), k = cssW / A4_MM[0] * dpr;
   const parts = [];
@@ -179,7 +186,8 @@ async function drawIdPreview() {
     }
   }
   cards.forEach((c, i) => { ctx.drawImage(parts[i], c.x * k, c.y * k); parts[i].width = parts[i].height = 0; });
-  $('#id-prev-hint').textContent = sideFallback ? '放大後左右放不下，改成上下排列' : 'A4 預覽';
+  $('#id-prev-hint').textContent = shrunk ? `放大後超出 A4，已縮小到 ${shrunk}%`
+    : sideFallback ? '放大後左右放不下，改成上下排列' : 'A4 預覽';
 }
 
 /* ---------- making the PDF ---------- */
