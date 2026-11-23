@@ -56,6 +56,41 @@ export default [
     }
   },
   {
+    name: '合併：保留書籤（巢狀、具名目的地、網址），每份檔案一個書籤，取頁時跟著調整',
+    async run() {
+      const a = await T.withOutline(['A1', 'A2', 'A3'], [
+        { title: '第一章', page: 0, open: true, kids: [{ title: '1.1 節', page: 1 }] },
+        { title: '第二章', name: 'chap2', pageOfName: 2 },
+        { title: '網站', url: 'https://example.com/' }
+      ], '報告.pdf');
+      const b = await T.withOutline(['B1', 'B2'], [{ title: 'Intro', page: 1 }], 'appendix.pdf');
+      showTab('merge'); await addMergeFiles([a, b]);
+      T.eq(merge.items.map(i => i.marks), [4, 1], '清單顯示書籤數');
+      T.ok($('#merge-list').textContent.includes('4 個書籤'), '清單文字');
+      T.set('#merge-bm', true);
+      const r1 = await T.result(() => T.click('#merge-go'));
+      T.eq(await T.outline(r1.file), [
+        { t: '報告', p: 1, k: [{ t: '第一章', p: 1, k: [{ t: '1.1 節', p: 2 }] }, { t: '第二章', p: 3 }, { t: '網站', p: 'https://example.com/' }] },
+        { t: 'appendix', p: 4, k: [{ t: 'Intro', p: 5 }] }
+      ], '每份檔案一個書籤');
+      // without the per-file bookmarks; and only pages 2-3 of the first file
+      T.set('#merge-bm', false); merge.items[0].range = '2-3'; updateMergeSummary();
+      const r2 = await T.result(() => T.click('#merge-go'));
+      T.eq(await T.outline(r2.file), [
+        { t: '第一章', p: 1, k: [{ t: '1.1 節', p: 1 }] }, // its own page (1) was left out: it goes to its sub-bookmark
+        { t: '第二章', p: 2 }, { t: '網站', p: 'https://example.com/' }, { t: 'Intro', p: 4 }
+      ], '取頁後的書籤');
+      // files without bookmarks still get one each; interleaving adds none of its own
+      T.set('#merge-bm', true);
+      await addMergeFiles([await T.labeled(['X'], 'x.pdf'), await T.labeled(['Y', 'Y2'], 'y.pdf')]); merge.items.splice(0, 2); renderMerge();
+      T.eq(await T.outline((await T.result(() => T.click('#merge-go'))).file), [{ t: 'x', p: 1 }, { t: 'y', p: 2 }], '沒有書籤的檔案');
+      T.set('#merge-how', 'zip');
+      T.ok($('#merge-bm-wrap').hidden, '交錯時不顯示這個選項');
+      T.eq(await T.outline((await T.result(() => T.click('#merge-go'))).file), [], '交錯合併不加檔名書籤');
+      T.set('#merge-how', 'seq');
+    }
+  },
+  {
     name: '拆分：依範圍、每 N 頁',
     async run() {
       showTab('split'); T.click('#split-sample');

@@ -16,9 +16,14 @@ async function addMergeFiles(files, isSample) {
     const size = got.bytes.length, src = keepFile(f, got);
     try {
       // Only the page count is needed now; pdf.js reads just the page tree. The full parse happens once, when merging.
-      let pages = f.pages;
-      if (!pages) { const pj = await openPdfjs(got.bytes, got.owned); pages = pj.numPages; pj.destroy(); }
-      merge.items.push({ id: uid(), name: f.name, size, src, pages, range: '', sample: !!isSample, fromImage });
+      let pages = f.pages, marks = 0;
+      if (!pages) {
+        const pj = await openPdfjs(got.bytes, got.owned); pages = pj.numPages;
+        const count = list => (list || []).reduce((n, o) => n + 1 + count(o.items), 0);
+        try { marks = count(await pj.getOutline()); } catch (e) {}
+        pj.destroy();
+      }
+      merge.items.push({ id: uid(), name: f.name, size, src, pages, marks, range: '', sample: !!isSample, fromImage });
     } catch (e) { toast(loadErr(f.name, e), 'err'); }
   }
   renderMerge();
@@ -40,7 +45,7 @@ function renderMerge() {
     li.className = 'file-row'; li.draggable = true; li.dataset.id = it.id;
     li.innerHTML = `<span class="grip" aria-hidden="true">${ICON.grip}</span><span class="idx">${i + 1}</span>
       <div class="file-main"><div class="file-name"></div>
-        <div class="file-meta">${it.pages} 頁 · ${fmtSize(it.size)}${it.sample ? ' <span class="chip">範例</span>' : ''}${it.fromImage ? ' <span class="chip soft">圖片轉成 A4</span>' : ''}
+        <div class="file-meta">${it.pages} 頁 · ${fmtSize(it.size)}${it.marks ? ` · ${it.marks} 個書籤` : ''}${it.sample ? ' <span class="chip">範例</span>' : ''}${it.fromImage ? ' <span class="chip soft">圖片轉成 A4</span>' : ''}
           <label class="row-range">取頁 <input type="text" data-range spellcheck="false" placeholder="全部" aria-label="要合併的頁碼"></label></div>
         <div class="row-err" hidden></div></div>
       <div class="row-btns">
@@ -111,6 +116,92 @@ $('#merge-list').addEventListener('click', e => {
 makeSortable($('#merge-list'), '.file-row', () => merge.items, renderMerge, false);
 bindInput($('#merge-input'), f => addMergeFiles(f));
 acceptFiles($('#panel-merge'), $('#merge-drop'), f => addMergeFiles(f));
+/* ---------- bookmarks ----------
+   pdf-lib copies pages, not a document's bookmarks (its outline). Each file's bookmarks are read here and written into
+   the merged file pointing at the new pages; with 「每份檔案加一個書籤」 each file also gets a bookmark with its name at
+   its first page, its own bookmarks under it. A bookmark to a page left out (取頁) goes to its first sub-bookmark still
+   in, or is dropped when there is none. */
+function readOutline(src) {
+  const L = window.PDFLib, N = k => PDFName.of(k), ctx = src.context, cat = src.catalog;
+  const root = cat.lookupMaybe(N('Outlines'), PDFDict); if (!root) return [];
+  const pageAt = new Map(src.getPages().map((p, i) => [p.ref.toString(), i]));
+  const text = o => o && o.decodeText ? o.decodeText() : '';
+  // Named destinations: the old /Dests dictionary, or the /Names → /Dests name tree.
+  const oldDests = cat.lookupMaybe(N('Dests'), PDFDict), names = cat.lookupMaybe(N('Names'), PDFDict);
+  const tree = names && names.lookupMaybe(N('Dests'), PDFDict);
+  const inTree = (node, key, depth) => {
+    if (!(node instanceof PDFDict) || depth > 30) return null;
+    const pairs = node.lookupMaybe(N('Names'), PDFArray);
+    if (pairs) for (let i = 0; i + 1 < pairs.size(); i += 2) if (text(pairs.lookup(i)) === key) return pairs.lookup(i + 1);
+    const kids = node.lookupMaybe(N('Kids'), PDFArray);
+    if (kids) for (const k of kids.asArray()) { const r = inTree(ctx.lookup(k), key, depth + 1); if (r) return r; }
+    return null;
+  };
+  const named = key => (oldDests && oldDests.lookup(N(key))) || (tree && inTree(tree, key, 0)) || null;
+  const destOf = item => {
+    let d = item.get(N('Dest'));
+    const a = item.lookupMaybe(N('A'), PDFDict);
+    if (!d && a && a.get(N('S')) === N('GoTo')) d = a.get(N('D'));
+    d = ctx.lookup(d);
+    if (d && !(d instanceof PDFArray) && !(d instanceof PDFDict)) d = named(text(d)); // a name or a string
+    if (d instanceof PDFDict) d = d.lookup(N('D'));
+    if (!(d instanceof PDFArray) || !d.size() || !(d.get(0) instanceof L.PDFRef)) return null;
+    const page = pageAt.get(d.get(0).toString());
+    return page === undefined ? null : { page, rest: d.asArray().slice(1).filter(v => !(v instanceof L.PDFRef)) };
+  };
+  const uriOf = item => {
+    const a = item.lookupMaybe(N('A'), PDFDict);
+    return a && a.get(N('S')) === N('URI') ? a.lookup(N('URI')) || null : null;
+  };
+  const seen = new Set();
+  const walk = (ref, depth) => {
+    const out = [];
+    while (ref instanceof L.PDFRef && !seen.has(ref.toString()) && depth < 50) { // a broken outline may loop
+      seen.add(ref.toString());
+      const item = ctx.lookup(ref); if (!(item instanceof PDFDict)) break;
+      const count = item.lookup(N('Count'));
+      out.push({ title: text(item.lookup(N('Title'))), dest: destOf(item), uri: uriOf(item),
+        open: count instanceof PDFNumber && count.asNumber() > 0, kids: walk(item.get(N('First')), depth + 1) });
+      ref = item.get(N('Next'));
+    }
+    return out;
+  };
+  return walk(root.get(N('First')), 0);
+}
+/* nodes: [{ title, page (new PDFPage), rest (the destination's view: /XYZ left top zoom …), uri, open, kids }] */
+function writeOutline(out, nodes) {
+  if (!nodes.length) return;
+  const L = window.PDFLib, N = k => PDFName.of(k), ctx = out.context;
+  const shown = n => n.open ? below(n) : 0, below = n => n.kids.reduce((s, k) => s + 1 + shown(k), 0);
+  const put = (list, parent) => {
+    const refs = list.map(() => ctx.nextRef());
+    list.forEach((n, i) => {
+      const d = { Title: L.PDFHexString.fromText(n.title || '（無標題）'), Parent: parent };
+      if (i > 0) d.Prev = refs[i - 1];
+      if (i < list.length - 1) d.Next = refs[i + 1];
+      if (n.kids.length) { const kids = put(n.kids, refs[i]); d.First = kids[0]; d.Last = kids[kids.length - 1]; d.Count = n.open ? below(n) : -below(n); }
+      if (n.page) d.Dest = ctx.obj([n.page.ref, ...(n.rest && n.rest.length ? n.rest : [N('XYZ'), L.PDFNull, L.PDFNull, L.PDFNull])]);
+      else if (n.uri) d.A = ctx.obj({ S: 'URI', URI: n.uri });
+      ctx.assign(refs[i], ctx.obj(d));
+    });
+    return refs;
+  };
+  const root = ctx.nextRef(), top = put(nodes, root);
+  ctx.assign(root, ctx.obj({ Type: 'Outlines', First: top[0], Last: top[top.length - 1], Count: nodes.reduce((s, n) => s + 1 + shown(n), 0) }));
+  out.catalog.set(N('Outlines'), root);
+  out.catalog.set(N('PageMode'), N('UseOutlines')); // open with the bookmarks showing
+}
+/* A file's bookmarks pointed at its new pages (pageFor(source index) → new PDFPage or nothing). */
+function placeOutline(items, pageFor) {
+  return items.map(it => {
+    const kids = placeOutline(it.kids, pageFor), page = it.dest && pageFor(it.dest.page);
+    const first = kids.find(k => k.page);
+    if (!page && !it.uri && !first) return null;
+    return { title: it.title, page: page || (!it.uri && first ? first.page : null), rest: page ? it.dest.rest : null, uri: page ? null : it.uri, open: it.open, kids };
+  }).filter(Boolean);
+}
+$('#merge-how').addEventListener('change', () => { $('#merge-bm-wrap').hidden = $('#merge-how').value === 'zip'; });
+
 $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中…', async check => {
   const out = await PDFDocument.create(), srcs = [];
   // Internal links are cut before copying and joined again to the new pages (see unlinkDests() in core.js).
@@ -135,6 +226,15 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   check();
   relinkDests(out, (k, i) => placed.get(`${k}:${i}`));
   relinkFormFields(out, srcs); // keep form fields fillable
+  // Bookmarks: each file's own, and (when merging in order) one per file holding them.
+  const perFile = $('#merge-bm').checked && $('#merge-how').value !== 'zip';
+  writeOutline(out, srcs.flatMap((src, k) => {
+    let own = [];
+    try { own = placeOutline(readOutline(src), i => placed.get(`${k}:${i}`)); } catch (err) { own = []; } // a broken outline is left out
+    if (!perFile) return own;
+    const it = merge.items[k], first = placed.get(`${k}:${mergePicks(it).idx[0]}`);
+    return first ? [{ title: baseName(it.name), page: first, open: true, kids: own }] : [];
+  }));
   const bytes = await out.save({ useObjectStreams: true });
   const name = ensurePdf($('#merge-name').value);
   await deliver(pdfFile(bytes, name), 'pdf', 'merge');

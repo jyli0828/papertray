@@ -79,6 +79,45 @@
       });
       pj.destroy(); return out;
     },
+    /* A PDF with one page per label and bookmarks. spec: [{ title, page (0-based) | name (a named destination, to
+       that page) | url, open, kids }]. */
+    async withOutline(labels, spec, name = 'outline.pdf') {
+      const file = await T.labeled(labels, name), doc = await PDFDocument.load(file.bytes), L = window.PDFLib, ctx = doc.context, N = k => PDFName.of(k);
+      const pages = doc.getPages(), namedPairs = [];
+      const dest = i => ctx.obj([pages[i].ref, N('XYZ'), 0, 800, L.PDFNull]);
+      const put = (list, parent) => {
+        const refs = list.map(() => ctx.nextRef());
+        list.forEach((s, i) => {
+          const d = { Title: L.PDFHexString.fromText(s.title), Parent: parent };
+          if (i) d.Prev = refs[i - 1]; if (i < list.length - 1) d.Next = refs[i + 1];
+          if (s.url) d.A = ctx.obj({ S: 'URI', URI: L.PDFString.of(s.url) });
+          else if (s.name) { d.Dest = L.PDFString.of(s.name); namedPairs.push(L.PDFString.of(s.name), dest(s.pageOfName)); }
+          else d.Dest = dest(s.page);
+          if (s.kids) { const k = put(s.kids, refs[i]); d.First = k[0]; d.Last = k[k.length - 1]; d.Count = s.open ? s.kids.length : -s.kids.length; }
+          ctx.assign(refs[i], ctx.obj(d));
+        });
+        return refs;
+      };
+      const root = ctx.nextRef(), top = put(spec, root);
+      ctx.assign(root, ctx.obj({ Type: 'Outlines', First: top[0], Last: top[top.length - 1], Count: top.length }));
+      doc.catalog.set(N('Outlines'), root);
+      if (namedPairs.length) doc.catalog.set(N('Names'), ctx.obj({ Dests: ctx.obj({ Names: ctx.obj(namedPairs) }) }));
+      return pdfFile(await doc.save(), name);
+    },
+    /* The bookmarks of a PDF as pdf.js reads them: [{ t: title, p: page number (1-based) | url, k: kids }]. */
+    async outline(file) {
+      const pj = await T.pdf(file);
+      const conv = async items => {
+        const out = [];
+        for (const it of items || []) {
+          let p = it.url || null;
+          if (!p && it.dest) { const d = typeof it.dest === 'string' ? await pj.getDestination(it.dest) : it.dest; if (d) p = await pj.getPageIndex(d[0]) + 1; }
+          const o = { t: it.title, p }; const k = await conv(it.items); if (k.length) o.k = k; out.push(o);
+        }
+        return out;
+      };
+      const r = await conv(await pj.getOutline()); pj.destroy(); return r;
+    },
     /* One A4 page per rotation, each with a grey block drawn in the page's own top-left corner area. */
     async rotated(rots = [0, 90, 180, 270]) {
       const doc = await PDFDocument.create();
