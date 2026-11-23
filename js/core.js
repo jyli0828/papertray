@@ -134,7 +134,10 @@ function runJob(btn, label, fn) {
   const check = () => { if (ac.signal.aborted) throw new Cancelled(); };
   return (async () => {
     try { return await fn(check, ac.signal); }
-    finally { btn._job = null; btn.innerHTML = old; btn.classList.remove('is-running'); }
+    finally {
+      btn._job = null; btn.innerHTML = old; btn.classList.remove('is-running');
+      if (typeof ocrLeave === 'function') ocrLeave(); // a finished OCR job on a tool left meanwhile: stop the engine now
+    }
   })().catch(err => { if (err && err.cancelled) { toast('已取消'); return; } throw err; });
 }
 
@@ -164,6 +167,7 @@ function offerNext(file, kind, fromTab) {
     if (t.tab === fromTab) continue;
     const b = document.createElement('button'); b.className = 'btn'; b.textContent = t.label;
     b.addEventListener('click', () => {
+      if (toolBusy($('#panel-' + t.tab))) return; // the result stays in the bar for later
       hideNext();
       showTab(t.tab); try { history.replaceState(null, '', '#' + t.tab); } catch (e) {}
       t.load([file]);
@@ -231,6 +235,90 @@ async function openPdfjs(bytes, owned) {
   return await pdfjsLib.getDocument(opts).promise;
 }
 
+/* pdf-lib's copyPages() brings form fields along with the pages (their widgets and field dictionaries) but not the
+   document's list of fields, the AcroForm. Without it the copy still looks like a form, but no viewer, and not
+   填表單, can fill it in. Call this on a document made by copying pages: it lists the copied fields again, drops the
+   parts of a field that sat on pages not copied, and takes the default font settings (DA, DR) from the sources. */
+function relinkFormFields(out, sources) {
+  const L = window.PDFLib, ctx = out.context, N = k => PDFName.of(k), key = r => r.toString();
+  const widgets = new Set(), tops = new Map();
+  for (const page of out.getPages()) {
+    const annots = page.node.lookupMaybe(N('Annots'), PDFArray); if (!annots) continue;
+    for (let i = 0; i < annots.size(); i++) {
+      let ref = annots.get(i), dict = ctx.lookup(ref);
+      if (!(ref instanceof L.PDFRef) || !(dict instanceof PDFDict) || dict.get(N('Subtype')) !== N('Widget')) continue;
+      widgets.add(key(ref));
+      for (let up = dict.get(N('Parent')); up instanceof L.PDFRef; up = dict.get(N('Parent'))) { ref = up; dict = ctx.lookup(up); }
+      tops.set(key(ref), ref);
+    }
+  }
+  if (!tops.size) return;
+  const keep = ref => { // true when this field part (or something under it) is on a copied page
+    const dict = ctx.lookup(ref), kids = dict instanceof PDFDict && dict.lookupMaybe(N('Kids'), PDFArray);
+    if (!kids) return widgets.has(key(ref));
+    const left = kids.asArray().filter(k => k instanceof L.PDFRef && keep(k));
+    dict.set(N('Kids'), ctx.obj(left));
+    return left.length > 0;
+  };
+  const fields = [...tops.values()].filter(keep);
+  if (!fields.length) return;
+  const acro = out.catalog.getOrCreateAcroForm();
+  acro.dict.set(N('Fields'), ctx.obj(fields));
+  for (const src of sources) {
+    const sa = src.catalog.getAcroForm(); if (!sa) continue;
+    const copier = L.PDFObjectCopier.for(src.context, ctx);
+    for (const k of ['DA', 'DR', 'Q']) { const v = sa.dict.get(N(k)); if (v && !acro.dict.get(N(k))) acro.dict.set(N(k), copier.copy(v)); }
+  }
+}
+
+/* Internal links (a table of contents, "see page 5") point at page objects, and pdf-lib's copyPages() follows them:
+   it copies the page each link points at as well, content and pictures, even when that page is left out. One page
+   split off a long document with a contents page would carry the whole document, and a page deleted in 編輯 would
+   still be inside the exported file. So before copying, each link from the pages being copied is pointed at a marker
+   instead (unlinkDests, which gives back a function that undoes this in the source); once the new document is put
+   together, relinkDests points each marker at the new copy of its page, or removes the link when that page was not
+   copied. tag tells apart the source files of one new document. */
+const DEST_MARK = 'papertray-dest:';
+function linkTargets(dict) { // where an annotation's destination array lives: /Dest, or /A with /S /GoTo → /D
+  const N = k => PDFName.of(k), out = [[dict, 'Dest']], a = dict.lookupMaybe(N('A'), PDFDict);
+  if (a && a.get(N('S')) === N('GoTo')) out.push([a, 'D']);
+  return out.map(([d, k]) => d.lookupMaybe(N(k), PDFArray)).filter(arr => arr && arr.size());
+}
+function unlinkDests(src, indices, tag) {
+  const L = window.PDFLib, ctx = src.context, undo = [];
+  const pageAt = new Map(src.getPages().map((p, i) => [p.ref.toString(), i]));
+  for (const i of new Set(indices)) {
+    const annots = src.getPage(i).node.lookupMaybe(PDFName.of('Annots'), PDFArray); if (!annots) continue;
+    for (const ref of annots.asArray()) {
+      const a = ctx.lookup(ref); if (!(a instanceof PDFDict)) continue;
+      for (const arr of linkTargets(a)) {
+        const first = arr.get(0), t = first instanceof L.PDFRef ? pageAt.get(first.toString()) : undefined;
+        if (t === undefined) continue;
+        arr.set(0, PDFName.of(`${DEST_MARK}${tag}:${t}`)); undo.push(() => arr.set(0, first));
+      }
+    }
+  }
+  return () => undo.forEach(f => f());
+}
+function relinkDests(out, pageFor) { // pageFor(tag, index) → the new PDFPage for that source page, or nothing
+  const ctx = out.context, N = k => PDFName.of(k);
+  for (const page of out.getPages()) {
+    const annots = page.node.lookupMaybe(N('Annots'), PDFArray); if (!annots) continue;
+    const kept = annots.asArray().filter(ref => {
+      const a = ctx.lookup(ref); if (!(a instanceof PDFDict)) return true;
+      let ok = true;
+      for (const arr of linkTargets(a)) {
+        const first = arr.get(0), s = first instanceof PDFName ? first.decodeText() : '';
+        if (!s.startsWith(DEST_MARK)) continue;
+        const [tag, idx] = s.slice(DEST_MARK.length).split(':'), target = pageFor(tag, +idx);
+        if (target) arr.set(0, target.ref); else ok = false;
+      }
+      return ok;
+    });
+    if (kept.length !== annots.size()) page.node.set(N('Annots'), ctx.obj(kept));
+  }
+}
+
 /* ---------- saving files ---------- */
 let downloadsNS = null;
 const dlReady = (window.claude && typeof window.claude.use === 'function')
@@ -261,6 +349,13 @@ async function saveFile(filename, bytes, mime) {
 /* ---------- drop + sortable ---------- */
 window.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
 window.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files.length) e.preventDefault(); });
+/* While a tool is working, its job still reads the files it started with: a new file put in now would be mixed into
+   the result or pulled out from under it. Dropped, pasted, picked and handed-on files wait until it is done. */
+function toolBusy(panel) {
+  if (!panel || !panel.querySelector('.is-running')) return false;
+  toast('這個工具正在處理，請等完成（或按「取消」）再放入新的檔案');
+  return true;
+}
 function acceptFiles(area, highlight, handler) {
   const panel = area.closest('.panel'); if (panel && !panel._paste) panel._paste = handler; // Ctrl+V goes to the same place
   area.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); highlight && highlight.classList.add('is-over'); } });
@@ -269,7 +364,8 @@ function acceptFiles(area, highlight, handler) {
     highlight && highlight.classList.remove('is-over');
     const files = [...(e.dataTransfer.files || [])];
     if (!files.length) return;
-    e.preventDefault(); e.stopPropagation(); handler(files);
+    e.preventDefault(); e.stopPropagation();
+    if (!toolBusy(area.closest('.panel'))) handler(files);
   });
 }
 /* Ctrl+V: pictures (a screenshot, a copied image) or files copied in the file manager go to the open tool,
@@ -285,6 +381,7 @@ document.addEventListener('paste', e => {
   const panel = document.querySelector('.panel:not([hidden])');
   if (!panel || !panel._paste) return;
   e.preventDefault();
+  if (toolBusy(panel)) return;
   const t = new Date(), stamp = [t.getHours(), t.getMinutes(), t.getSeconds()].map(n => String(n).padStart(2, '0')).join('');
   files = files.map((f, i) => {
     // Screenshots arrive as "image.png" (or with no name at all); give them a name worth keeping.
@@ -295,7 +392,7 @@ document.addEventListener('paste', e => {
   panel._paste(files);
 });
 function bindInput(input, handler) {
-  input.addEventListener('change', () => { const f = [...input.files]; input.value = ''; if (f.length) handler(f); });
+  input.addEventListener('change', () => { const f = [...input.files]; input.value = ''; if (f.length && !toolBusy(input.closest('.panel'))) handler(f); });
 }
 /* File-name fields: clicking clears the text for a fresh name (keyboard focus selects it instead);
    leaving it empty puts the previous name back. Only a click clears, so switching windows never wipes what was typed. */

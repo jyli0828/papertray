@@ -112,21 +112,29 @@ makeSortable($('#merge-list'), '.file-row', () => merge.items, renderMerge, fals
 bindInput($('#merge-input'), f => addMergeFiles(f));
 acceptFiles($('#panel-merge'), $('#merge-drop'), f => addMergeFiles(f));
 $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中…', async check => {
-  const out = await PDFDocument.create();
+  const out = await PDFDocument.create(), srcs = [];
+  // Internal links are cut before copying and joined again to the new pages (see unlinkDests() in core.js).
+  const placed = new Map(), copy = async (k, idx) => {
+    const undo = unlinkDests(srcs[k], idx, k), pages = await out.copyPages(srcs[k], idx); undo();
+    idx.forEach((i, j) => { if (!placed.has(`${k}:${i}`)) placed.set(`${k}:${i}`, pages[j]); });
+    return pages;
+  };
   if ($('#merge-how').value === 'zip' && merge.items.length === 2) {
-    const srcs = [], order = mergeZipOrder();
+    const order = mergeZipOrder();
     for (const it of merge.items) { check(); srcs.push(await PDFDocument.load((await fileBytes(it.src)).bytes)); }
     const copied = [];
-    for (const k of [0, 1]) copied.push(await out.copyPages(srcs[k], order.filter(o => o[0] === k).map(o => o[1])));
+    for (const k of [0, 1]) copied.push(await copy(k, order.filter(o => o[0] === k).map(o => o[1])));
     const next = [0, 0];
     for (const [k] of order) out.addPage(copied[k][next[k]++]);
   } else for (const it of merge.items) {
     check();
     const r = mergePicks(it); if (r.error) throw new Error(`「${it.name}」${r.error}`);
-    const src = await PDFDocument.load((await fileBytes(it.src)).bytes);
-    (await out.copyPages(src, r.idx)).forEach(p => out.addPage(p));
+    srcs.push(await PDFDocument.load((await fileBytes(it.src)).bytes));
+    (await copy(srcs.length - 1, r.idx)).forEach(p => out.addPage(p));
   }
   check();
+  relinkDests(out, (k, i) => placed.get(`${k}:${i}`));
+  relinkFormFields(out, srcs); // keep form fields fillable
   const bytes = await out.save({ useObjectStreams: true });
   const name = ensurePdf($('#merge-name').value);
   await deliver(pdfFile(bytes, name), 'pdf', 'merge');

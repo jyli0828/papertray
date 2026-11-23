@@ -25,6 +25,8 @@ function compTarget() {
 }
 const fmtLimit = b => b >= 1e6 ? `${+(b / 1e6).toFixed(2)} MB` : `${Math.round(b / 1e3)} KB`;
 async function loadCompFile(files) {
+  // The running job works through this list and reports on every file in it at the end.
+  if ($('#comp-go').classList.contains('is-running')) { toast('正在壓縮，請等完成再加入檔案'); return; }
   for (const f of files) {
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
     const got = await readPdf(f); if (!got) continue; // a password-protected file is unlocked here first

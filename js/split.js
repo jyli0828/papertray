@@ -82,7 +82,10 @@ $('#split-go').addEventListener('click', e => runJob(e.currentTarget, '拆分中
   for (const g of groups) {
     check();
     const out = await PDFDocument.create();
-    (await out.copyPages(lib, g)).forEach(pg => out.addPage(pg));
+    const undo = unlinkDests(lib, g, 's'), copied = await out.copyPages(lib, g); undo(); // see unlinkDests()
+    copied.forEach(pg => out.addPage(pg));
+    relinkDests(out, (tag, i) => copied[g.indexOf(i)]);
+    relinkFormFields(out, [lib]); // keep form fields fillable
     files.push({ name: `${base}-第${groupLabel(g).replace('–', '-')}頁.pdf`, bytes: await out.save({ useObjectStreams: true }) });
   }
   if (files.length === 1) { await deliver(pdfFile(files[0].bytes, files[0].name), 'pdf', 'split'); return; }

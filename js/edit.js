@@ -274,7 +274,14 @@ $('#edit-del-sel').addEventListener('click', () => {
   pushUndo();
   const s = selCount(); edit.pages = edit.pages.filter(p => !p.selected); toast(`已刪除 ${s} 頁，可按「復原」`); renderEdit();
 });
+/* Exporting and finding blank pages read the open files until they finish; closing them under way breaks the job. */
+function editBusy() {
+  if (!['#edit-export', '#edit-export-sel', '#edit-find-blank'].some(s => $(s).classList.contains('is-running'))) return false;
+  toast('「編輯」正在處理這份檔案，請等完成（或按取消）再換檔案');
+  return true;
+}
 $('#edit-clear').addEventListener('click', e => {
+  if (editBusy()) return;
   const b = e.currentTarget;
   if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = '再按一次確認清空'; setTimeout(() => { b.dataset.armed = ''; b.textContent = '清空重來'; }, 3000); return; }
   b.dataset.armed = ''; b.textContent = '清空重來';
@@ -397,7 +404,8 @@ async function exportEdit(onlySel, btn) {
       while (rest.length) {
         const seen = new Set(), round = [], later = [];
         rest.forEach(p => (seen.has(p.index) ? later : (seen.add(p.index), round)).push(p));
-        const res = await out.copyPages(libs[docId], round.map(p => p.index));
+        const idx = round.map(p => p.index), undo = unlinkDests(libs[docId], idx, docId); // see unlinkDests() in core.js
+        const res = await out.copyPages(libs[docId], idx); undo();
         round.forEach((p, k) => copied.set(p, res[k]));
         rest = later;
       }
@@ -407,13 +415,14 @@ async function exportEdit(onlySel, btn) {
     const numbered = st.num ? pages.length - (st.num.skip ? 1 : 0) : 0, lastNo = st.num ? st.num.start + numbered - 1 : 0;
     const fill = t => t.replace(/\{總頁\}/g, pages.length).replace(/\{日期\}/g, todayText($('#te-datefmt').value))
       .replace(/\{檔名\}/g, baseName(name));
-    const sigCache = new Map();
+    const sigCache = new Map(), placed = new Map(); // source page → its first new page, for internal links
     for (let i = 0; i < pages.length; i++) {
       check();
       const p = pages[i], R = (p.baseRot + p.rot) % 360;
       let page, ox = 0, oy = 0;
       if (isRedacted(p)) { page = await flattenRedacted(out, p); ox = p.view[0]; oy = p.view[1]; }
       else { page = copied.get(p); out.addPage(page); }
+      if (!placed.has(metaKey(p))) placed.set(metaKey(p), page);
       page.setRotation(degrees(R));
       for (const a of p.annots) {
         let png, extra = {};
@@ -437,6 +446,8 @@ async function exportEdit(onlySel, btn) {
       for (const hf of [st.head, st.foot]) if (hf) await drawLabel(out, page, fill(hf.text).replace(/\{頁\}/g, i + 1), hf.pos, st.size, font, R);
     }
     check();
+    relinkDests(out, (docId, i) => placed.get(docId + ':' + i));
+    relinkFormFields(out, Object.values(libs)); // keep form fields fillable
     const md = Object.fromEntries(MD_FIELDS.map(k => [k, $('#md-' + k).value.trim()]));
     if (md.title) out.setTitle(md.title, { showInWindowTitleBar: true });
     if (md.author) out.setAuthor(md.author);

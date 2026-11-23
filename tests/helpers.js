@@ -55,6 +55,40 @@
       pj.destroy(); return out;
     },
     async zip(file) { await newZip(); return JSZip.loadAsync(file); },
+    /* Where on page i (as shown, rotation applied) the pixels matching match(r, g, b) are: [x0, y0, x1, y1] as
+       fractions of the page, or null. */
+    async ink(file, i, match, scale = .5) {
+      const pj = await T.pdf(file), pg = await pj.getPage(i + 1), vp = pg.getViewport({ scale });
+      const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+      const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+      await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+      const d = ctx.getImageData(0, 0, cv.width, cv.height).data, W = cv.width, H = cv.height;
+      let x0 = W, y0 = H, x1 = -1, y1 = -1;
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        if (match(d[o], d[o + 1], d[o + 2])) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      }
+      pj.destroy();
+      return x1 < 0 ? null : [x0 / W, y0 / H, (x1 + 1) / W, (y1 + 1) / H].map(v => +v.toFixed(3));
+    },
+    /* Where each text run containing `want` sits on page i as shown: [x, y] of its start on the baseline, as fractions. */
+    async textAt(file, i, want) {
+      const pj = await T.pdf(file), pg = await pj.getPage(i + 1), vp = pg.getViewport({ scale: 1 });
+      const out = (await pg.getTextContent()).items.filter(it => it.str.includes(want)).map(it => {
+        const t = pdfjsLib.Util.transform(vp.transform, it.transform); return [+(t[4] / vp.width).toFixed(3), +(t[5] / vp.height).toFixed(3)];
+      });
+      pj.destroy(); return out;
+    },
+    /* One A4 page per rotation, each with a grey block drawn in the page's own top-left corner area. */
+    async rotated(rots = [0, 90, 180, 270]) {
+      const doc = await PDFDocument.create();
+      for (const r of rots) {
+        const p = doc.addPage([595.28, 841.89]);
+        p.drawRectangle({ x: 150, y: 300, width: 200, height: 300, color: rgb(.5, .5, .5) });
+        p.setRotation(degrees(r));
+      }
+      return pdfFile(await doc.save(), 'rotated.pdf');
+    },
     unexpectedErrors() { return T.allowErrors ? [] : T.errors.slice(); }
   };
   const realDeliver = deliver, realToast = toast;

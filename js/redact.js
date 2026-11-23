@@ -1,6 +1,7 @@
 'use strict';
 /* ================= REDACT (entry point; boxes are drawn in the page editor, flattening happens on export) ================= */
 async function startRedacting(files) {
+  if (editBusy()) return; // redacting replaces the editor's files
   await loadEditFiles(files, p => {
     showTab('edit'); try { history.replaceState(null, '', '#edit'); } catch (e) {}
     openTextEditor(p, 'redact');

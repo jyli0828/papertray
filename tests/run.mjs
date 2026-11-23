@@ -5,7 +5,10 @@
      node tests/run.mjs 比較 merge   只跑名稱含有這些字的測試
      node tests/run.mjs --headed    開著視窗跑，看得到過程
      node tests/run.mjs --skip-slow 略過文字辨識之類很慢的測試
+     node tests/run.mjs --file      改成直接開啟 index.html（file://），也就是使用者雙擊開啟的情況
+     node tests/run.mjs --bundle    測試單一檔案版 dist/紙匣.html（先執行 python tools/build.py；函式庫從 CDN 載入，需要網路）
    需要 Node 22 以上（內建 WebSocket）和 Chrome 或 Edge；找不到瀏覽器時，用環境變數 CHROME 指定執行檔路徑。
+   只能在 http 下運作的測試（離線快取、文字辨識）標成 http: true，在 --file、--bundle 時略過。
 
    How it works: a small static server serves the project folder, a headless Chrome or Edge is driven over the
    DevTools protocol, and each test runs in a fresh browser profile (its own storage and service worker). A test is a
@@ -17,12 +20,13 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import cases from './cases.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const headed = args.includes('--headed'), skipSlow = args.includes('--skip-slow');
+const mode = args.includes('--bundle') ? 'bundle' : args.includes('--file') ? 'file' : 'http';
 const filters = args.filter(a => !a.startsWith('--')).map(s => s.toLowerCase());
 if (typeof WebSocket === 'undefined') { console.error('需要 Node 22 以上（內建 WebSocket）。'); process.exit(2); }
 
@@ -98,7 +102,7 @@ async function runCase(cdp, base, tc) {
   const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
   const s = (method, params) => cdp.send(method, params, sessionId);
   const problems = [];
-  const origin = new URL(base).origin;
+  const origin = base.startsWith('file:') ? 'file:' : new URL(base).origin;
   const listener = m => {
     if (m.sessionId !== sessionId) return;
     if (m.method === 'Runtime.exceptionThrown') {
@@ -132,6 +136,20 @@ async function runCase(cdp, base, tc) {
     // run() is written as a method (`async run() {…}`), which is only valid inside an object literal.
     const src = tc.run.toString(), call = /^(async\s+)?run\s*\(/.test(src) ? `({ ${src} }).run()` : `(${src})()`;
     const value = await evaluate(call, tc.timeout || 60000);
+    if (tc.offline) { // then cut the network, reload, and run tc.after() in the page as it opens offline
+      await s('Network.enable');
+      await s('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+      await s('Page.reload', { ignoreCache: false });
+      for (let i = 0; ; i++) {
+        try { if (await evaluate(`document.readyState === 'complete' && typeof showTab === 'function'`, 5000)) break; } catch (e) {}
+        if (i > 100) throw new Error('離線時頁面沒有載入完成');
+        await sleep(100);
+      }
+      await evaluate(HELPERS, 5000);
+      const after = tc.after.toString(), callAfter = /^(async\s+)?after\s*\(/.test(after) ? `({ ${after} }).after()` : `(${after})()`;
+      const v2 = await evaluate(callAfter, tc.timeout || 60000);
+      return { value: [value, v2].filter(Boolean).join(' · '), problems: [...problems, ...(await evaluate('T.unexpectedErrors()', 5000)).map(t => '錯誤提示：' + t)] };
+    }
     const toasts = await evaluate('T.unexpectedErrors()', 5000);
     problems.push(...toasts.map(t => '錯誤提示：' + t));
     return { value, problems };
@@ -143,14 +161,23 @@ async function runCase(cdp, base, tc) {
 }
 
 async function main() {
-  const picked = cases.filter(tc => (!filters.length || filters.some(f => tc.name.toLowerCase().includes(f))) && !(skipSlow && tc.slow));
+  const picked = cases.filter(tc => (!filters.length || filters.some(f => tc.name.toLowerCase().includes(f)))
+    && !(skipSlow && tc.slow) && !(mode !== 'http' && tc.http));
   if (!picked.length) { console.error('沒有符合的測試'); process.exit(2); }
   const exe = findBrowser();
   if (!exe) { console.error('找不到 Chrome 或 Edge；請用環境變數 CHROME 指定瀏覽器執行檔的路徑。'); process.exit(2); }
-  const server = await serve(), base = `http://127.0.0.1:${server.address().port}/`;
+  const server = await serve();
+  let base = `http://127.0.0.1:${server.address().port}/`;
+  if (mode === 'file') base = pathToFileURL(path.join(ROOT, 'index.html')).href;
+  if (mode === 'bundle') {
+    const file = path.join(ROOT, 'dist', '紙匣.html');
+    if (!fs.existsSync(file)) { console.error('找不到 dist/紙匣.html，請先執行 python tools/build.py'); process.exit(2); }
+    base = pathToFileURL(file).href;
+  }
   const browser = await launch(exe);
   const cdp = new CDP(browser.ws); await cdp.ready;
-  console.log(`紙匣測試 · ${picked.length} 項 · ${path.basename(exe)}${headed ? '（有視窗）' : ''}\n`);
+  const where = { http: '本機伺服器', file: '直接開啟 index.html', bundle: '單一檔案版' }[mode];
+  console.log(`紙匣測試 · ${picked.length} 項 · ${where} · ${path.basename(exe)}${headed ? '（有視窗）' : ''}\n`);
   let failed = 0; const t0 = Date.now();
   for (const tc of picked) {
     const t = Date.now();
