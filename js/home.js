@@ -75,7 +75,7 @@ async function suggestTools(files) {
   }
   if (imgs.length) {
     let portrait = false;
-    if (imgs.length === 1) { try { const b = await createImageBitmap(imgs[0]); portrait = b.height > b.width * 1.1; b.close && b.close(); } catch (e) {} }
+    if (imgs.length === 1) { try { const s = await imageSize(imgs[0]); portrait = s.h > s.w * 1.1; } catch (e) {} }
     add('img2pdf', imgs.length > 1 ? `${imgs.length} 張合成一份 PDF；翻拍的文件可以拉正` : '轉成 PDF；翻拍的文件可以拉正、去陰影');
     if (imgs.length === 2) add('idcard', '證件正反面：依實際大小印在同一張 A4');
     if (portrait) add('idphoto', '大頭照：排成 2 吋、1 吋，印在 4×6 相紙');

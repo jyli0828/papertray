@@ -360,8 +360,11 @@ function cmpDiffCells(a, b, w, h, s) {
     }
     return false;
   };
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const i = (y * w + x) * 4;
+  // Most pixels of two versions are exactly the same: one 32-bit compare settles those, instead of three per channel.
+  const a32 = new Uint32Array(a.buffer, a.byteOffset, w * h), b32 = new Uint32Array(b.buffer, b.byteOffset, w * h);
+  for (let y = 0, p = 0; y < h; y++) for (let x = 0; x < w; x++, p++) {
+    if (a32[p] === b32[p]) continue;
+    const i = p * 4;
     if (close(a, i, b, i)) continue;
     if (!found(a, b, x, y) || !found(b, a, x, y)) cells[((y / C) | 0) * cw + ((x / C) | 0)]++;
   }

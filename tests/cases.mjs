@@ -481,6 +481,11 @@ export default [
       const pages = await T.pdfPages(r.file);
       T.eq(pages.length, 3);
       T.ok(pages[0].w > pages[0].h && pages[1].w < pages[1].h, '橫的圖橫放、直的圖直放');
+      // The list shows small pictures, not the photos themselves (those would stay decoded at full size).
+      const thumbs = [...document.querySelectorAll('#img-list .img-thumb')];
+      await T.until(() => thumbs.every(t => t.complete && t.naturalWidth), '清單縮圖');
+      T.ok(thumbs.every(t => Math.min(t.naturalWidth, t.naturalHeight) <= 96), '清單縮圖是小圖');
+      T.eq(imgs.items.map(it => [it.w, it.h]).every(([w, h]) => w > 96 && h > 96), true, '尺寸是原圖的');
     }
   },
   {
@@ -1955,6 +1960,12 @@ export default [
       T.eq(Object.keys(files), ['報告.pdf', '報告-2.pdf', '報告-3.pdf', 'README', 'README-2']);
       T.eq(new TextDecoder().decode(files['報告-2.pdf'].bytes), 'two');
       T.eq(files['報告-3.pdf'].bytes.length, 0);
+      // A Blob is checksummed as a stream, in pieces; a file in pieces must give the same checksum as in one go.
+      const big = new Uint8Array(3e6 + 5); for (let i = 0; i < big.length; i++) big[i] = (i * 2654435761) >>> 13;
+      T.eq(await blobCrc32(new Blob([big.subarray(0, 7), big.subarray(7)])), crc32(big), '分段計算的檢查碼相同');
+      T.eq(crc32(big.subarray(1000), crc32(big.subarray(0, 1000))), crc32(big), '接續計算的檢查碼相同');
+      const z2 = zipWriter(); await z2.add('big.bin', new Blob([big]));
+      T.eq((await T.zip(z2.blob())).files['big.bin'].bytes.length, big.length, '大檔案');
     }
   },
   {

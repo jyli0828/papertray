@@ -519,15 +519,32 @@ async function saveFile(filename, bytes, mime) {
 
 /* ---------- zip files ----------
    Several results are saved as one .zip. The files go in as they are, not compressed again (PDFs and pictures already
-   are), and the archive is a Blob put together from the files' own Blobs and small headers: only one file at a time
-   is read into the page's memory, to compute its checksum. A zip library would hold the whole archive in memory, a
-   second copy of everything, as it built it. Names are UTF-8, and a name used twice gets -2, -3 … before its extension. */
+   are), and the archive is a Blob put together from the files' own Blobs and small headers: a Blob is read only as a
+   stream, piece by piece, to compute its checksum, so not even one whole file sits in the page's memory. A zip library
+   would hold the whole archive in memory, a second copy of everything, as it built it. Names are UTF-8, and a name used
+   twice gets -2, -3 … before its extension. */
+/* Eight tables (slicing-by-8): eight bytes per step instead of one, about four times faster on big files. */
 const CRC_TABLE = (() => {
-  const t = new Int32Array(256);
+  const t = new Int32Array(256 * 8);
   for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c; }
+  for (let n = 0; n < 256; n++) for (let k = 256; k < 2048; k += 256) t[k + n] = (t[k - 256 + n] >>> 8) ^ t[t[k - 256 + n] & 255];
   return t;
 })();
-function crc32(b) { let c = -1; for (let i = 0; i < b.length; i++) c = CRC_TABLE[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; }
+/* prev: the checksum of the bytes before these, to checksum a file piece by piece. */
+function crc32(b, prev = 0) {
+  const T = CRC_TABLE, n = b.length; let c = ~prev, i = 0;
+  for (; i + 8 <= n; i += 8) {
+    const a = c ^ (b[i] | b[i + 1] << 8 | b[i + 2] << 16 | b[i + 3] << 24);
+    c = T[1792 + (a & 255)] ^ T[1536 + (a >>> 8 & 255)] ^ T[1280 + (a >>> 16 & 255)] ^ T[1024 + (a >>> 24)]
+      ^ T[768 + b[i + 4]] ^ T[512 + b[i + 5]] ^ T[256 + b[i + 6]] ^ T[b[i + 7]];
+  }
+  for (; i < n; i++) c = T[(c ^ b[i]) & 255] ^ (c >>> 8);
+  return ~c >>> 0;
+}
+async function blobCrc32(blob) {
+  const r = blob.stream().getReader(); let c = 0;
+  for (;;) { const { done, value } = await r.read(); if (done) return c; c = crc32(value, c); }
+}
 function zipWriter() {
   const parts = [], dir = [], used = new Set(); let offset = 0;
   const d = new Date(), time = d.getHours() << 11 | d.getMinutes() << 5 | d.getSeconds() >> 1;
@@ -544,14 +561,14 @@ function zipWriter() {
     async add(name, data) {
       let n = name; for (let k = 2; used.has(n); k++) n = name.replace(/(\.[^.]*)?$/, m => `-${k}${m}`);
       used.add(n);
-      const bytes = data instanceof Blob ? new Uint8Array(await data.arrayBuffer()) : data;
-      const crc = crc32(bytes), size = bytes.length, nm = new TextEncoder().encode(n);
+      const isBlob = data instanceof Blob, size = isBlob ? data.size : data.length, nm = new TextEncoder().encode(n);
       if (offset + 30 + nm.length + size > 0xFFFFFFFF || dir.length >= 0xFFFF) throw new Error('檔案太多或太大，放不進一個 ZIP');
+      const crc = isBlob ? await blobCrc32(data) : crc32(data);
       const h = new DataView(new ArrayBuffer(30));
       h.setUint32(0, 0x04034B50, true); common(h, 4, crc, size, nm.length);
       const c = new DataView(new ArrayBuffer(46));
       c.setUint32(0, 0x02014B50, true); c.setUint16(4, 20, true); common(c, 6, crc, size, nm.length); c.setUint32(42, offset, true);
-      parts.push(h.buffer, nm, data instanceof Blob ? data : new Blob([bytes]));
+      parts.push(h.buffer, nm, isBlob ? data : new Blob([data]));
       dir.push(c.buffer, nm);
       offset += 30 + nm.length + size;
     },
@@ -822,6 +839,26 @@ async function looksHeic(f) {
     const b = new Uint8Array(await f.slice(0, 12).arrayBuffer());
     return /^ftyp(heic|heix|hevc|hevx|heim|heis|hevm|hevs|mif1|msf1)$/.test(String.fromCharCode(...b.subarray(4, 12)));
   } catch (e) { return false; }
+}
+/* A picture's size as shown (EXIF rotation applied, like createImageBitmap), without decoding its pixels: a 48 MP
+   photo would otherwise take about 190 MB, just to read two numbers. */
+function imageSize(f) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(f), img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); resolve({ w: img.naturalWidth, h: img.naturalHeight }); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('無法讀取圖片')); };
+    img.src = url;
+  });
+}
+/* A small picture for a file-list row (44 px, 2× for sharp screens), as a Blob URL. Showing the photo itself there
+   would keep it decoded at full size, about 48 MB for each 12 MP photo in the list. pic: an ImageBitmap or canvas. */
+async function listThumb(pic, px = 96) {
+  const k = Math.min(1, px / Math.min(pic.width, pic.height));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(pic.width * k)); c.height = Math.max(1, Math.round(pic.height * k));
+  const ctx = c.getContext('2d'); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(pic, 0, 0, c.width, c.height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/png')); c.width = c.height = 0;
+  return URL.createObjectURL(blob);
 }
 /* iPhone photos (HEIC) become JPEG before any tool sees them. Safari can decode HEIC itself; other browsers
    use heic2any, loaded the first time it is needed. Other files pass through untouched. */

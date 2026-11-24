@@ -270,17 +270,19 @@ function closeScan() {
 }
 $('#sc-cancel').addEventListener('click', closeScan);
 scDlg.addEventListener('cancel', e => { e.preventDefault(); closeScan(); });
-/* Put a new picture in place of an image-list item (after correcting or restoring it). */
-function replaceImgItem(it, file, w, h, kind) {
+/* Put a new picture in place of an image-list item (after correcting or restoring it). pic: the new picture, decoded
+   (an ImageBitmap or canvas), for the small picture the item shows; thumbPx: its size (see listThumb()). */
+async function replaceImgItem(it, file, pic, kind, thumbPx) {
+  const url = await listThumb(pic, thumbPx);
   URL.revokeObjectURL(it.url);
-  Object.assign(it, { file, size: file.size, url: URL.createObjectURL(file), w, h, kind });
+  Object.assign(it, { file, size: file.size, url, w: pic.width, h: pic.height, kind });
 }
 $('#sc-reset').addEventListener('click', async () => {
   const it = sc.it; if (!it || !it.scan) return;
   const src = it.scan.src; delete it.scan;
   const bmp = await createImageBitmap(src);
-  replaceImgItem(it, src, bmp.width, bmp.height, directKind(await src.arrayBuffer()));
-  bmp.close && bmp.close();
+  try { await replaceImgItem(it, src, bmp, directKind(await src.arrayBuffer()), it.thumbPx); }
+  finally { bmp.close && bmp.close(); }
   const done = sc.done; closeScan(); done(); toast('已還原成原圖');
 });
 $('#sc-apply').addEventListener('click', e => busy(e.currentTarget, '處理中…', async () => {
@@ -292,8 +294,7 @@ $('#sc-apply').addEventListener('click', e => busy(e.currentTarget, '處理中�
   const blob = await new Promise(r => out.toBlob(r, png ? 'image/png' : 'image/jpeg', .9));
   const src = it.scan ? it.scan.src : it.file;
   const file = new File([blob], src.name.replace(/\.[^.]+$/, '') + (png ? '.png' : '.jpg'), { type: png ? 'image/png' : 'image/jpeg' });
-  const w = out.width, h = out.height; out.width = out.height = 0;
-  replaceImgItem(it, file, w, h, png ? 'png' : 'jpg');
+  await replaceImgItem(it, file, out, png ? 'png' : 'jpg', it.thumbPx); out.width = out.height = 0;
   it.scan = { src, quad: sc.quad.map(p => p.slice()), mode, rot: sc.rot };
   const done = sc.done; closeScan(); done(); toast('已校正');
 }).catch(err => toast('校正失敗：' + err.message, 'err')));

@@ -8,8 +8,9 @@ async function addImgTool(files) {
     if (!isImage(f)) { toast(`「${f.name}」不是支援的圖片格式`, 'err'); continue; }
     try {
       const bmp = await createImageBitmap(f);
-      itool.items.push({ id: uid(), name: f.name, file: f, size: f.size, w: bmp.width, h: bmp.height, url: URL.createObjectURL(f), out: null });
-      bmp.close && bmp.close();
+      try {
+        itool.items.push({ id: uid(), name: f.name, file: f, size: f.size, w: bmp.width, h: bmp.height, url: await listThumb(bmp), out: null });
+      } finally { bmp.close && bmp.close(); }
     } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); }
   }
   renderImgTool();

@@ -8,18 +8,22 @@ const ID_SIZES = { card: [85.6, 54, 3.18], passport: [125, 88, 2] }; // width, h
 const A4_MM = [210, 297];
 const MM_PT = 72 / 25.4;
 const ID_SIDE_NAMES = ['正面', '反面'];
+const ID_THUMB_PX = 600;
 
 /* A picture becomes a side: if the card's edges are found it is cut out and flattened right away; 校正 adjusts it. */
 async function loadIdImage(f) {
   const bmp = await createImageBitmap(f); // full size, only while the card is found and cut out
-  const it = { id: uid(), name: f.name, file: f, size: f.size, url: URL.createObjectURL(f), w: bmp.width, h: bmp.height, kind: 'other' };
+  let it;
   try {
+    // The card is shown a few hundred px wide; the photo itself there would stay decoded at full size.
+    it = { id: uid(), name: f.name, file: f, size: f.size, url: await listThumb(bmp, ID_THUMB_PX), thumbPx: ID_THUMB_PX,
+      w: bmp.width, h: bmp.height, kind: 'other' };
     const quad = detectQuad(bmp);
     if (quad) {
       const out = scanRender(bmp, quad, 'none', 0, 2400);
       const blob = await new Promise(r => out.toBlob(r, 'image/jpeg', .92));
       const file = new File([blob], f.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
-      replaceImgItem(it, file, out.width, out.height, 'jpg');
+      await replaceImgItem(it, file, out, 'jpg', ID_THUMB_PX);
       out.width = out.height = 0;
       it.scan = { src: f, quad, mode: 'none', rot: 0 };
     }

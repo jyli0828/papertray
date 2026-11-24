@@ -53,9 +53,10 @@ async function addImages(files) {
     if (!isImage(f)) { toast(`「${f.name}」不是支援的圖片格式`, 'err'); continue; }
     try {
       const bmp = await createImageBitmap(f);
-      imgs.items.push({ id: uid(), name: f.name, size: f.size, file: f, url: URL.createObjectURL(f), w: bmp.width, h: bmp.height,
-        kind: directKind(await f.arrayBuffer()) });
-      bmp.close && bmp.close();
+      try {
+        imgs.items.push({ id: uid(), name: f.name, size: f.size, file: f, url: await listThumb(bmp), w: bmp.width, h: bmp.height,
+          kind: directKind(await f.arrayBuffer()) });
+      } finally { bmp.close && bmp.close(); }
     } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); }
   }
   if (imgs.items.length && $('#img-name').value === '圖片.pdf') $('#img-name').value = baseName(imgs.items[0].name.replace(/\.[^.]+$/, '')) + '.pdf';
