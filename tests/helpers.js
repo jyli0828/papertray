@@ -54,7 +54,24 @@
       for (let i = 1; i <= pj.numPages; i++) { const pg = await pj.getPage(i); out.push({ w: Math.round(pg.view[2] - pg.view[0]), h: Math.round(pg.view[3] - pg.view[1]), rotate: pg.rotate }); }
       pj.destroy(); return out;
     },
-    async zip(file) { await newZip(); return JSZip.loadAsync(file); },
+    /* The files in a .zip the app made (stored, not compressed): { files: { name: { name, bytes } } }. Checks each
+       file's checksum and that the closing list agrees with the entries. */
+    async zip(file) {
+      const b = new Uint8Array(await file.arrayBuffer()), v = new DataView(b.buffer), dec = new TextDecoder();
+      const e = b.length - 22; T.ok(v.getUint32(e, true) === 0x06054B50, 'ZIP 結尾');
+      const count = v.getUint16(e + 10, true), files = {};
+      for (let i = 0, c = v.getUint32(e + 16, true); i < count; i++) {
+        T.ok(v.getUint32(c, true) === 0x02014B50, 'ZIP 目錄');
+        const crc = v.getUint32(c + 16, true), size = v.getUint32(c + 24, true), nl = v.getUint16(c + 28, true);
+        const name = dec.decode(b.subarray(c + 46, c + 46 + nl)), at = v.getUint32(c + 42, true);
+        T.ok(v.getUint32(at, true) === 0x04034B50 && v.getUint16(at + 26, true) === nl, 'ZIP 檔頭：' + name);
+        const bytes = b.slice(at + 30 + nl, at + 30 + nl + size);
+        T.ok(crc32(bytes) === crc, 'ZIP 檢查碼：' + name);
+        files[name] = { name, bytes };
+        c += 46 + nl + v.getUint16(c + 30, true) + v.getUint16(c + 32, true);
+      }
+      return { files };
+    },
     /* Where on page i (as shown, rotation applied) the pixels matching match(r, g, b) are: [x0, y0, x1, y1] as
        fractions of the page, or null. */
     async ink(file, i, match, scale = .5) {

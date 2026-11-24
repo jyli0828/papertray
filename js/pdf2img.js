@@ -22,7 +22,13 @@ async function loadP2i(files) {
     if (p2i.pj !== pj) return;
     try { const vp = (await pj.getPage(p.index + 1)).getViewport({ scale: 1 }); p.w = vp.width; p.h = vp.height; } catch (e) {}
   }
-  renderP2i();
+  if (p2i.pj !== pj) return;
+  // The sizes go into the cards already shown; building them all again would also lose the thumbnails drawn so far.
+  for (const card of $('#p2i-grid').children) {
+    const p = p2i.pages[card._index], el = card.querySelector('.psize');
+    if (p && p.w && el) el.textContent = paperName(p.w, p.h);
+  }
+  updateP2iSummary();
 }
 async function loadP2iThumb(p) {
   if (p.thumb || p.loading) return;
@@ -32,15 +38,23 @@ async function loadP2iThumb(p) {
 }
 function renderP2i() {
   const grid = $('#p2i-grid'); forgetCards(grid); grid.innerHTML = '';
-  p2i.pages.forEach(p => {
+  p2i.pages.forEach((p, i) => {
     const card = document.createElement('div');
-    card.className = 'page-card static'; card.dataset.id = p.id;
-    grid.append(card); renderP2iCard(p);
+    card.className = 'page-card static'; card.dataset.id = p.id; card._index = i;
+    grid.append(card); renderP2iCard(p, card);
   });
   updateP2iSummary();
 }
-function renderP2iCard(p) {
-  const card = $(`#p2i-grid [data-id="${p.id}"]`); if (!card) return;
+/* Ticks and highlights follow p.selected (全選, Shift+click), without building the cards again. */
+function syncP2iSel() {
+  for (const card of $('#p2i-grid').children) {
+    const p = p2i.pages[card._index]; if (!p) continue;
+    card.classList.toggle('is-selected', p.selected);
+    const box = card.querySelector('[data-act="sel"]'); if (box) box.checked = p.selected;
+  }
+  updateP2iSummary();
+}
+function renderP2iCard(p, card) {
   card.classList.toggle('is-selected', p.selected);
   card.innerHTML = `
     <div class="thumb">${p.thumb ? '<img alt="" draggable="false">' : '<span class="thumb-loading"></span>'}
@@ -141,14 +155,14 @@ async function exportP2i(pages, btn) {
       else await deliver(file, 'image', 'pdf2img');
       return;
     }
-    const zip = await newZip();
+    const zip = zipWriter();
     for (let i = 0; i < pages.length; i++) {
       check();
       p2iProgress(i, pages.length);
-      zip.file(p2iFileName(pages[i].index, o), await pageToBlob(pages[i].index, o));
+      await zip.add(p2iFileName(pages[i].index, o), await pageToBlob(pages[i].index, o));
     }
     p2iProgress(pages.length, pages.length);
-    const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
+    const blob = zip.blob();
     await deliver(new File([blob], `${baseName(p2i.name)}-${o.fmt}.zip`, { type: 'application/zip' }), 'zip', 'pdf2img');
   }
   async function goText(check) {
@@ -188,14 +202,14 @@ $('#p2i-grid').addEventListener('click', e => {
   const p = p2i.pages.find(x => x.id === t.closest('.page-card').dataset.id); if (!p) return;
   if (t.dataset.act === 'sel') {
     const i = p2i.pages.indexOf(p), j = p2i.pages.findIndex(x => x.id === p2i.anchor);
-    if (e.shiftKey && j >= 0) { for (let k = Math.min(i, j); k <= Math.max(i, j); k++) p2i.pages[k].selected = t.checked; renderP2i(); }
+    if (e.shiftKey && j >= 0) { for (let k = Math.min(i, j); k <= Math.max(i, j); k++) p2i.pages[k].selected = t.checked; syncP2iSel(); }
     else { p.selected = t.checked; t.closest('.page-card').classList.toggle('is-selected', p.selected); updateP2iSummary(); }
     p2i.anchor = p.id;
   }
   if (t.dataset.act === 'one') exportP2i([p], t);
 });
 $('#p2i-selall').addEventListener('click', () => {
-  const all = p2i.pages.every(p => p.selected); p2i.pages.forEach(p => { p.selected = !all; }); renderP2i();
+  const all = p2i.pages.every(p => p.selected); p2i.pages.forEach(p => { p.selected = !all; }); syncP2iSel();
 });
 $('#p2i-go').addEventListener('click', e => exportP2i(p2i.pages.filter(p => p.selected), e.currentTarget));
 bindInput($('#p2i-input'), loadP2i);

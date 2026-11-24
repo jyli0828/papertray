@@ -3,10 +3,10 @@
 const $ = (s, r = document) => r.querySelector(s);
 
 /* ---------- libraries, loaded the first time they are needed ----------
-   pdf-lib (makes PDFs), pdf.js (reads and draws PDFs) and JSZip are not loaded with the page: opening 紙匣 costs
+   pdf-lib (makes PDFs) and pdf.js (reads and draws PDFs) are not loaded with the page: opening 紙匣 costs
    only its own code, and each library arrives on the first action that uses it. tools/build.py swaps these paths
    for cdnjs addresses in the bundled pages. */
-const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.js', jszip: 'lib/jszip.min.js', heic: 'lib/heic2any.min.js',
+const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.js', heic: 'lib/heic2any.min.js',
   tesseract: 'lib/tesseract/tesseract.min.js', qpdf: 'lib/qpdf/qpdf.js', qpdfwasm: 'lib/qpdf/qpdf.wasm.js',
   // pdf.js's character maps: Chinese, Japanese and Korean text in a font the PDF does not embed is unreadable
   // without them (it draws and extracts as nothing). pdf.js fetches only the ones a file names.
@@ -40,8 +40,23 @@ let PDFDocument = {
 let degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber, PDFBool;
 async function needPdfLib() {
   if (!window.PDFLib) await loadScript('pdflib');
+  pdfLibChunks(window.PDFLib);
   ({ PDFDocument, degrees, rgb, StandardFonts, BlendMode, PDFName, PDFRawStream, PDFArray, PDFDict, PDFNumber, PDFBool } = window.PDFLib);
   return PDFDocument;
+}
+/* pdf-lib reads and writes a file in chunks, waiting on a zero-delay timer between them so the page stays responsive.
+   Browsers make such a timer wait at least 4 ms, and a second in a background tab, and pdf-lib's chunks are small
+   (100 objects when reading, 50 when writing): a 3000-page file spent most of its 1.3 s read and 1.8 s write waiting,
+   and minutes in a tab not on screen. Bigger chunks still keep each pause short (tens of ms); with the tab hidden
+   there is nothing to keep responsive, so the work runs in one go. A caller's own setting still wins. */
+const PDFLIB_CHUNK = 1500;
+function pdfLibChunks(L) {
+  if (L.PDFDocument._chunked) return;
+  const load = L.PDFDocument.load, save = L.PDFDocument.prototype.save;
+  const chunk = () => document.hidden ? Infinity : PDFLIB_CHUNK;
+  L.PDFDocument.load = function (pdf, o) { return load.call(this, pdf, { parseSpeed: chunk(), ...o }); };
+  L.PDFDocument.prototype.save = function (o) { return save.call(this, { objectsPerTick: chunk(), ...o }); };
+  L.PDFDocument._chunked = true;
 }
 let WORKER_URL = null;
 async function needPdfjs() {
@@ -51,7 +66,6 @@ async function needPdfjs() {
     pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URL;
   }
 }
-async function newZip() { if (!window.JSZip) await loadScript('jszip'); return new JSZip(); }
 /* pdf.js parses in a background worker (blob wrapper around the worker script). It is started the first time a PDF
    is opened, not at page load: the worker script alone is about 1 MB and its thread holds memory of its own.
    Opened straight from disk (file://) browsers refuse that, and pdf.js runs the worker code on the page instead. */
@@ -233,9 +247,11 @@ function keepFile(f, got) {
 const heldBytes = src => !src ? 0 : inMemory(src) ? src.bytes.length : src instanceof File ? 0 : src.size || 0;
 /* Encrypted files open in pdf.js but cannot be rebuilt; spot them up front without parsing the whole file. */
 function hasEncrypt(bytes) {
+  // Every file is read through this, so it looks for the 'y' of "/Encrypt" (native indexOf) and checks around it:
+  // a '/' starts every name, and stopping at each of them was three times slower.
   const pat = [0x2F, 0x45, 0x6E, 0x63, 0x72, 0x79, 0x70, 0x74]; // "/Encrypt"
-  for (let i = bytes.indexOf(0x2F); i >= 0 && i < bytes.length - 8; i = bytes.indexOf(0x2F, i + 1)) {
-    let k = 1; while (k < 8 && bytes[i + k] === pat[k]) k++;
+  for (let i = bytes.indexOf(0x79, 5); i >= 0 && i + 2 < bytes.length; i = bytes.indexOf(0x79, i + 1)) {
+    let k = 0; while (k < 8 && bytes[i - 5 + k] === pat[k]) k++;
     if (k === 8) return true;
   }
   return false;
@@ -499,6 +515,53 @@ async function saveFile(filename, bytes, mime) {
   document.body.append(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
   toast(`已下載 ${filename}`);
+}
+
+/* ---------- zip files ----------
+   Several results are saved as one .zip. The files go in as they are, not compressed again (PDFs and pictures already
+   are), and the archive is a Blob put together from the files' own Blobs and small headers: only one file at a time
+   is read into the page's memory, to compute its checksum. A zip library would hold the whole archive in memory, a
+   second copy of everything, as it built it. Names are UTF-8, and a name used twice gets -2, -3 … before its extension. */
+const CRC_TABLE = (() => {
+  const t = new Int32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c; }
+  return t;
+})();
+function crc32(b) { let c = -1; for (let i = 0; i < b.length; i++) c = CRC_TABLE[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; }
+function zipWriter() {
+  const parts = [], dir = [], used = new Set(); let offset = 0;
+  const d = new Date(), time = d.getHours() << 11 | d.getMinutes() << 5 | d.getSeconds() >> 1;
+  const date = Math.max(0, d.getFullYear() - 1980) << 9 | (d.getMonth() + 1) << 5 | d.getDate();
+  // The fields a file's entry and its line in the closing list share: version, UTF-8 flag, stored, date, checksum, sizes.
+  const common = (v, at, crc, size, nameLen) => {
+    v.setUint16(at, 20, true); v.setUint16(at + 2, 0x0800, true); v.setUint16(at + 4, 0, true);
+    v.setUint16(at + 6, time, true); v.setUint16(at + 8, date, true);
+    v.setUint32(at + 10, crc, true); v.setUint32(at + 14, size, true); v.setUint32(at + 18, size, true);
+    v.setUint16(at + 22, nameLen, true);
+  };
+  return {
+    /* data: a Blob or a Uint8Array */
+    async add(name, data) {
+      let n = name; for (let k = 2; used.has(n); k++) n = name.replace(/(\.[^.]*)?$/, m => `-${k}${m}`);
+      used.add(n);
+      const bytes = data instanceof Blob ? new Uint8Array(await data.arrayBuffer()) : data;
+      const crc = crc32(bytes), size = bytes.length, nm = new TextEncoder().encode(n);
+      if (offset + 30 + nm.length + size > 0xFFFFFFFF || dir.length >= 0xFFFF) throw new Error('檔案太多或太大，放不進一個 ZIP');
+      const h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034B50, true); common(h, 4, crc, size, nm.length);
+      const c = new DataView(new ArrayBuffer(46));
+      c.setUint32(0, 0x02014B50, true); c.setUint16(4, 20, true); common(c, 6, crc, size, nm.length); c.setUint32(42, offset, true);
+      parts.push(h.buffer, nm, data instanceof Blob ? data : new Blob([bytes]));
+      dir.push(c.buffer, nm);
+      offset += 30 + nm.length + size;
+    },
+    blob() {
+      const size = dir.reduce((n, x) => n + x.byteLength, 0), end = new DataView(new ArrayBuffer(22));
+      end.setUint32(0, 0x06054B50, true); end.setUint16(8, dir.length / 2, true); end.setUint16(10, dir.length / 2, true);
+      end.setUint32(12, size, true); end.setUint32(16, offset, true);
+      return new Blob([...parts, ...dir, end.buffer], { type: 'application/zip' });
+    }
+  };
 }
 
 /* ---------- drop + sortable ---------- */

@@ -81,7 +81,8 @@ $('#split-go').addEventListener('click', e => runJob(e.currentTarget, '拆分中
   const base = baseName(split.name);
   const lib = await PDFDocument.load(await split.pj.getData()); // parsed only for the export, then dropped
   markLayers(lib, 's'); // see relinkLayers() in core.js
-  const files = [];
+  // Several files go into the zip as each is made, so their bytes are not all held at once.
+  const zip = groups.length > 1 ? zipWriter() : null;
   for (const g of groups) {
     check();
     const out = await PDFDocument.create();
@@ -90,12 +91,11 @@ $('#split-go').addEventListener('click', e => runJob(e.currentTarget, '拆分中
     relinkDests(out, (tag, i) => copied[g.indexOf(i)]);
     relinkFormFields(out, [lib]); // keep form fields fillable
     relinkLayers(out, [['s', lib]]); // hidden layers stay hidden
-    files.push({ name: `${base}-第${groupLabel(g).replace('–', '-')}頁.pdf`, bytes: await out.save({ useObjectStreams: true }) });
+    const name = `${base}-第${groupLabel(g).replace('–', '-')}頁.pdf`, bytes = await out.save({ useObjectStreams: true });
+    if (!zip) { await deliver(pdfFile(bytes, name), 'pdf', 'split'); return; }
+    await zip.add(name, bytes);
   }
-  if (files.length === 1) { await deliver(pdfFile(files[0].bytes, files[0].name), 'pdf', 'split'); return; }
-  const zip = await newZip(); const used = new Set();
-  files.forEach(f => { let n = f.name, k = 2; while (used.has(n)) n = f.name.replace(/\.pdf$/, `-${k++}.pdf`); used.add(n); zip.file(n, f.bytes); });
-  await deliver(new File([await zip.generateAsync({ type: 'blob', compression: 'STORE' })], `${base}-拆分.zip`, { type: 'application/zip' }), 'zip', 'split');
+  await deliver(new File([zip.blob()], `${base}-拆分.zip`, { type: 'application/zip' }), 'zip', 'split');
 }).catch(err => toast('拆分失敗：' + err.message, 'err')));
 $('#split-grid').addEventListener('click', e => {
   if (!isThumbClick(e)) return;

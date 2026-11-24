@@ -290,6 +290,10 @@ dialog.sigpad { width: min(680px, calc(100vw - 24px)); }
   .toolbar .sep { display: none; }
 }
 .page-card { border: 1px solid var(--line); border-radius: 12px; padding: 8px; background: var(--bg); display: flex; flex-direction: column; gap: 6px; cursor: grab; min-width: 0; }
+/* A long document has thousands of cards: the ones far off screen are not laid out or painted (a 2000-page file
+   took 33 s to open in 編輯, most of it laying out cards nobody could see). The sizes are a first guess until a card
+   has been on screen once. */
+.page-card { content-visibility: auto; contain-intrinsic-size: auto 156px auto 220px; }
 .page-card.is-selected { border-color: var(--accent); background: var(--accent-soft); }
 .page-card.dragging { opacity: .4; }
 .thumb { position: relative; aspect-ratio: 1 / 1; max-width: 100%; }

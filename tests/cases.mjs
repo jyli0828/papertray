@@ -1910,5 +1910,97 @@ export default [
       T.eq(wide, [], '比畫面寬的工具');
       return `${TABS.length} 個工具`;
     }
+  },
+  {
+    name: 'pdf-lib 讀寫大檔時不會一直停下來等計時器，呼叫端自己的設定照樣有效',
+    async run() {
+      const doc = await PDFDocument.create(), font = await doc.embedFont(StandardFonts.Helvetica);
+      for (let i = 0; i < 600; i++) doc.addPage([200, 200]).drawText('p' + i, { x: 20, y: 20, size: 12, font });
+      // Counts the zero-delay timers pdf-lib waits on between chunks while fn runs.
+      const ticks = async fn => {
+        const st = window.setTimeout; let n = 0;
+        window.setTimeout = (f, ms, ...a) => { if (!ms) n++; return st(f, ms, ...a); };
+        try { await fn(); } finally { window.setTimeout = st; }
+        return n;
+      };
+      let bytes;
+      const save = await ticks(async () => { bytes = await doc.save(); });
+      const load = await ticks(() => PDFDocument.load(bytes));
+      const own = await ticks(() => doc.save({ objectsPerTick: 50 }));
+      T.ok(save <= 3 && load <= 3, `存檔 ${save} 次、讀檔 ${load} 次`);
+      T.ok(own > 20, `指定 objectsPerTick: 50 時 ${own} 次`);
+      T.eq((await PDFDocument.load(bytes)).getPageCount(), 600);
+      return `存檔 ${save} 次、讀檔 ${load} 次（pdf-lib 預設約 ${own} 次）`;
+    }
+  },
+  {
+    name: '找 /Encrypt：在檔案開頭、結尾，或只差一個字',
+    async run() {
+      const has = t => hasEncrypt(new TextEncoder().encode(t));
+      T.eq([has('/Encrypt'), has('trailer <</Encrypt 5 0 R>>'), has('xx/Encrypt'), has('/Encryp'), has('/Encrypy'), has('Encrypt'), has('/encrypt'), has('yyyy'), has('')],
+        [true, true, true, false, false, false, false, false, false]);
+    }
+  },
+  {
+    name: 'ZIP：檢查碼正確、中文檔名、重名加編號、空檔案',
+    async run() {
+      T.eq(crc32(new TextEncoder().encode('123456789')), 0xCBF43926, 'CRC-32 標準檢查值');
+      const z = zipWriter();
+      await z.add('報告.pdf', new TextEncoder().encode('one'));
+      await z.add('報告.pdf', new Blob(['two']));
+      await z.add('報告.pdf', new Uint8Array(0));
+      await z.add('README', new Uint8Array([1, 2, 3]));
+      await z.add('README', new Uint8Array([4]));
+      const { files } = await T.zip(z.blob());
+      T.eq(Object.keys(files), ['報告.pdf', '報告-2.pdf', '報告-3.pdf', 'README', 'README-2']);
+      T.eq(new TextDecoder().decode(files['報告-2.pdf'].bytes), 'two');
+      T.eq(files['報告-3.pdf'].bytes.length, 0);
+    }
+  },
+  {
+    name: '編輯：點一下只更新那張卡片，其他卡片和縮圖原封不動',
+    async run() {
+      showTab('edit');
+      await loadEditFiles([await T.labeled(['A', 'B', 'C', 'D', 'E', 'F'], 'six.pdf')]);
+      await T.until(() => document.querySelectorAll('#edit-grid .thumb img').length === 6, '縮圖');
+      const cards = () => [...$('#edit-grid').children];
+      const before = cards(), imgs = before.map(c => c.querySelector('img'));
+      const click = (i, act) => cards()[i].querySelector(`[data-act="${act}"]`).click();
+      click(2, 'sel');
+      T.ok(cards().every((c, i) => c === before[i]), '勾選不會重做卡片');
+      T.ok(cards()[2].classList.contains('is-selected') && cards()[2].querySelector('[data-act="sel"]').checked, '勾選有顯示');
+      click(1, 'rotr');
+      T.ok(cards().every((c, i) => c === before[i]), '轉向也不會重做卡片');
+      T.ok(/rotate\(90deg\)/.test(cards()[1].querySelector('img').style.transform), '縮圖轉過去了');
+      click(0, 'right'); // A ↔ B
+      T.eq(cards().map(c => c.querySelector('.pno').textContent), ['1', '2', '3', '4', '5', '6'], '頁碼跟著位置');
+      T.ok(cards()[0].querySelector('[data-act="left"]').disabled && !cards()[1].querySelector('[data-act="left"]').disabled, '最前面那張不能再往前');
+      T.eq(cards()[1], before[0], '移動的是同一張卡片');
+      click(5, 'del');
+      T.eq(cards().length, 5); T.ok(cards()[4].querySelector('[data-act="right"]').disabled, '刪掉最後一頁後，新的最後一張不能再往後');
+      T.click('#edit-undo'); T.click('#edit-undo'); T.click('#edit-undo');
+      T.eq(cards().map(c => c.dataset.id), edit.pages.map(p => p.id), '復原後卡片順序和頁面一致');
+      T.eq(cards().slice(2).map(c => c.querySelector('img')), imgs.slice(2), '沒變的頁面留著原來的縮圖');
+      T.eq((await T.pdfText((await T.result(() => T.click('#edit-export'))).file)).map(t => t.trim()), ['A', 'B', 'C', 'D', 'E', 'F']);
+    }
+  },
+  {
+    name: '轉成圖片：全選、Shift 多選不會重畫縮圖，頁面大小補進已顯示的卡片',
+    async run() {
+      showTab('pdf2img');
+      await loadP2i([await T.labeled(['A', 'B', 'C', 'D'], 'four.pdf', [300, 400])]);
+      await T.until(() => document.querySelectorAll('#p2i-grid .thumb img').length === 4, '縮圖');
+      const imgs = [...document.querySelectorAll('#p2i-grid .thumb img')];
+      T.eq([...document.querySelectorAll('#p2i-grid .psize')].map(e => e.textContent.length > 0), [true, true, true, true], '頁面大小');
+      T.click('#p2i-selall');
+      T.eq([...document.querySelectorAll('#p2i-grid [data-act="sel"]')].map(b => b.checked), [false, false, false, false]);
+      T.ok(!$('#p2i-grid .is-selected'), '取消全選後沒有標成選取的卡片');
+      const box = i => document.querySelectorAll('#p2i-grid [data-act="sel"]')[i];
+      box(0).click(); box(2).dispatchEvent(new MouseEvent('click', { bubbles: true, shiftKey: true }));
+      T.eq(p2i.pages.map(p => p.selected), [true, true, true, false], 'Shift 多選');
+      T.eq([...document.querySelectorAll('#p2i-grid [data-act="sel"]')].map(b => b.checked), [true, true, true, false]);
+      T.eq([...document.querySelectorAll('#p2i-grid .thumb img')], imgs, '縮圖還是原來那些');
+      T.ok($('#p2i-summary').textContent.startsWith('3 張'), $('#p2i-summary').textContent);
+    }
   }
 ];

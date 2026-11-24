@@ -90,10 +90,10 @@ $('#it-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
     await deliver(new File([outs[0].blob], outs[0].name, { type: outs[0].blob.type }), 'image', 'imgtool');
     return;
   }
-  const zip = await newZip(), used = new Set();
-  outs.forEach(o => { let n = o.name, k = 2; while (used.has(n)) n = o.name.replace(/(\.\w+)$/, `-${k++}$1`); used.add(n); zip.file(n, o.blob); });
+  const zip = zipWriter();
+  for (const x of outs) await zip.add(x.name, x.blob);
   let zipName = ($('#it-zip').value || '圖片').trim(); if (!/\.zip$/i.test(zipName)) zipName += '.zip';
-  await deliver(new File([await zip.generateAsync({ type: 'blob', compression: 'STORE' })], zipName, { type: 'application/zip' }), 'zip', 'imgtool');
+  await deliver(new File([zip.blob()], zipName, { type: 'application/zip' }), 'zip', 'imgtool');
 }).catch(err => toast('處理失敗：' + err.message, 'err')));
 bindInput($('#it-input'), addImgTool);
 acceptFiles($('#panel-imgtool'), $('#it-drop'), addImgTool);

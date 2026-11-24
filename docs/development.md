@@ -24,7 +24,7 @@ papertray/
 ├─ css/styles.css       全部樣式：顏色變數（含深色模式）、共用元件、各工具版面
 ├─ js/                  程式，見下方「載入順序」
 ├─ lib/                 第三方函式庫的本機副本，見 third-party.md
-│  ├─ pdf-lib.min.js、pdf.min.js、pdf.worker.min.js、jszip.min.js、heic2any.min.js
+│  ├─ pdf-lib.min.js、pdf.min.js、pdf.worker.min.js、heic2any.min.js
 │  ├─ cmaps/            PDF.js 的字元對應表，讀沒有內嵌字型的中日韓文字
 │  ├─ qpdf/             qpdf.js 與 qpdf.wasm.js（.wasm 的 base64 版）
 │  └─ tesseract/        Tesseract.js、辨識核心、lang/ 繁中與英文的辨識資料
@@ -78,7 +78,7 @@ papertray/
 
 ## 共用機制（`js/core.js`）
 
-**函式庫延後載入**：`LIBS` 列出 `lib/` 裡的檔案，`loadScript(key)` 第一次用到時才載入。pdf-lib 透過 `PDFDocument.load()`／`create()` 自動載入；pdf.js 用 `openPdfjs()`，自己開 pdf.js 文件時用 `pdfjsOpts()` 的選項（背景程式、字元對應表）。剛開啟紙匣時只載入自己的程式（約 1 MB）。`tools/build.py` 會把這些路徑換成 CDN 網址。
+**函式庫延後載入**：`LIBS` 列出 `lib/` 裡的檔案，`loadScript(key)` 第一次用到時才載入。pdf-lib 透過 `PDFDocument.load()`／`create()` 自動載入；pdf.js 用 `openPdfjs()`，自己開 pdf.js 文件時用 `pdfjsOpts()` 的選項（背景程式、字元對應表）。剛開啟紙匣時只載入自己的程式（約 1 MB）。`tools/build.py` 會把這些路徑換成 CDN 網址。pdf-lib 載入後，`pdfLibChunks()` 把讀檔、存檔每段處理的物件數調大（分頁不在畫面上時一次做完）：pdf-lib 預設每處理 50～100 個物件就等一次計時器，大檔的時間大多花在等待。
 
 **有密碼的 PDF**：工具讀 PDF 一律用 `readPdf(f)`，有密碼的檔案會就地解除（只有限制的直接解除，要開啟密碼的會跳出輸入框，見 `js/password.js` 的 `unlockPdf()`），使用者取消時回傳 `null`。
 
@@ -94,7 +94,9 @@ papertray/
 
 **記憶體**：每個工具用 `registerHolder(tab, size, release)` 回報自己留著多少資料、怎麼清空。切換分頁時，其他工具合計超過 50 MB 會出現「釋放記憶體」提示。詳見下方「記憶體」。
 
-**頁面縮圖**：`whenVisible(el, job)` 等卡片捲到附近才畫，同時最多畫兩張；`renderThumb()` 存成 Blob URL，用完 `releaseThumbs()`。
+**頁面縮圖**：`whenVisible(el, job)` 等卡片捲到附近才畫，同時最多畫兩張；`renderThumb()` 存成 Blob URL，用完 `releaseThumbs()`。頁面卡片（`.page-card`）設了 `content-visibility: auto`，離畫面遠的卡片不排版也不繪製。卡片很多的畫面不要每次操作都整個重做：編輯的 `renderEdit()` 留著原本的卡片，只更新有變的部分；轉成圖片的全選用 `syncP2iSel()` 只改勾選。
+
+**ZIP**：多個結果用 `zipWriter()` 打包：`await zip.add(name, blobOrBytes)` 逐一加入（重名自動加 -2、-3），`zip.blob()` 取得檔案。檔案不再壓縮，壓縮檔由各檔案的 Blob 組成，不會在記憶體裡再複製一份。
 
 **複製頁面**：pdf-lib 的 `copyPages()` 只複製頁面，而且會把頁面連到的東西整串帶過去。要從一份 PDF 複製頁面到新檔的工具（合併、拆分、編輯、調整尺寸），複製前後各做一次：
 - 內部連結：`unlinkDests()` 先切斷，複製後 `relinkDests()` 接到新頁面；連到沒複製的頁面的連結會移除，否則那些頁面會一起被帶進新檔。
@@ -140,7 +142,7 @@ papertray/
 - `manifest.webmanifest` 是 App 的名稱、圖示和顏色；`icons/` 裡的 PNG 由 `python tools/make_icons.py` 從 `icons/icon.svg` 的圖形畫出來，改了圖示要重新產生。
 - `sw.js` 是 service worker：
   - 紙匣自己的檔案「先問網路」，所以改版後下次開啟就是新版，沒網路時用快取；第一次造訪時就把 `index.html` 連到的檔案（`js/`、`css/`、圖示）全部存好，新增的 JS 檔不用另外登記；
-  - `lib/` 的函式庫「先用快取」，第一次造訪就先存好 pdf-lib、PDF.js、JSZip，其他（文字辨識、qpdf、HEIC、字元對應表）第一次用到時才存。
+  - `lib/` 的函式庫「先用快取」，第一次造訪就先存好 pdf-lib、PDF.js，其他（文字辨識、qpdf、HEIC、字元對應表）第一次用到時才存。
 - 只在 http(s) 網址註冊，直接雙擊開啟時不會啟用。
 - 快取的格式改變時，把 `sw.js` 的 `CACHE` 改名，舊快取會在新版啟用時刪掉。
 
@@ -171,6 +173,7 @@ python tools/build.py
 - 編輯、拆分、加浮水印只留一份檔案（在 pdf.js 裡），匯出時才取回並用 pdf-lib 解析。
 - 合併、壓縮、調整尺寸、密碼只留檔案本身（`keepFile()`，見上方「之後才要用的檔案」），處理時才讀入；合併只在按下「合併」時解析一次。一次壓縮多份時，結果存成 Blob 等著打包。
 - 「接著處理」把結果交給下一個工具時，直接共用同一份資料，不另外複製。
+- 打包 ZIP 時，每個檔案讀進來只為了算檢查碼，壓縮檔本身由檔案的 Blob 組成；拆分成多份時每做好一份就放進去，不會等全部做完才打包。
 - 預覽結果時，pdf.js 拿到自己的一份，頁面上的那份先放掉，關閉預覽時再從 pdf.js 取回（`file.lent`，`fileBytes()` 會等它）：同一份結果不會同時在記憶體裡兩份。
 - 照片只解碼到需要的大小：證件影印的預覽只留小圖，產生 PDF 時才依 300 dpi 解碼、用完即關；證件照最長邊 2400 px。
 - 比較和遮蔽個資記住的「每個字的位置」存成一個 `Float32Array`（每字 16 bytes，原本每字一個小陣列約 60 bytes）。

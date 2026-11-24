@@ -118,39 +118,35 @@ async function loadEditThumb(key) {
   catch (e) { return; } finally { m.loading = false; }
   for (const p of edit.pages) if (metaKey(p) === key) {
     Object.assign(p, { thumb: m.thumb, tw: m.tw, th: m.th });
-    setCardThumb($(`#edit-grid [data-id="${p.id}"]`), m.thumb, m.tw, m.th, p.rot);
+    const card = $(`#edit-grid [data-id="${p.id}"]`);
+    if (card) { setCardThumb(card, m.thumb, m.tw, m.th, p.rot); card._shown = `${m.thumb}|${p.rot}`; }
   }
 }
 const selCount = () => edit.pages.filter(p => p.selected).length;
 /* New pages go right after the last selected page, or at the end when nothing is selected. */
 function insertPos() { let last = -1; edit.pages.forEach((p, i) => { if (p.selected) last = i; }); return last < 0 ? edit.pages.length : last + 1; }
 
-function renderEdit() {
-  // Keep the workspace (and its 復原 button) after every page was deleted, as long as that can be undone.
-  const has = edit.pages.length > 0 || editHist.undo.length > 0;
-  $('#edit-empty').hidden = has; $('#edit-work').hidden = !has;
-  const grid = $('#edit-grid'); forgetCards(grid); grid.innerHTML = '';
-  const n = edit.pages.length;
-  edit.pages.forEach((p, i) => {
-    fillMeta(p);
-    const m = edit.meta[metaKey(p)];
-    if (!p.thumb && m && m.thumb) Object.assign(p, { thumb: m.thumb, tw: m.tw, th: m.th });
-    const card = document.createElement('div');
-    card.className = 'page-card' + (p.selected ? ' is-selected' : '');
-    card.draggable = true; card.dataset.id = p.id;
-    const R = (p.baseRot + p.rot) % 360;
-    let size = '';
-    if (p.view) { const W = p.view[2] - p.view[0], H = p.view[3] - p.view[1]; size = paperName(R % 180 ? H : W, R % 180 ? W : H); }
-    card.innerHTML = `
+/* Cards are kept from one render to the next: a card is built again only when its size label or badges change; its
+   number, tick, arrows, thumbnail and turn are updated in place. Rebuilding all of them on every click
+   made each click on a 2000-page document take half a second, and opening it rebuilt them dozens of times. */
+function editCardLook(p, size) {
+  const notes = p.annots.filter(a => a.type !== 'redact').length;
+  return [size, notes, isRedacted(p)].join('|');
+}
+function newEditCard(p, size) {
+  const card = document.createElement('div');
+  card.className = 'page-card'; card.draggable = true; card.dataset.id = p.id;
+  const notes = p.annots.filter(a => a.type !== 'redact').length;
+  card.innerHTML = `
       <div class="thumb">${p.thumb ? '<img alt="" draggable="false">' : '<span class="thumb-loading"></span>'}
-        <label class="sel"><input type="checkbox" data-act="sel" ${p.selected ? 'checked' : ''} aria-label="選取第 ${i + 1} 頁"></label>
+        <label class="sel"><input type="checkbox" data-act="sel"></label>
         ${isRedacted(p) ? '<span class="badge redact" title="這頁有遮蔽範圍，匯出時會整頁轉成圖片">遮蔽</span>' : ''}
-        ${p.annots.filter(a => a.type !== 'redact').length ? `<span class="badge" title="已加 ${p.annots.filter(a => a.type !== 'redact').length} 個文字、簽名或標註">${ICON.text}${p.annots.filter(a => a.type !== 'redact').length}</span>` : ''}
+        ${notes ? `<span class="badge" title="已加 ${notes} 個文字、簽名或標註">${ICON.text}${notes}</span>` : ''}
       </div>
       <div class="meta">
-        <button class="icon-btn mini" data-act="left" aria-label="往前移" ${i === 0 ? 'disabled' : ''}>${ICON.left}</button>
-        <span class="mid"><span class="pno">${i + 1}</span><span class="psize">${size}</span></span>
-        <button class="icon-btn mini" data-act="right" aria-label="往後移" ${i === n - 1 ? 'disabled' : ''}>${ICON.right}</button>
+        <button class="icon-btn mini" data-act="left" aria-label="往前移">${ICON.left}</button>
+        <span class="mid"><span class="pno"></span><span class="psize">${size}</span></span>
+        <button class="icon-btn mini" data-act="right" aria-label="往後移">${ICON.right}</button>
       </div>
       <div class="actions">
         <button class="icon-btn" data-act="rotl" title="向左轉" aria-label="向左轉">${ICON.rotl}</button>
@@ -159,12 +155,50 @@ function renderEdit() {
         <button class="icon-btn" data-act="dup" title="複製這一頁" aria-label="複製這一頁">${ICON.copy}</button>
         <button class="icon-btn danger" data-act="del" title="刪除此頁" aria-label="刪除此頁">${ICON.trash}</button>
       </div>`;
-    if (p.thumb) {
-      const img = card.querySelector('img'); img.src = p.thumb;
-      sizeThumbImg(img, p.tw, p.th, p.rot);
-    } else if (p.view) whenVisible(card, () => loadEditThumb(metaKey(p)));
-    grid.append(card);
+  if (p.thumb) {
+    const img = card.querySelector('img'); img.src = p.thumb;
+    sizeThumbImg(img, p.tw, p.th, p.rot);
+  } else if (p.view) whenVisible(card, () => loadEditThumb(metaKey(p)));
+  card._look = editCardLook(p, size); card._at = ''; card._shown = p.thumb ? `${p.thumb}|${p.rot}` : '';
+  card._sel = card.querySelector('[data-act="sel"]'); card._pno = card.querySelector('.pno');
+  card._left = card.querySelector('[data-act="left"]'); card._right = card.querySelector('[data-act="right"]');
+  return card;
+}
+const dropCard = c => { c._thumbJob = null; thumbIO.unobserve(c); c.remove(); };
+function renderEdit() {
+  // Keep the workspace (and its 復原 button) after every page was deleted, as long as that can be undone.
+  const has = edit.pages.length > 0 || editHist.undo.length > 0;
+  $('#edit-empty').hidden = has; $('#edit-work').hidden = !has;
+  const grid = $('#edit-grid'), n = edit.pages.length, old = new Map();
+  for (const c of [...grid.children]) if (c.classList.contains('page-card')) old.set(c.dataset.id, c); else c.remove();
+  const cards = edit.pages.map((p, i) => {
+    fillMeta(p);
+    const m = edit.meta[metaKey(p)];
+    if (!p.thumb && m && m.thumb) Object.assign(p, { thumb: m.thumb, tw: m.tw, th: m.th });
+    const R = (p.baseRot + p.rot) % 360;
+    let size = '';
+    if (p.view) { const W = p.view[2] - p.view[0], H = p.view[3] - p.view[1]; size = paperName(R % 180 ? H : W, R % 180 ? W : H); }
+    let card = old.get(p.id); old.delete(p.id);
+    if (card && card._look !== editCardLook(p, size)) { const fresh = newEditCard(p, size); card.replaceWith(fresh); thumbIO.unobserve(card); card._thumbJob = null; card = fresh; }
+    else if (!card) card = newEditCard(p, size);
+    const shown = p.thumb ? `${p.thumb}|${p.rot}` : '';
+    if (shown && card._shown !== shown) { card._shown = shown; setCardThumb(card, p.thumb, p.tw, p.th, p.rot); }
+    const at = `${i}/${n}/${p.selected}`;
+    if (card._at !== at) { // its place in the list, and its tick
+      card._at = at;
+      card.classList.toggle('is-selected', p.selected);
+      card._sel.checked = p.selected; card._sel.setAttribute('aria-label', `選取第 ${i + 1} 頁`);
+      card._pno.textContent = i + 1; card._left.disabled = i === 0; card._right.disabled = i === n - 1;
+    }
+    return card;
   });
+  for (const c of old.values()) dropCard(c); // pages deleted
+  // Put the cards in order. Cards already in place stay; only those that moved (or are new) are inserted.
+  let next = grid.firstElementChild;
+  for (const card of cards) {
+    if (card === next) next = next.nextElementSibling;
+    else grid.insertBefore(card, next);
+  }
   if (has && !n) grid.innerHTML = '<p class="hint grid-empty">所有頁面都刪掉了。按「復原」（Ctrl+Z）可以找回來，或用「插入 PDF」加入新的頁面。</p>';
   const s = selCount();
   $('#edit-stat').textContent = `${n} 頁` + (s ? ` · 已選 ${s}` : '');

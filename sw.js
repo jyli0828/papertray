@@ -9,7 +9,7 @@ const CACHE = 'papertray-v1';
    are fetched on the first visit before this worker is in charge, so they must be stored here or the app would not
    open offline. OCR, qpdf and HEIC (about 11 MB together) are cached the first time they are used, so a phone is not
    made to fetch them up front. */
-const PRECACHE = ['./', 'index.html', 'lib/pdf-lib.min.js', 'lib/pdf.min.js', 'lib/pdf.worker.min.js', 'lib/jszip.min.js'];
+const PRECACHE = ['./', 'index.html', 'lib/pdf-lib.min.js', 'lib/pdf.min.js', 'lib/pdf.worker.min.js'];
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const html = await (await fetch('index.html', { cache: 'no-cache' })).text();

@@ -544,14 +544,10 @@ $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中�
 $('#comp-save').addEventListener('click', e => busy(e.currentTarget, '準備中…', async () => {
   const done = comp.items.filter(x => x.out); if (!done.length) return;
   if (done.length === 1) { await saveFile(ensurePdf($('#comp-name').value), done[0].out.src); return; }
-  const zip = await newZip(), used = new Set();
-  for (const it of done) {
-    let n = baseName(it.name) + '-壓縮.pdf', k = 2;
-    while (used.has(n)) n = baseName(it.name) + `-壓縮-${k++}.pdf`;
-    used.add(n); zip.file(n, (await fileBytes(it.out.src)).bytes);
-  }
+  const zip = zipWriter();
+  for (const it of done) await zip.add(baseName(it.name) + '-壓縮.pdf', it.out.src instanceof Blob ? it.out.src : (await fileBytes(it.out.src)).bytes);
   let name = ($('#comp-name').value || '壓縮後的 PDF').trim(); if (!/\.zip$/i.test(name)) name += '.zip';
-  await saveFile(name, await zip.generateAsync({ type: 'blob', compression: 'STORE' }));
+  await saveFile(name, zip.blob());
 }).catch(err => toast('下載失敗：' + err.message, 'err')));
 setCompMode('keep');
 registerHolder('compress', () => comp.items.reduce((n, it) => n + heldBytes(it.src) + (it.out && it.out.src !== it.src ? heldBytes(it.out.src) : 0), 0),
