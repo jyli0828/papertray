@@ -1,11 +1,11 @@
-"""從 icon.svg 的圖形畫出 App 圖示 PNG（安裝到電腦、手機用）。
+"""從 icons/icon.svg 的圖形畫出 App 圖示 PNG（安裝到電腦、手機用）。
 
 用法（在專案資料夾執行）：
     python tools/make_icons.py
 
 產生 icons/icon-192.png、icons/icon-512.png、icons/maskable-512.png（Android 會裁成圓形或圓角，
 所以 maskable 版的圖案縮在中間 80%，背景鋪滿）、icons/apple-touch-icon.png（180 px）。
-需要 Pillow。icon.svg 改了的話，這裡的座標也要一起改。
+需要 Pillow。icons/icon.svg 改了的話，這裡的座標也要一起改。
 """
 import os
 from PIL import Image, ImageDraw

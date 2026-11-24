@@ -50,8 +50,8 @@ def inline_assets(html):
         return '<script>\n' + code.replace('</script', '<\\/script') + '</script>'
 
     # The icon travels inside the file as a data: URI (favicon and header logo).
-    icon = 'data:image/svg+xml;base64,' + base64.b64encode(read('icon.svg').encode('utf-8')).decode('ascii')
-    html = html.replace('href="icon.svg"', f'href="{icon}"').replace('src="icon.svg"', f'src="{icon}"')
+    icon = 'data:image/svg+xml;base64,' + base64.b64encode(read('icons/icon.svg').encode('utf-8')).decode('ascii')
+    html = html.replace('href="icons/icon.svg"', f'href="{icon}"').replace('src="icons/icon.svg"', f'src="{icon}"')
     html = re.sub(r'<link rel="stylesheet" href="((?!https?:)[^"]+)">', css, html)
     html = re.sub(r'<script src="((?!https?:)[^"]+)"></script>', js, html)
     # Libraries load on demand from the paths in js/core.js (LIBS); in the bundles those paths point at cdnjs.

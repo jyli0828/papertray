@@ -17,8 +17,8 @@ python -m http.server 8000
 ```
 papertray/
 ├─ index.html           頁面結構：頁首、工具列（每類一個卷宗）、每個工具的 <section>、共用對話框，最後依序載入 js/
-├─ icon.svg             網站圖示（分頁 icon；頁首的標誌是 index.html 裡同樣圖形的 SVG，顏色跟著深淺色模式）
-├─ icons/               安裝成 App 用的 PNG 圖示（tools/make_icons.py 產生）
+├─ icons/               圖示：icon.svg（分頁 icon；頁首的標誌是 index.html 裡同樣圖形的 SVG，顏色跟著深淺色模式），
+│                       以及安裝成 App 用的 PNG（tools/make_icons.py 產生）
 ├─ manifest.webmanifest App 的名稱、圖示、顏色（PWA）
 ├─ sw.js                service worker：離線使用
 ├─ css/styles.css       全部樣式：顏色變數（含深色模式）、共用元件、各工具版面
@@ -30,14 +30,15 @@ papertray/
 │  └─ tesseract/        Tesseract.js、辨識核心、lang/ 繁中與英文的辨識資料
 ├─ tools/
 │  ├─ build.py          打包成單一檔案（dist/）
-│  ├─ make_icons.py     從 icon.svg 的圖形畫出 icons/ 裡的 PNG
+│  ├─ make_icons.py     從 icons/icon.svg 的圖形畫出 icons/ 裡的 PNG
 │  └─ wasm_to_js.py     更新 qpdf 時，把 qpdf.wasm 轉成 lib/qpdf/qpdf.wasm.js
 ├─ tests/               自動化測試：run.mjs（執行）、cases.mjs（測試案例）、helpers.js（頁面裡的輔助函式）
 ├─ docs/                說明文件
 ├─ dist/                build.py 的產出，不在版本控制內
 ├─ LICENSE              MIT 授權（紙匣自己的程式碼；lib/ 裡的函式庫各有授權）
 ├─ .nojekyll            讓 GitHub Pages 原樣提供檔案，不經過 Jekyll
-└─ .gitattributes       文字檔一律存成 LF，圖片、壓縮檔、wasm 視為二進位
+├─ .editorconfig        編輯器設定：UTF-8、LF、2 格縮排（Python 4 格）
+└─ .gitattributes       文字檔一律存成 LF，圖片、壓縮檔、wasm、CMap 視為二進位
 ```
 
 ### 載入順序
@@ -136,10 +137,10 @@ papertray/
 **線上版**：https://jyli0828.github.io/papertray/ ，由 GitHub Pages 直接提供 `main` 分支的檔案，不需要建置。推送到 `main` 後約一分鐘更新。線上版用的是 `lib/` 裡的函式庫，和本機伺服器完全相同，所以文字辨識等全部功能都能用。
 
 **可以安裝、離線使用（PWA）**：
-- `manifest.webmanifest` 是 App 的名稱、圖示和顏色；`icons/` 裡的 PNG 由 `python tools/make_icons.py` 從 `icon.svg` 的圖形畫出來，改了圖示要重新產生。
+- `manifest.webmanifest` 是 App 的名稱、圖示和顏色；`icons/` 裡的 PNG 由 `python tools/make_icons.py` 從 `icons/icon.svg` 的圖形畫出來，改了圖示要重新產生。
 - `sw.js` 是 service worker：
   - 紙匣自己的檔案「先問網路」，所以改版後下次開啟就是新版，沒網路時用快取；第一次造訪時就把 `index.html` 連到的檔案（`js/`、`css/`、圖示）全部存好，新增的 JS 檔不用另外登記；
-  - `lib/` 的函式庫「先用快取」，第一次造訪就先存好 pdf-lib、PDF.js、JSZip，其他（文字辨識、qpdf、HEIC）第一次用到時才存。
+  - `lib/` 的函式庫「先用快取」，第一次造訪就先存好 pdf-lib、PDF.js、JSZip，其他（文字辨識、qpdf、HEIC、字元對應表）第一次用到時才存。
 - 只在 http(s) 網址註冊，直接雙擊開啟時不會啟用。
 - 快取的格式改變時，把 `sw.js` 的 `CACHE` 改名，舊快取會在新版啟用時刪掉。
 

@@ -1,6 +1,6 @@
 # 紙匣 Papertray
 
-<img src="icon.svg" alt="" width="80" align="right">
+<img src="icons/icon.svg" alt="" width="80" align="right">
 
 **在瀏覽器裡處理 PDF 與圖片的隨手工具。檔案不會上傳到任何伺服器，可以離線使用。**
 
@@ -76,7 +76,8 @@ index.html      頁面：頁首、工具列、每個工具一個區塊
 css/            樣式（含深色模式）
 js/             程式，每個工具一個檔案，core.js 是共用基礎
 lib/            第三方函式庫的本機副本（PDF、OCR、密碼、HEIC）
-sw.js           離線使用；manifest.webmanifest、icons/ 讓它能安裝成 App
+icons/          網站與 App 圖示
+sw.js           離線使用；manifest.webmanifest 讓它能安裝成 App
 tests/          瀏覽器自動化測試
 tools/          打包、產生圖示等腳本
 docs/           說明文件
