@@ -1,12 +1,19 @@
 # 打包產出：用 python tools/build.py 重新產生
 dist/
 
-# Python
+# Python（tools/ 的腳本）
 __pycache__/
 *.pyc
 
-# 本機設定與系統檔
-.claude/settings.local.json
+# 編輯器、AI 助手的本機設定
+.claude/
+.vscode/
+.idea/
+
+# 系統檔
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# 記錄檔
+*.log

@@ -59,8 +59,31 @@
 - 比較的「比對畫面」是逐頁對照，中間插入一頁或文字重新排版後，後面都會被標成不同；這種情況用「比對文字」。
 - 證件照不會自動去背或找臉，需要自己對準參考線；各機關規定以申請單位公告為準。
 
+## 開發
+
+沒有建置步驟、沒有套件要安裝：改完存檔、重新整理瀏覽器就看得到。
+
+```powershell
+python -m http.server 8000     # 本機執行，打開 http://localhost:8000
+node tests/run.mjs             # 自動化測試（Node 22 以上、Chrome 或 Edge），約三分鐘
+python tools/build.py          # 打包成單一檔案 dist/紙匣.html
+```
+
+推送到 `main` 後，GitHub Pages 約一分鐘就會更新線上版。新增工具、修正錯誤的做法和慣例見 [docs/development.md](docs/development.md)。
+
+```
+index.html      頁面：頁首、工具列、每個工具一個區塊
+css/            樣式（含深色模式）
+js/             程式，每個工具一個檔案，core.js 是共用基礎
+lib/            第三方函式庫的本機副本（PDF、OCR、密碼、HEIC）
+sw.js           離線使用；manifest.webmanifest、icons/ 讓它能安裝成 App
+tests/          瀏覽器自動化測試
+tools/          打包、產生圖示等腳本
+docs/           說明文件
+```
+
 ## 文件
 
 - [docs/features.md](docs/features.md)：每個工具的完整說明
-- [docs/development.md](docs/development.md)：程式架構、檔案結構、新增工具、打包與發布、記憶體管理
-- [docs/third-party.md](docs/third-party.md)：使用的函式庫、版本與授權
+- [docs/development.md](docs/development.md)：程式架構、檔案結構、新增工具、測試、打包與發布、記憶體管理
+- [docs/third-party.md](docs/third-party.md)：使用的函式庫、字型、版本與授權

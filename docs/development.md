@@ -16,7 +16,7 @@ python -m http.server 8000
 
 ```
 papertray/
-├─ index.html           頁面結構：頁首、分頁列、每個工具的 <section>、共用對話框，最後依序載入 js/
+├─ index.html           頁面結構：頁首、工具列（每類一個卷宗）、每個工具的 <section>、共用對話框，最後依序載入 js/
 ├─ icon.svg             網站圖示（分頁 icon；頁首的標誌是 index.html 裡同樣圖形的 SVG，顏色跟著深淺色模式）
 ├─ icons/               安裝成 App 用的 PNG 圖示（tools/make_icons.py 產生）
 ├─ manifest.webmanifest App 的名稱、圖示、顏色（PWA）
@@ -33,7 +33,9 @@ papertray/
 │  └─ wasm_to_js.py     更新 qpdf 時，把 qpdf.wasm 轉成 lib/qpdf/qpdf.wasm.js
 ├─ tests/               自動化測試：run.mjs（執行）、cases.mjs（測試案例）、helpers.js（頁面裡的輔助函式）
 ├─ docs/                說明文件
-└─ dist/                build.py 的產出，不在版本控制內
+├─ dist/                build.py 的產出，不在版本控制內
+├─ .nojekyll            讓 GitHub Pages 原樣提供檔案，不經過 Jekyll
+└─ .gitattributes       文字檔一律存成 LF，圖片、壓縮檔、wasm 視為二進位
 ```
 
 ### 載入順序
@@ -173,7 +175,7 @@ python tools/build.py
 node tests/run.mjs
 ```
 
-不用安裝任何套件：需要 Node 22 以上和 Chrome 或 Edge（找不到時用環境變數 `CHROME` 指定執行檔）。它會開一個本機伺服器、在背景開瀏覽器，每個測試用全新的瀏覽器設定檔跑一次，約兩分鐘。
+不用安裝任何套件：需要 Node 22 以上和 Chrome 或 Edge（找不到時用環境變數 `CHROME` 指定執行檔）。它會開一個本機伺服器、在背景開瀏覽器，每個測試用全新的瀏覽器設定檔跑一次，約三分鐘。
 
 - `node tests/run.mjs 比較 合併`：只跑名稱含有這些字的測試；`--skip-slow` 略過文字辨識；`--headed` 開著視窗看過程。
 - `--file`：改成直接開啟 `index.html`（`file://`），也就是使用者雙擊開啟的情況；`--bundle`：測試單一檔案版 `dist/紙匣.html`（先執行 `python tools/build.py`，需要網路）。三種都要通過。
