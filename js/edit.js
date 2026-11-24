@@ -423,8 +423,9 @@ async function exportEdit(onlySel, btn) {
     }
     const font = st.num || st.head || st.foot ? await out.embedFont(StandardFonts.Helvetica) : null;
     const numbered = st.num ? pages.length - (st.num.skip ? 1 : 0) : 0, lastNo = st.num ? st.num.start + numbered - 1 : 0;
-    const fill = t => t.replace(/\{總頁\}/g, pages.length).replace(/\{日期\}/g, todayText(dateFmt))
-      .replace(/\{檔名\}/g, baseName(name));
+    // Replaced by functions: a string replacement reads $& or $$ in a file name as a pattern, not as text.
+    const fill = t => t.replace(/\{總頁\}/g, () => pages.length).replace(/\{日期\}/g, () => todayText(dateFmt))
+      .replace(/\{檔名\}/g, () => baseName(name));
     const sigCache = new Map(), placed = new Map(); // source page → its first new page, for internal links
     for (let i = 0; i < pages.length; i++) {
       check();

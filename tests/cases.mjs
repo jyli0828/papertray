@@ -144,6 +144,18 @@ export default [
     }
   },
   {
+    name: '編輯：頁首的 {檔名}，檔名有 $ 符號也照原樣',
+    async run() {
+      showTab('edit');
+      await loadEditFiles([await T.labeled([''], 'n.pdf')]);
+      await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
+      $('#edit-name').value = 'US$$5 $& $1.pdf'; T.set('#hf-head', 'File {檔名}');
+      const r = await T.result(() => T.click('#edit-export'));
+      const text = (await T.pdfText(r.file))[0];
+      T.ok(text.includes('File US$$5 $& $1'), '頁首：' + text);
+    }
+  },
+  {
     name: '編輯：選取空白頁',
     async run() {
       showTab('edit');
