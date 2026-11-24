@@ -549,6 +549,29 @@ export default [
     }
   },
   {
+    name: '沒有內嵌字型的中文（舊式 Big5、UCS-2 對應表）：畫得出來，也抽得出文字',
+    async run() {
+      // Older Taiwanese PDFs name a standard font (MingLiU) and an Adobe character map instead of embedding anything;
+      // pdf.js needs its CMap files (lib/cmaps) to read such text at all.
+      const doc = await PDFDocument.create(), ctx = doc.context, page = doc.addPage([300, 200]);
+      const font = enc => ctx.register(ctx.obj({ Type: 'Font', Subtype: 'Type0', BaseFont: 'MingLiU', Encoding: enc,
+        DescendantFonts: [ctx.obj({ Type: 'Font', Subtype: 'CIDFontType2', BaseFont: 'MingLiU',
+          CIDSystemInfo: { Registry: window.PDFLib.PDFString.of('Adobe'), Ordering: window.PDFLib.PDFString.of('CNS1'), Supplement: 0 },
+          FontDescriptor: ctx.register(ctx.obj({ Type: 'FontDescriptor', FontName: 'MingLiU', Flags: 6, FontBBox: [0, -200, 1000, 800],
+            ItalicAngle: 0, Ascent: 800, Descent: -200, CapHeight: 700, StemV: 80 })), DW: 1000 })] }));
+      page.node.set(PDFName.of('Resources'), ctx.obj({ Font: { U: font('UniCNS-UCS2-H'), B: font('ETen-B5-H') } }));
+      page.node.set(PDFName.of('Contents'), ctx.register(ctx.flateStream(
+        'BT /U 30 Tf 30 130 Td <4E2D65875B57> Tj ET BT /B 30 Tf 30 60 Td <A4A4A4E5A672> Tj ET')));
+      const src = pdfFile(await doc.save(), 'big5.pdf');
+      T.ok(await T.ink(src, 0, (r, g, b) => r < 120 && g < 120 && b < 120), '頁面上畫出字');
+      showTab('pdf2img'); await loadP2i([src]);
+      T.set('#p2i-fmt', 'txt');
+      const text = (await (await T.result(() => T.click('#p2i-go'))).file.text()).replace(/^﻿/, '');
+      T.set('#p2i-fmt', 'jpg');
+      T.eq(text.split('\n').map(s => s.replace(/\s+/g, '')).filter(Boolean), ['中文字', '中文字'], JSON.stringify(text));
+    }
+  },
+  {
     name: '文字辨識：掃描檔變成可搜尋的 PDF',
     slow: true, http: true, timeout: 240000,
     async run() {

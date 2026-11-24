@@ -25,6 +25,7 @@ papertray/
 ├─ js/                  程式，見下方「載入順序」
 ├─ lib/                 第三方函式庫的本機副本，見 third-party.md
 │  ├─ pdf-lib.min.js、pdf.min.js、pdf.worker.min.js、jszip.min.js、heic2any.min.js
+│  ├─ cmaps/            PDF.js 的字元對應表，讀沒有內嵌字型的中日韓文字
 │  ├─ qpdf/             qpdf.js 與 qpdf.wasm.js（.wasm 的 base64 版）
 │  └─ tesseract/        Tesseract.js、辨識核心、lang/ 繁中與英文的辨識資料
 ├─ tools/
@@ -76,7 +77,7 @@ papertray/
 
 ## 共用機制（`js/core.js`）
 
-**函式庫延後載入**：`LIBS` 列出 `lib/` 裡的檔案，`loadScript(key)` 第一次用到時才載入。pdf-lib 透過 `PDFDocument.load()`／`create()` 自動載入；pdf.js 用 `openPdfjs()`。剛開啟紙匣時只載入自己的程式（約 1 MB）。`tools/build.py` 會把這些路徑換成 CDN 網址。
+**函式庫延後載入**：`LIBS` 列出 `lib/` 裡的檔案，`loadScript(key)` 第一次用到時才載入。pdf-lib 透過 `PDFDocument.load()`／`create()` 自動載入；pdf.js 用 `openPdfjs()`，自己開 pdf.js 文件時用 `pdfjsOpts()` 的選項（背景程式、字元對應表）。剛開啟紙匣時只載入自己的程式（約 1 MB）。`tools/build.py` 會把這些路徑換成 CDN 網址。
 
 **有密碼的 PDF**：工具讀 PDF 一律用 `readPdf(f)`，有密碼的檔案會就地解除（只有限制的直接解除，要開啟密碼的會跳出輸入框，見 `js/password.js` 的 `unlockPdf()`），使用者取消時回傳 `null`。
 
@@ -154,7 +155,7 @@ python tools/build.py
 
 版本、來源與授權列在 [third-party.md](third-party.md)。更新時：
 
-1. 換掉 `lib/` 裡的檔案。
+1. 換掉 `lib/` 裡的檔案。更新 PDF.js 時，`lib/cmaps/` 也要換成同一版 `pdfjs-dist` 套件裡的 `cmaps/`。
 2. 同步修改 `tools/build.py` 的 `CDN` 表（版本號在網址裡）。
 3. qpdf 更新後，用 `python tools/wasm_to_js.py <qpdf.wasm 路徑> <版本>` 重新產生 `lib/qpdf/qpdf.wasm.js`。這個版本的 qpdf 只認 `locateFile`，不接受直接傳入 wasm 位元組，所以 `js/password.js` 把 base64 轉成 `blob:` 網址交給它。
 4. 把 `sw.js` 的 `CACHE` 改名：`lib/` 的檔名沒有版本號，又是「先用快取」，不改名的話已安裝的使用者會一直用舊版。

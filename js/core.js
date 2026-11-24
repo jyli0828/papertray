@@ -7,9 +7,15 @@ const $ = (s, r = document) => r.querySelector(s);
    only its own code, and each library arrives on the first action that uses it. tools/build.py swaps these paths
    for cdnjs addresses in the bundled pages. */
 const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.js', jszip: 'lib/jszip.min.js', heic: 'lib/heic2any.min.js',
-  tesseract: 'lib/tesseract/tesseract.min.js', qpdf: 'lib/qpdf/qpdf.js', qpdfwasm: 'lib/qpdf/qpdf.wasm.js' };
+  tesseract: 'lib/tesseract/tesseract.min.js', qpdf: 'lib/qpdf/qpdf.js', qpdfwasm: 'lib/qpdf/qpdf.wasm.js',
+  // pdf.js's character maps: Chinese, Japanese and Korean text in a font the PDF does not embed is unreadable
+  // without them (it draws and extracts as nothing). pdf.js fetches only the ones a file names.
+  cmaps: 'lib/cmaps/' };
 /* Tried when the local copy is missing (heic2any is large, so lib/ may not have it). */
-const LIB_FALLBACK = { heic: 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js' };
+const LIB_FALLBACK = { heic: 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js',
+  // Opened straight from disk, browsers refuse to let pdf.js read files next to the page, so the maps come from jsdelivr
+  // (cdnjs does not serve .bcmap files).
+  cmaps: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/' };
 const libLoads = {};
 function loadScript(key) {
   const add = src => new Promise((resolve, reject) => {
@@ -248,9 +254,14 @@ function encryptedMsg(name) { return `「${name}」有密碼保護，可以到�
    otherwise a copy goes to pdf.js. */
 async function openPdfjs(bytes, owned) {
   await needPdfjs();
-  const opts = { data: owned ? bytes : bytes.slice(), isEvalSupported: false };
+  return await pdfjsLib.getDocument(pdfjsOpts(owned ? bytes : bytes.slice())).promise;
+}
+/* The options every pdf.js document is opened with (call after needPdfjs). */
+function pdfjsOpts(data) {
+  const maps = location.protocol === 'file:' && /^lib\//.test(LIBS.cmaps) ? LIB_FALLBACK.cmaps : LIBS.cmaps;
+  const opts = { data, isEvalSupported: false, cMapUrl: new URL(maps, location.href).href, cMapPacked: true };
   const w = pdfWorker(); if (w) opts.worker = w;
-  return await pdfjsLib.getDocument(opts).promise;
+  return opts;
 }
 
 /* pdf-lib's copyPages() brings form fields along with the pages (their widgets and field dictionaries) but not the

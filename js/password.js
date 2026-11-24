@@ -27,9 +27,8 @@ async function runQpdf(args, input) {
 /* pdf.js tells apart "needs a password" (1) and "wrong password" (2). */
 async function pdfjsTry(bytes, password) {
   await needPdfjs();
-  const opts = { data: bytes.slice(), isEvalSupported: false };
+  const opts = pdfjsOpts(bytes.slice());
   if (password != null) opts.password = password;
-  const w = pdfWorker(); if (w) opts.worker = w;
   try { const pj = await pdfjsLib.getDocument(opts).promise; const n = pj.numPages; pj.destroy(); return { ok: true, pages: n }; }
   catch (e) { return { ok: false, need: e && e.name === 'PasswordException', wrong: e && e.code === 2 }; }
 }

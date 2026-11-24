@@ -7,4 +7,5 @@
 *.pdf binary
 *.gz binary
 *.wasm binary
+*.bcmap binary
 *.woff2 binary
