@@ -60,6 +60,7 @@ function rsProgress(i, n) {
 }
 async function resizeFit(check) {
   const src = await PDFDocument.load((await fileBytes(rs.src)).bytes), out = await PDFDocument.create();
+  markLayers(src, 'r'); // see relinkLayers() in core.js
   const orient = $('#rs-orient').value, scaleMode = $('#rs-scale').value, m = +$('#rs-margin').value;
   const pages = src.getPages();
   for (let i = 0; i < pages.length; i++) {
@@ -79,6 +80,7 @@ async function resizeFit(check) {
     out.addPage([TW, TH]).drawPage(emb, { x, y, xScale: s, yScale: s, rotate: degrees(-R) });
   }
   rsProgress(pages.length, pages.length);
+  relinkLayers(out, [['r', src]]); // hidden layers stay hidden
   return out.save({ useObjectStreams: true });
 }
 async function resizeCrop(check) {

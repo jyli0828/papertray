@@ -128,24 +128,12 @@ function readOutline(src) {
   const root = cat.lookupMaybe(N('Outlines'), PDFDict); if (!root) return [];
   const pageAt = new Map(src.getPages().map((p, i) => [p.ref.toString(), i]));
   const text = o => o && o.decodeText ? o.decodeText() : '';
-  // Named destinations: the old /Dests dictionary, or the /Names → /Dests name tree.
-  const oldDests = cat.lookupMaybe(N('Dests'), PDFDict), names = cat.lookupMaybe(N('Names'), PDFDict);
-  const tree = names && names.lookupMaybe(N('Dests'), PDFDict);
-  const inTree = (node, key, depth) => {
-    if (!(node instanceof PDFDict) || depth > 30) return null;
-    const pairs = node.lookupMaybe(N('Names'), PDFArray);
-    if (pairs) for (let i = 0; i + 1 < pairs.size(); i += 2) if (text(pairs.lookup(i)) === key) return pairs.lookup(i + 1);
-    const kids = node.lookupMaybe(N('Kids'), PDFArray);
-    if (kids) for (const k of kids.asArray()) { const r = inTree(ctx.lookup(k), key, depth + 1); if (r) return r; }
-    return null;
-  };
-  const named = key => (oldDests && oldDests.lookup(N(key))) || (tree && inTree(tree, key, 0)) || null;
   const destOf = item => {
     let d = item.get(N('Dest'));
     const a = item.lookupMaybe(N('A'), PDFDict);
     if (!d && a && a.get(N('S')) === N('GoTo')) d = a.get(N('D'));
     d = ctx.lookup(d);
-    if (d && !(d instanceof PDFArray) && !(d instanceof PDFDict)) d = named(text(d)); // a name or a string
+    if (d && !(d instanceof PDFArray) && !(d instanceof PDFDict)) d = namedDest(src, d); // a name or a string (core.js)
     if (d instanceof PDFDict) d = d.lookup(N('D'));
     if (!(d instanceof PDFArray) || !d.size() || !(d.get(0) instanceof L.PDFRef)) return null;
     const page = pageAt.get(d.get(0).toString());
@@ -214,6 +202,7 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   const out = await PDFDocument.create(), srcs = [];
   // Internal links are cut before copying and joined again to the new pages (see unlinkDests() in core.js).
   const placed = new Map(), copy = async (k, idx) => {
+    markLayers(srcs[k], k); // see relinkLayers() in core.js
     const undo = unlinkDests(srcs[k], idx, k), pages = await out.copyPages(srcs[k], idx); undo();
     idx.forEach((i, j) => { if (!placed.has(`${k}:${i}`)) placed.set(`${k}:${i}`, pages[j]); });
     return pages;
@@ -232,6 +221,7 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   check();
   relinkDests(out, (k, i) => placed.get(`${k}:${i}`));
   relinkFormFields(out, srcs); // keep form fields fillable
+  relinkLayers(out, srcs.map((s, k) => [k, s])); // hidden layers stay hidden
   // Bookmarks: each file's own, and (when merging in order) one per file holding them.
   writeOutline(out, srcs.flatMap((src, k) => {
     let own = [];

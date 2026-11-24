@@ -94,6 +94,13 @@ papertray/
 
 **頁面縮圖**：`whenVisible(el, job)` 等卡片捲到附近才畫，同時最多畫兩張；`renderThumb()` 存成 Blob URL，用完 `releaseThumbs()`。
 
+**複製頁面**：pdf-lib 的 `copyPages()` 只複製頁面，而且會把頁面連到的東西整串帶過去。要從一份 PDF 複製頁面到新檔的工具（合併、拆分、編輯、調整尺寸），複製前後各做一次：
+- 內部連結：`unlinkDests()` 先切斷，複製後 `relinkDests()` 接到新頁面；連到沒複製的頁面的連結會移除，否則那些頁面會一起被帶進新檔。
+- 表單：複製後 `relinkFormFields()` 補回欄位清單（AcroForm）。
+- 圖層：`markLayers()` 先標記，複製後 `relinkLayers()` 補回圖層設定，隱藏的圖層才會維持隱藏。
+
+**頁面大小**：看得到的範圍用 `visibleBox(page)`（裁切框和紙張的交集），不要直接用 MediaBox 或 CropBox。
+
 **座標**：`displayToUser()`／`userToDisplay()` 在「畫面上看到的頁面」（左上角為原點、已套用頁面旋轉）與 PDF 座標之間換算。加在頁面上的東西都存成 PDF 座標，旋轉頁面時不會跑掉。
 
 ## 工具頁的結構

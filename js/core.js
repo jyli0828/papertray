@@ -295,37 +295,82 @@ function relinkFormFields(out, sources) {
    still be inside the exported file. So before copying, each link from the pages being copied is pointed at a marker
    instead (unlinkDests, which gives back a function that undoes this in the source); once the new document is put
    together, relinkDests points each marker at the new copy of its page, or removes the link when that page was not
-   copied. tag tells apart the source files of one new document. */
+   copied. A link to a named destination (what LaTeX and Word write) is turned into one to the page itself first: the
+   names live in the source's catalog, which is not copied. Other references from the copied pages' annotations to
+   pages left out (a form field placed on every page, a reply to a comment on another page) are cut for the copy
+   too, or each would bring its whole page along. tag tells apart the source files of one new document. */
 const DEST_MARK = 'papertray-dest:';
-function linkTargets(dict) { // where an annotation's destination array lives: /Dest, or /A with /S /GoTo → /D
-  const N = k => PDFName.of(k), out = [[dict, 'Dest']], a = dict.lookupMaybe(N('A'), PDFDict);
-  if (a && a.get(N('S')) === N('GoTo')) out.push([a, 'D']);
-  return out.map(([d, k]) => d.lookupMaybe(N(k), PDFArray)).filter(arr => arr && arr.size());
+/* Where an annotation's destination lives: [dict, key] for /Dest, and for /A when it is a GoTo action → /D. */
+function linkSlots(dict) {
+  const N = k => PDFName.of(k), out = [[dict, 'Dest']], a = dict.lookup(N('A'));
+  if (a instanceof PDFDict && a.get(N('S')) === N('GoTo')) out.push([a, 'D']);
+  return out;
+}
+/* A named destination (a name or a string) → its destination array, from the catalog's /Dests or its /Names tree. */
+function namedDest(doc, name) {
+  const L = window.PDFLib, ctx = doc.context, N = k => PDFName.of(k), cat = doc.catalog;
+  const key = name instanceof PDFName || name instanceof L.PDFString || name instanceof L.PDFHexString ? name.decodeText() : null;
+  if (key == null) return null;
+  const inTree = (node, depth) => {
+    if (!(node instanceof PDFDict) || depth > 30) return null;
+    const pairs = node.lookup(N('Names'));
+    if (pairs instanceof PDFArray) for (let i = 0; i + 1 < pairs.size(); i += 2) {
+      const k = pairs.lookup(i); if (k && k.decodeText && k.decodeText() === key) return pairs.lookup(i + 1);
+    }
+    const kids = node.lookup(N('Kids'));
+    if (kids instanceof PDFArray) for (const k of kids.asArray()) { const r = inTree(ctx.lookup(k), depth + 1); if (r) return r; }
+    return null;
+  };
+  const old = cat.lookup(N('Dests')), names = cat.lookup(N('Names')), tree = names instanceof PDFDict ? names.lookup(N('Dests')) : null;
+  let d = (old instanceof PDFDict && old.lookup(N(key))) || inTree(tree, 0) || null;
+  if (d instanceof PDFDict) d = d.lookup(N('D'));
+  return d instanceof PDFArray && d.size() ? d : null;
 }
 function unlinkDests(src, indices, tag) {
-  const L = window.PDFLib, ctx = src.context, undo = [];
+  const L = window.PDFLib, ctx = src.context, undo = [], N = k => PDFName.of(k);
   const pageAt = new Map(src.getPages().map((p, i) => [p.ref.toString(), i]));
-  for (const i of new Set(indices)) {
-    const annots = src.getPage(i).node.lookupMaybe(PDFName.of('Annots'), PDFArray); if (!annots) continue;
+  const copied = new Set(indices), seen = new Set();
+  // Cuts references to pages left out, anywhere under an annotation (not into page contents or pictures).
+  const cut = (holder, key, v) => {
+    if (v instanceof L.PDFRef) {
+      const at = pageAt.get(v.toString());
+      if (at !== undefined) { if (!copied.has(at)) { holder.set(key, L.PDFNull); undo.push(() => holder.set(key, v)); } return; }
+      if (seen.has(v.toString())) return;
+      seen.add(v.toString()); v = ctx.lookup(v);
+    }
+    if (v instanceof PDFArray) for (let k = 0; k < v.size(); k++) cut(v, k, v.get(k));
+    else if (v instanceof PDFDict && !(v instanceof L.PDFPageLeaf || v instanceof L.PDFPageTree || v instanceof L.PDFCatalog)) {
+      for (const [k, x] of v.entries()) cut(v, k, x);
+    }
+  };
+  for (const i of copied) {
+    const annots = src.getPage(i).node.lookup(N('Annots')); if (!(annots instanceof PDFArray)) continue;
     for (const ref of annots.asArray()) {
       const a = ctx.lookup(ref); if (!(a instanceof PDFDict)) continue;
-      for (const arr of linkTargets(a)) {
+      for (const [holder, key] of linkSlots(a)) {
+        const raw = holder.get(N(key)), v = ctx.lookup(raw);
+        const arr = v instanceof PDFArray ? v : namedDest(src, v);
+        if (!arr || !arr.size()) continue;
         const first = arr.get(0), t = first instanceof L.PDFRef ? pageAt.get(first.toString()) : undefined;
         if (t === undefined) continue;
-        arr.set(0, PDFName.of(`${DEST_MARK}${tag}:${t}`)); undo.push(() => arr.set(0, first));
+        const mark = PDFName.of(`${DEST_MARK}${tag}:${t}`);
+        if (arr === v) { arr.set(0, mark); undo.push(() => arr.set(0, first)); }
+        else { holder.set(N(key), ctx.obj([mark, ...arr.asArray().slice(1)])); undo.push(() => holder.set(N(key), raw)); }
       }
+      cut(annots, null, ref);
     }
   }
-  return () => undo.forEach(f => f());
+  return () => undo.reverse().forEach(f => f());
 }
 function relinkDests(out, pageFor) { // pageFor(tag, index) → the new PDFPage for that source page, or nothing
   const ctx = out.context, N = k => PDFName.of(k);
   for (const page of out.getPages()) {
-    const annots = page.node.lookupMaybe(N('Annots'), PDFArray); if (!annots) continue;
+    const annots = page.node.lookup(N('Annots')); if (!(annots instanceof PDFArray)) continue;
     const kept = annots.asArray().filter(ref => {
       const a = ctx.lookup(ref); if (!(a instanceof PDFDict)) return true;
       let ok = true;
-      for (const arr of linkTargets(a)) {
+      for (const [holder, key] of linkSlots(a)) {
+        const arr = holder.lookup(N(key)); if (!(arr instanceof PDFArray) || !arr.size()) continue;
         const first = arr.get(0), s = first instanceof PDFName ? first.decodeText() : '';
         if (!s.startsWith(DEST_MARK)) continue;
         const [tag, idx] = s.slice(DEST_MARK.length).split(':'), target = pageFor(tag, +idx);
@@ -335,6 +380,87 @@ function relinkDests(out, pageFor) { // pageFor(tag, index) → the new PDFPage 
     });
     if (kept.length !== annots.size()) page.node.set(N('Annots'), ctx.obj(kept));
   }
+}
+
+/* Layers (optional content): a page names the layers its content belongs to, but which layers show is set once for
+   the whole document, in the catalog's /OCProperties, and copyPages() leaves that behind. Without it every layer
+   shows, the hidden ones too (a CAD drawing's switched-off layers, a watermark meant only for printing). So before
+   copying, markLayers(src, tag) tags each layer of a source with its place in that source's list; afterwards
+   relinkLayers(out, sources) finds the copies by their tags, lists them in the new document with the sources'
+   settings (which are off, their order in the layers panel …) and removes the tags. A layer copied more than once (a
+   page used twice) has one copy per copyPages() call, and each copy gets the settings of the original. */
+const LAYER_MARK = 'PapertrayLayer';
+/* d[k] when it is a T, else null (a broken layer list must not stop the whole job). */
+const lookupAs = (d, k, T) => { const v = d instanceof PDFDict ? d.lookup(PDFName.of(k)) : null; return v instanceof T ? v : null; };
+function layerList(doc) {
+  const props = lookupAs(doc.catalog, 'OCProperties', PDFDict);
+  return { props, ocgs: lookupAs(props, 'OCGs', PDFArray) };
+}
+function markLayers(src, tag) {
+  const { ocgs } = layerList(src); if (!ocgs) return;
+  ocgs.asArray().forEach((ref, i) => {
+    const d = src.context.lookup(ref);
+    if (d instanceof PDFDict) d.set(PDFName.of(LAYER_MARK), window.PDFLib.PDFString.of(`${tag}:${i}`));
+  });
+}
+function relinkLayers(out, sources) { // sources: [[tag, source PDFDocument], …]
+  const L = window.PDFLib, ctx = out.context, N = k => PDFName.of(k), copies = new Map(); // "tag:index" → [new refs]
+  for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
+    const m = obj instanceof PDFDict && obj.lookup(N(LAYER_MARK)); if (!m) continue;
+    obj.delete(N(LAYER_MARK));
+    const k = m.decodeText(); if (!copies.has(k)) copies.set(k, []); copies.get(k).push(ref);
+  }
+  if (!copies.size) return;
+  const all = [], off = [], order = [], extra = { RBGroups: [], Locked: [], AS: [] };
+  let first = null;
+  for (const [tag, src] of sources) {
+    const { props, ocgs } = layerList(src); if (!ocgs) continue;
+    const mine = new Map(); // a source layer → its copies
+    ocgs.asArray().forEach((ref, i) => { const c = copies.get(`${tag}:${i}`); if (c) mine.set(ref.toString(), c); });
+    if (!mine.size) continue;
+    // A part of the source's settings with its layers swapped for their copies, in the new document; layers that were
+    // not copied are left out, and so is a list (or an /AS entry) left without any layer. null when nothing is left.
+    const swap = (v, depth = 0) => {
+      if (depth > 20) return null; // a list that loops back on itself
+      if (v instanceof L.PDFRef) {
+        if (mine.has(v.toString())) return mine.get(v.toString());
+        const t = src.context.lookup(v);
+        return t instanceof PDFArray || (t instanceof PDFDict && t.lookup(N('Type')) !== N('OCG')) ? swap(t, depth + 1) : null;
+      }
+      if (v instanceof PDFArray) {
+        const items = v.asArray().flatMap(x => { const y = swap(x, depth + 1); return y == null ? [] : Array.isArray(y) ? y : [y]; });
+        return items.some(x => !(x instanceof L.PDFString || x instanceof L.PDFHexString)) ? ctx.obj(items) : null;
+      }
+      if (v instanceof PDFDict) {
+        const d = ctx.obj({});
+        for (const [k, x] of v.entries()) {
+          const y = swap(x, depth + 1);
+          if (y == null) { if (k === N('OCGs')) return null; continue; }
+          d.set(k, Array.isArray(y) ? ctx.obj(y) : y);
+        }
+        return d;
+      }
+      return v;
+    };
+    for (const c of mine.values()) all.push(...c);
+    const D = lookupAs(props, 'D', PDFDict);
+    if (!first) first = D;
+    const list = k => { const a = lookupAs(D, k, PDFArray); return a ? a.asArray().map(r => r.toString()) : []; };
+    const baseOff = !!D && D.lookup(N('BaseState')) === N('OFF'), on = new Set(list('ON')), offs = new Set(list('OFF'));
+    for (const [r, c] of mine) if (baseOff ? !on.has(r) : offs.has(r)) off.push(...c);
+    const ord = lookupAs(D, 'Order', PDFArray), o = ord && swap(ord);
+    if (o) order.push(...o.asArray()); else if (!ord) for (const c of mine.values()) order.push(...c);
+    for (const k of Object.keys(extra)) {
+      const a = lookupAs(D, k, PDFArray), s = a && swap(a);
+      if (s) extra[k].push(...s.asArray());
+    }
+  }
+  if (!all.length) return;
+  const D = ctx.obj({ Order: ctx.obj(order) });
+  for (const k of ['Name', 'Intent', 'ListMode']) { const v = first && first.lookup(N(k)); if (v instanceof PDFName || v instanceof L.PDFString || v instanceof L.PDFHexString) D.set(N(k), v); }
+  if (off.length) D.set(N('OFF'), ctx.obj(off));
+  for (const [k, list] of Object.entries(extra)) if (list.length) D.set(N(k), ctx.obj(list));
+  out.catalog.set(N('OCProperties'), ctx.obj({ OCGs: ctx.obj(all), D }));
 }
 
 /* ---------- saving files ---------- */

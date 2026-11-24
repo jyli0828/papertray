@@ -406,7 +406,10 @@ async function exportEdit(onlySel, btn) {
     const copied = new Map(), byDoc = new Map();
     pages.filter(p => !isRedacted(p)).forEach(p => { if (!byDoc.has(p.docId)) byDoc.set(p.docId, []); byDoc.get(p.docId).push(p); });
     const libs = {};
-    for (const docId of byDoc.keys()) libs[docId] = await PDFDocument.load(await edit.docs[docId].pj.getData());
+    for (const docId of byDoc.keys()) {
+      libs[docId] = await PDFDocument.load(await edit.docs[docId].pj.getData());
+      markLayers(libs[docId], docId); // see relinkLayers() in core.js
+    }
     for (const [docId, list] of byDoc) {
       let rest = list;
       while (rest.length) {
@@ -455,6 +458,7 @@ async function exportEdit(onlySel, btn) {
     check();
     relinkDests(out, (docId, i) => placed.get(docId + ':' + i));
     relinkFormFields(out, Object.values(libs)); // keep form fields fillable
+    relinkLayers(out, Object.entries(libs)); // hidden layers stay hidden
     if (md.title) out.setTitle(md.title, { showInWindowTitleBar: true });
     if (md.author) out.setAuthor(md.author);
     if (md.subject) out.setSubject(md.subject);

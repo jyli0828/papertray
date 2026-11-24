@@ -80,6 +80,7 @@ $('#split-go').addEventListener('click', e => runJob(e.currentTarget, '拆分中
   if (error || !groups.length) { toast(error || '沒有要輸出的頁面'); return; }
   const base = baseName(split.name);
   const lib = await PDFDocument.load(await split.pj.getData()); // parsed only for the export, then dropped
+  markLayers(lib, 's'); // see relinkLayers() in core.js
   const files = [];
   for (const g of groups) {
     check();
@@ -88,6 +89,7 @@ $('#split-go').addEventListener('click', e => runJob(e.currentTarget, '拆分中
     copied.forEach(pg => out.addPage(pg));
     relinkDests(out, (tag, i) => copied[g.indexOf(i)]);
     relinkFormFields(out, [lib]); // keep form fields fillable
+    relinkLayers(out, [['s', lib]]); // hidden layers stay hidden
     files.push({ name: `${base}-第${groupLabel(g).replace('–', '-')}頁.pdf`, bytes: await out.save({ useObjectStreams: true }) });
   }
   if (files.length === 1) { await deliver(pdfFile(files[0].bytes, files[0].name), 'pdf', 'split'); return; }

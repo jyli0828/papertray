@@ -1348,6 +1348,104 @@ export default [
       return `整份 ${(whole.length / 1e3).toFixed(0)} KB → 第 1 頁 ${(one.size / 1e3).toFixed(0)} KB`;
     }
   },
+  {
+    name: '具名目的地的內部連結（LaTeX、Word 的寫法）：拆分、編輯、合併不會失敗，連結指向新檔案裡的頁',
+    async run() {
+      const doc = await PDFDocument.create(), ctx = doc.context, N = k => PDFName.of(k), L = window.PDFLib;
+      const pages = [0, 1, 2].map(() => doc.addPage([300, 300]));
+      const link = (y, extra) => ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Link', Rect: [10, y, 100, y + 30], Border: [0, 0, 0], ...extra }));
+      pages[0].node.set(N('Annots'), ctx.obj([
+        link(10, { A: ctx.obj({ S: 'GoTo', D: L.PDFString.of('third') }) }), // a string, from the /Names tree
+        link(50, { Dest: N('second') })                                       // a name, from the old /Dests dictionary
+      ]));
+      doc.catalog.set(N('Names'), ctx.obj({ Dests: ctx.obj({ Names: ctx.obj([L.PDFString.of('third'), ctx.obj([pages[2].ref, N('Fit')])]) }) }));
+      doc.catalog.set(N('Dests'), ctx.obj({ second: ctx.obj([pages[1].ref, N('Fit')]) }));
+      const src = pdfFile(await doc.save(), 'named.pdf');
+      const links = async (file, pno) => {
+        const pj = await T.pdf(file), out = [];
+        for (const a of await (await pj.getPage(pno)).getAnnotations()) if (a.subtype === 'Link') {
+          let d = a.dest; if (typeof d === 'string') d = await pj.getDestination(d);
+          out.push(d ? (await pj.getPageIndex(d[0])) + 1 : null);
+        }
+        pj.destroy(); return out;
+      };
+      showTab('split'); await loadSplit([src]);
+      $('input[name="split-mode"][value="range"]').checked = true; T.set('#split-ranges', '1-3'); renderSplit();
+      T.eq(await links((await T.result(() => T.click('#split-go'))).file, 1), [3, 2], '拆分');
+      T.set('#split-ranges', '1-2'); renderSplit();
+      T.eq(await links((await T.result(() => T.click('#split-go'))).file, 1), [2], '拆分（第 3 頁不在，連到它的連結拿掉）');
+      showTab('edit'); await loadEditFiles([src]); await T.until(() => edit.pages.length === 3 && edit.pages.every(p => p.view), '頁面資訊');
+      T.eq(await links((await T.result(() => T.click('#edit-export'))).file, 1), [3, 2], '編輯');
+      showTab('merge'); await addMergeFiles([await T.labeled(['X'], 'x.pdf'), src]);
+      T.eq(await links((await T.result(() => T.click('#merge-go'))).file, 2), [4, 3], '合併');
+    }
+  },
+  {
+    name: '同一個表單欄位放在每一頁：拆出一頁或刪掉其他頁時，其他頁的內容不會跟著進來，欄位還能填',
+    async run() {
+      const doc = await PDFDocument.create();
+      const c = document.createElement('canvas'); c.width = 600; c.height = 600; const x = c.getContext('2d'), id = x.createImageData(600, 600);
+      for (let i = 0; i < id.data.length; i++) id.data[i] = Math.random() * 255;
+      x.putImageData(id, 0, 0);
+      const jpg = new Uint8Array(await (await new Promise(r => c.toBlob(r, 'image/jpeg', .95))).arrayBuffer());
+      const tf = doc.getForm().createTextField('name');
+      for (let i = 0; i < 8; i++) { const p = doc.addPage([400, 400]); p.drawImage(await doc.embedJpg(jpg), { x: 0, y: 0, width: 400, height: 400 }); tf.addToPage(p, { x: 20, y: 20, width: 200, height: 24 }); }
+      const whole = await doc.save();
+      const images = async f => { const d = await PDFDocument.load((await fileBytes(f)).bytes); return [...d.context.enumerateIndirectObjects()].filter(([, o]) => o instanceof window.PDFLib.PDFRawStream && o.dict.get(PDFName.of('Subtype')) === PDFName.of('Image')).length; };
+      showTab('split'); await loadSplit([pdfFile(whole, 'f.pdf')]);
+      $('input[name="split-mode"][value="range"]').checked = true; T.set('#split-ranges', '1'); renderSplit();
+      const one = (await T.result(() => T.click('#split-go'))).file;
+      T.eq(await images(one), 1, '拆出 1 頁只有 1 張圖');
+      showTab('edit'); await loadEditFiles([pdfFile(whole, 'f.pdf')]);
+      await T.until(() => edit.pages.length === 8 && edit.pages.every(p => p.view), '頁面資訊');
+      edit.pages = edit.pages.slice(0, 2); renderEdit();
+      const ed = (await T.result(() => T.click('#edit-export'))).file;
+      T.eq(await images(ed), 2, '刪掉的 6 頁不在檔案裡');
+      showTab('form'); await loadForm([one]);
+      T.eq(ff.fields.map(f => f.a.fieldName), ['name'], '拆出的頁上欄位還能填');
+      return `整份 ${(whole.length / 1e3).toFixed(0)} KB → 第 1 頁 ${(one.size / 1e3).toFixed(0)} KB`;
+    }
+  },
+  {
+    name: '圖層：預設隱藏的圖層在拆分、編輯（含複製的頁）、合併、調整尺寸後仍然隱藏',
+    async run() {
+      const doc = await PDFDocument.create(), ctx = doc.context, N = k => PDFName.of(k), L = window.PDFLib;
+      const hidden = ctx.register(ctx.obj({ Type: 'OCG', Name: L.PDFString.of('Hidden') }));
+      const shown = ctx.register(ctx.obj({ Type: 'OCG', Name: L.PDFString.of('Shown') }));
+      for (let i = 0; i < 2; i++) {
+        const p = doc.addPage([300, 300]);
+        p.node.set(N('Resources'), ctx.obj({ Properties: ctx.obj({ h: hidden, s: shown }) }));
+        p.node.set(N('Contents'), ctx.register(ctx.flateStream('/OC /h BDC 1 0 0 rg 20 20 100 100 re f EMC /OC /s BDC 0 0 1 rg 180 180 100 100 re f EMC')));
+      }
+      doc.catalog.set(N('OCProperties'), ctx.obj({ OCGs: [hidden, shown], D: ctx.obj({ OFF: [hidden], Order: [shown, hidden] }) }));
+      const src = pdfFile(await doc.save(), 'layers.pdf');
+      const red = (r, g, b) => r > 200 && g < 80 && b < 80, blue = (r, g, b) => b > 200 && r < 80 && g < 80;
+      const check = async (file, what) => {
+        const pj = await T.pdf(file), n = pj.numPages, groups = Object.values((await pj.getOptionalContentConfig()).getGroups() || {}).map(g => g.name).sort();
+        pj.destroy();
+        T.eq([...new Set(groups)], ['Hidden', 'Shown'], what + '：圖層清單');
+        for (let i = 0; i < n; i++) {
+          T.eq(await T.ink(file, i, red), null, `${what} 第 ${i + 1} 頁：隱藏的圖層不該顯示`);
+          T.ok(await T.ink(file, i, blue), `${what} 第 ${i + 1} 頁：顯示的圖層要在`);
+        }
+        const d = await PDFDocument.load((await fileBytes(file)).bytes);
+        T.ok(![...d.context.enumerateIndirectObjects()].some(([, o]) => o instanceof L.PDFDict && o.get(N(LAYER_MARK))), what + '：不留下標記');
+        return n;
+      };
+      await check(src, '原檔');
+      showTab('split'); await loadSplit([src]);
+      $('input[name="split-mode"][value="range"]').checked = true; T.set('#split-ranges', '2'); renderSplit();
+      await check((await T.result(() => T.click('#split-go'))).file, '拆分');
+      showTab('edit'); await loadEditFiles([src]);
+      await T.until(() => edit.pages.length === 2 && edit.pages.every(p => p.view), '頁面資訊');
+      edit.pages.splice(1, 0, { ...edit.pages[0], id: uid(), annots: [] }); renderEdit(); // page 1 twice
+      T.eq(await check((await T.result(() => T.click('#edit-export'))).file, '編輯'), 3, '編輯後頁數');
+      showTab('merge'); await addMergeFiles([src, pdfFile((await fileBytes(src)).bytes.slice(), 'b.pdf')]);
+      T.eq(await check((await T.result(() => T.click('#merge-go'))).file, '合併'), 4, '合併後頁數');
+      showTab('resize'); await loadResize([src]); setRsMode('fit');
+      await check((await T.result(() => T.click('#rs-go'))).file, '調整尺寸');
+    }
+  },
 
   {
     name: '取消：處理中再按一次會停下，工具還能再用',
