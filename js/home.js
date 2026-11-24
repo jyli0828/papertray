@@ -107,6 +107,8 @@ async function sendHomeFiles(tab) {
     if (locked.length) files = locked;
     if (locked.length > 1) toast(`有 ${locked.length} 份檔案有密碼，先處理「${locked[0].name}」；其他的可以之後再放入。`);
   }
+  // A tool still working on its own files must not get new ones under it (see toolBusy()); they stay here for later.
+  if (t && files.length && toolBusy($('#panel-' + tab))) return;
   openTool(tab);
   if (t && files.length) t.load(files.slice());
   else if (homeFiles.length) toast(isImgTool ? '這個工具處理圖片，請在這裡放入圖片' : '這個工具處理 PDF，請在這裡放入 PDF');

@@ -127,8 +127,12 @@ async function busy(btn, label, fn) {
    The button stays clickable while the job runs and shows「取消」; a second click stops the job at its next check(). */
 class Cancelled extends Error { constructor() { super('已取消'); this.cancelled = true; } }
 function runJob(btn, label, fn) {
-  if (btn._job) { btn._job.abort(); return Promise.resolve(); }
-  const ac = new AbortController(); btn._job = ac;
+  if (btn._job) {
+    // The second click of a double-click lands a moment after the first: that is not 「取消」.
+    if (Date.now() - btn._jobAt >= 500) btn._job.abort();
+    return Promise.resolve();
+  }
+  const ac = new AbortController(); btn._job = ac; btn._jobAt = Date.now();
   const old = btn.innerHTML; btn.classList.add('is-running');
   btn.innerHTML = `<span class="spin"></span>${label}<span class="cancel-hint">取消</span>`;
   const check = () => { if (ac.signal.aborted) throw new Cancelled(); };
@@ -136,9 +140,23 @@ function runJob(btn, label, fn) {
     try { return await fn(check, ac.signal); }
     finally {
       btn._job = null; btn.innerHTML = old; btn.classList.remove('is-running');
+      const later = btn._later; btn._later = null; if (later) setJobButton(btn, later);
       if (typeof ocrLeave === 'function') ocrLeave(); // a finished OCR job on a tool left meanwhile: stop the engine now
     }
   })().catch(err => { if (err && err.cancelled) { toast('已取消'); return; } throw err; });
+}
+/* Label, disabled and hidden of a button that runs jobs. While its job runs the button says 「取消」 and has to stay
+   visible and clickable, so what the tool asks for meanwhile (a new label for the list it shows, say) is applied
+   once the job is done. */
+function setJobButton(btn, { text, disabled, hidden }) {
+  if (btn._job) {
+    const l = btn._later || (btn._later = {});
+    if (text != null) l.text = text; if (disabled != null) l.disabled = disabled; if (hidden != null) l.hidden = hidden;
+    return;
+  }
+  if (text != null) btn.textContent = text;
+  if (disabled != null) btn.disabled = disabled;
+  if (hidden != null) btn.hidden = hidden;
 }
 
 /* ---------- finished results ----------
@@ -690,7 +708,8 @@ const canvasBytes = sel => [...document.querySelectorAll(sel)].reduce((n, c) => 
 /* ================= shared: page ranges ================= */
 function parseRanges(text, n) {
   // NFKC turns what a Chinese input method types (１－３，５) into 1-3,5.
-  const toks = String(text || '').normalize('NFKC').split(/[,，、;；\s]+/).filter(Boolean);
+  // Spaces around a dash belong to the range: "1 - 3" is 1-3 (and "1 -3" must not become page 1 plus 1-3).
+  const toks = String(text || '').normalize('NFKC').replace(/\s*([-–~])\s*/g, '$1').split(/[,，、;；\s]+/).filter(Boolean);
   const out = [];
   for (const tok of toks) {
     let m = tok.match(/^(\d+)$/), a, b;

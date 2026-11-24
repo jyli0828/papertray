@@ -184,7 +184,11 @@ async function removeMarked(signal) {
 $('#um-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async (check, signal) => {
   if (await removeMarked(signal)) toast('已移除，不滿意可以按「復原」');
 }).catch(err => toast('處理失敗：' + err.message, 'err')));
-$('#um-undo').addEventListener('click', () => { const s = um.history.pop(); if (s) uctx.putImageData(s.data, s.x, s.y); updateUmButtons(); });
+$('#um-undo').addEventListener('click', () => {
+  // The removal under way read its pixels before this; finishing, it would paint the undone change back.
+  if (um.busy) { toast('正在處理，請等完成再復原'); return; }
+  const s = um.history.pop(); if (s) uctx.putImageData(s.data, s.x, s.y); updateUmButtons();
+});
 async function showOrig(on) {
   um.showingOrig = on;
   if (!on) { umOrig.hidden = true; umOrig.width = umOrig.height = 0; um.origReady = false; return; }

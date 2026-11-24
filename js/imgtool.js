@@ -14,16 +14,18 @@ async function addImgTool(files) {
   }
   renderImgTool();
 }
-function itOutMime(it) {
-  const f = $('#it-fmt').value;
+/* The settings, read once per run so every picture of a batch gets the same ones. */
+const itOpts = () => ({ fmt: $('#it-fmt').value, q: +$('#it-q').value, size: $('#it-size').value, v: Math.max(1, +$('#it-size-v').value || 0) });
+function itOutMime(it, o = itOpts()) {
+  const f = o.fmt;
   if (f === 'jpg') return 'image/jpeg';
   if (f === 'png') return 'image/png';
   if (f === 'webp') return 'image/webp';
   const t = it.file.type;
   return t === 'image/jpeg' || t === 'image/webp' ? t : /\.jpe?g$/i.test(it.name) ? 'image/jpeg' : 'image/png';
 }
-function itTargetSize(it) {
-  const mode = $('#it-size').value, v = Math.max(1, +$('#it-size-v').value || 0);
+function itTargetSize(it, o = itOpts()) {
+  const mode = o.size, v = o.v;
   let k = 1;
   if (mode === 'long') k = Math.min(1, v / Math.max(it.w, it.h));
   else if (mode === 'pct') k = Math.min(1, v / 100);
@@ -43,7 +45,7 @@ function renderImgTool() {
     list.append(li);
   });
   const n = itool.items.length;
-  $('#it-empty').hidden = n > 0; $('#it-go').disabled = !n;
+  $('#it-empty').hidden = n > 0; setJobButton($('#it-go'), { disabled: !n });
   $('#it-zip-field').hidden = n < 2;
   $('#it-summary').textContent = n ? `${n} 張 · 共 ${fmtSize(itool.items.reduce((s, x) => s + x.size, 0))}` : '';
   const mode = $('#it-size').value;
@@ -54,19 +56,25 @@ function renderImgTool() {
 }
 $('#it-list').addEventListener('click', e => {
   const b = e.target.closest('[data-act="remove"]'); if (!b) return;
+  if ($('#it-go').classList.contains('is-running')) { toast('正在處理，請等完成（或按「取消」）再調整清單'); return; }
   const i = itool.items.findIndex(x => x.id === b.closest('.file-row').dataset.id);
   URL.revokeObjectURL(itool.items[i].url); itool.items.splice(i, 1); renderImgTool();
 });
-['#it-fmt', '#it-q', '#it-size', '#it-size-v'].forEach(s => $(s).addEventListener('input', () => { itool.items.forEach(it => { it.out = null; }); renderImgTool(); }));
-$('#it-size').addEventListener('change', () => { $('#it-size-v').value = $('#it-size').value === 'pct' ? 50 : 1920; renderImgTool(); });
-async function processImage(it) {
-  const mime = itOutMime(it), [w, h] = itTargetSize(it);
+/* A setting changed: earlier results no longer match it, and a run under way stops. */
+function itSettingsChanged() {
+  const go = $('#it-go'); if (go._job) go._job.abort();
+  itool.items.forEach(it => { it.out = null; }); renderImgTool();
+}
+['#it-fmt', '#it-q', '#it-size', '#it-size-v'].forEach(s => $(s).addEventListener('input', itSettingsChanged));
+$('#it-size').addEventListener('change', () => { $('#it-size-v').value = $('#it-size').value === 'pct' ? 50 : 1920; itSettingsChanged(); });
+async function processImage(it, o) {
+  const mime = itOutMime(it, o), [w, h] = itTargetSize(it, o);
   const bmp = await createImageBitmap(it.file);
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d'); ctx.imageSmoothingQuality = 'high';
   if (mime === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); } // JPEG has no transparency
   ctx.drawImage(bmp, 0, 0, w, h); bmp.close && bmp.close();
-  const blob = await new Promise(r => cv.toBlob(r, mime, +$('#it-q').value));
+  const blob = await new Promise(r => cv.toBlob(r, mime, o.q));
   cv.width = cv.height = 0;
   if (!blob) throw new Error(`「${it.name}」無法輸出`);
   // A browser without WebP encoding silently hands back PNG; name the file by what we really got.
@@ -74,9 +82,10 @@ async function processImage(it) {
   return { blob, w, h, size: blob.size, name: it.name.replace(/\.[^.]+$/, '') + '.' + ext };
 }
 $('#it-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async check => {
-  const outs = [];
-  for (const it of itool.items) { check(); it.out = await processImage(it); outs.push(it.out); renderImgTool(); }
-  if ($('#it-fmt').value === 'webp' && outs.some(o => !/\.webp$/.test(o.name))) toast('這個瀏覽器不支援輸出 WebP，已改存成 PNG');
+  const outs = [], o = itOpts();
+  for (const it of itool.items.slice()) { check(); it.out = await processImage(it, o); outs.push(it.out); renderImgTool(); } // the list as it was when the button was pressed
+  check(); // a setting changed during the last picture
+  if (o.fmt === 'webp' && outs.some(x => !/\.webp$/.test(x.name))) toast('這個瀏覽器不支援輸出 WebP，已改存成 PNG');
   if (outs.length === 1) {
     await deliver(new File([outs[0].blob], outs[0].name, { type: outs[0].blob.type }), 'image', 'imgtool');
     return;

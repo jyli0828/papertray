@@ -60,7 +60,7 @@ function renderIdSides() {
     if (it) slot.querySelector('.id-card img').src = it.url;
   });
   const n = idc.sides.filter(Boolean).length;
-  $('#id-go').disabled = !n;
+  setJobButton($('#id-go'), { disabled: !n });
   $('#id-summary').textContent = !n ? '放入證件的正面與反面照片'
     : n === 2 ? '正面 + 反面 → 1 頁 A4' : (idc.sides[0] ? '只有正面' : '只有反面') + ' → 1 頁 A4';
   drawIdPreview();

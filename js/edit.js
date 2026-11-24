@@ -68,8 +68,10 @@ document.addEventListener('keydown', e => {
 /* ---------- loading ---------- */
 /* insertAt: position in the page list for the new pages (default: the end). replace: the first file that opens
    takes the place of whatever the editor held (signing or redacting a new PDF must not carry the last one along);
-   the old files are only closed once the new one has opened, so a cancelled password prompt loses nothing. */
-async function loadEditFiles(files, onFirst, insertAt, replace) {
+   the old files are only closed once the new one has opened, so a cancelled password prompt loses nothing.
+   undoable: adding the pages is one undo step, recorded only once a file has really opened (a file that is not a
+   PDF, or a cancelled password prompt, leaves nothing to undo). */
+async function loadEditFiles(files, onFirst, insertAt, replace, undoable) {
   let at = insertAt == null ? null : insertAt;
   for (let f of files) {
     if (!isPdf(f) && isImage(f)) { // a picture is inserted as an A4 page
@@ -87,6 +89,7 @@ async function loadEditFiles(files, onFirst, insertAt, replace) {
       replace = false;
       if (edit.pages.length || editHist.undo.length) { clearEdit(); toast(`已關閉之前的檔案，改為處理「${f.name}」`); }
     }
+    if (undoable) { pushUndo(); undoable = false; }
     const docId = uid();
     edit.docs[docId] = { name: f.name, pj, size };
     if (!edit.pages.length) { $('#edit-name').value = baseName(f.name) + '-編輯.pdf'; fillDocInfo(pj); }
@@ -167,7 +170,7 @@ function renderEdit() {
   $('#edit-stat').textContent = `${n} 頁` + (s ? ` · 已選 ${s}` : '');
   $('#edit-rot-sel').disabled = !s; $('#edit-del-sel').disabled = !s;
   $('#edit-selall').textContent = s === n && n ? '取消全選' : '全選';
-  const xs = $('#edit-export-sel'); xs.hidden = !s || s === n; xs.textContent = `只匯出選取的 ${s} 頁`;
+  setJobButton($('#edit-export-sel'), { hidden: !s || s === n, text: `只匯出選取的 ${s} 頁` });
   $('#edit-insert-hint').textContent = s ? '插入到選取頁之後' : '插入到最後';
   updateUndoButtons();
 }
@@ -206,15 +209,14 @@ $('#edit-grid').addEventListener('click', e => {
 });
 makeSortable($('#edit-grid'), '.page-card', () => edit.pages, renderEdit, true, () => pushUndo());
 bindInput($('#edit-input'), loadEditFiles);
-bindInput($('#edit-input-more'), files => { pushUndo(); loadEditFiles(files, null, insertPos()); });
-acceptFiles($('#panel-edit'), $('#edit-drop'), files => { if (edit.pages.length) pushUndo(); loadEditFiles(files, null, edit.pages.length ? insertPos() : null); });
+bindInput($('#edit-input-more'), files => loadEditFiles(files, null, insertPos(), false, true));
+acceptFiles($('#panel-edit'), $('#edit-drop'), files => loadEditFiles(files, null, edit.pages.length ? insertPos() : null, false, edit.pages.length > 0));
 $('#edit-blank').addEventListener('click', async () => {
   const pos = insertPos(), ref = edit.pages[pos - 1] || edit.pages[pos];
   let size = [595.28, 841.89];
   if (ref && fillMeta(ref)) size = dispSize(ref.view, (ref.baseRot + ref.rot) % 360);
   const doc = await PDFDocument.create(); doc.addPage(size);
-  pushUndo();
-  await loadEditFiles([pdfFile(await doc.save(), '空白頁.pdf')], null, pos);
+  await loadEditFiles([pdfFile(await doc.save(), '空白頁.pdf')], null, pos, false, true);
   toast('已插入空白頁');
 });
 $('#edit-sample').addEventListener('click', async () => {
@@ -388,9 +390,15 @@ async function renderShapePng(a) {
 }
 
 async function exportEdit(onlySel, btn) {
-  const pages = onlySel ? edit.pages.filter(p => p.selected) : edit.pages.slice();
-  if (!pages.length) { toast('沒有可匯出的頁面'); return; }
-  if (!pages.every(fillMeta)) { toast('頁面還在載入，請稍候再匯出'); return; }
+  const list = onlySel ? edit.pages.filter(p => p.selected) : edit.pages.slice();
+  if (btn._job) { runJob(btn); return; } // a second click cancels
+  if (!list.length) { toast('沒有可匯出的頁面'); return; }
+  if (!list.every(fillMeta)) { toast('頁面還在載入，請稍候再匯出'); return; }
+  // The pages and settings as they are now: turning a page or changing a setting while this runs must not end up
+  // in part of the file.
+  const pages = list.map(p => ({ ...p, annots: p.annots.map(a => ({ ...a })) }));
+  const st = stampOptions(), name = ensurePdf($('#edit-name').value), dateFmt = $('#te-datefmt').value;
+  const md = Object.fromEntries(MD_FIELDS.map(k => [k, $('#md-' + k).value.trim()])), strip = $('#md-strip').checked;
   await runJob(btn, '產生中…', async check => {
     const out = await PDFDocument.create({ updateMetadata: false });
     // Copy pages per source file. A page used twice (duplicated) needs its own copy, so repeats go in later rounds.
@@ -410,10 +418,9 @@ async function exportEdit(onlySel, btn) {
         rest = later;
       }
     }
-    const st = stampOptions(), name = ensurePdf($('#edit-name').value);
     const font = st.num || st.head || st.foot ? await out.embedFont(StandardFonts.Helvetica) : null;
     const numbered = st.num ? pages.length - (st.num.skip ? 1 : 0) : 0, lastNo = st.num ? st.num.start + numbered - 1 : 0;
-    const fill = t => t.replace(/\{總頁\}/g, pages.length).replace(/\{日期\}/g, todayText($('#te-datefmt').value))
+    const fill = t => t.replace(/\{總頁\}/g, pages.length).replace(/\{日期\}/g, todayText(dateFmt))
       .replace(/\{檔名\}/g, baseName(name));
     const sigCache = new Map(), placed = new Map(); // source page → its first new page, for internal links
     for (let i = 0; i < pages.length; i++) {
@@ -448,12 +455,11 @@ async function exportEdit(onlySel, btn) {
     check();
     relinkDests(out, (docId, i) => placed.get(docId + ':' + i));
     relinkFormFields(out, Object.values(libs)); // keep form fields fillable
-    const md = Object.fromEntries(MD_FIELDS.map(k => [k, $('#md-' + k).value.trim()]));
     if (md.title) out.setTitle(md.title, { showInWindowTitleBar: true });
     if (md.author) out.setAuthor(md.author);
     if (md.subject) out.setSubject(md.subject);
     if (md.keywords) out.setKeywords(md.keywords.split(/[,，、;；]+/).map(s => s.trim()).filter(Boolean));
-    if (!$('#md-strip').checked) { const now = new Date(); out.setCreator('紙匣'); out.setProducer('紙匣'); out.setCreationDate(now); out.setModificationDate(now); }
+    if (!strip) { const now = new Date(); out.setCreator('紙匣'); out.setProducer('紙匣'); out.setCreationDate(now); out.setModificationDate(now); }
     const bytes = await out.save({ useObjectStreams: true });
     await deliver(pdfFile(bytes, name), 'pdf', 'edit');
   }).catch(err => toast('匯出失敗：' + err.message, 'err'));

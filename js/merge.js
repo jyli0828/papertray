@@ -73,13 +73,14 @@ function updateMergeSummary() {
   const hint = $('#merge-how-hint'); hint.hidden = !zip; hint.classList.toggle('warn', zip && n !== 2);
   if (zip) {
     if (n !== 2) hint.textContent = `交錯合併要剛好兩份檔案：先放正面，再放反面（目前 ${n} 份）。`;
-    else if (!bad) {
+    else if (bad) { hint.textContent = '取頁的頁碼有誤，修正後會顯示交錯的順序。'; hint.classList.add('warn'); }
+    else {
       const [a, b] = merge.items.map(it => mergePicks(it).idx.length);
       const show = mergeZipOrder().slice(0, 6).map(([k, i]) => (k ? '反' : '正') + (i + 1)).join('、');
       hint.textContent = `順序：${show}${a + b > 6 ? '…' : ''}（數字是各檔案裡的頁碼）` + (a !== b ? `。正面 ${a} 頁、反面 ${b} 頁，數量不同，多出來的頁面接在最後；請確認沒有漏掃。` : '');
     }
   }
-  $('#merge-go').disabled = n < 2 || bad || (zip && n !== 2);
+  setJobButton($('#merge-go'), { disabled: n < 2 || bad || (zip && n !== 2) });
   $('#merge-summary').textContent = n ? `${n} 個檔案 · 合併後 ${pages} 頁 · 原始共 ${fmtSize(size)}` : '';
 }
 /* Two-sided scanning on a one-sided feeder: the fronts as one file, then the stack turned over for the backs, which
@@ -106,6 +107,7 @@ $('#merge-list').addEventListener('pointerdown', e => { if (e.target.closest('[d
 $('#merge-list').addEventListener('focusout', e => { if (e.target.closest('[data-range]')) e.target.closest('.file-row').draggable = true; });
 $('#merge-list').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
+  if ($('#merge-go').classList.contains('is-running')) { toast('正在合併，請等完成（或按「取消」）再調整清單'); return; }
   const id = b.closest('.file-row').dataset.id;
   const i = merge.items.findIndex(x => x.id === id); const a = merge.items;
   if (b.dataset.act === 'up' && i > 0) [a[i - 1], a[i]] = [a[i], a[i - 1]];
@@ -203,6 +205,12 @@ function placeOutline(items, pageFor) {
 $('#merge-how').addEventListener('change', () => { $('#merge-bm-wrap').hidden = $('#merge-how').value === 'zip'; });
 
 $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中…', async check => {
+  // The list as it is now: moving or removing a file while this runs must not change which pages go in, or which
+  // file each bookmark is named after.
+  const items = merge.items.slice(), how = $('#merge-how').value, perFile = $('#merge-bm').checked && how !== 'zip';
+  const picks = items.map(it => mergePicks(it)), bad = picks.findIndex(r => r.error);
+  if (bad >= 0) throw new Error(`「${items[bad].name}」${picks[bad].error}`);
+  const order = how === 'zip' && items.length === 2 ? mergeZipOrder() : null;
   const out = await PDFDocument.create(), srcs = [];
   // Internal links are cut before copying and joined again to the new pages (see unlinkDests() in core.js).
   const placed = new Map(), copy = async (k, idx) => {
@@ -210,29 +218,26 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
     idx.forEach((i, j) => { if (!placed.has(`${k}:${i}`)) placed.set(`${k}:${i}`, pages[j]); });
     return pages;
   };
-  if ($('#merge-how').value === 'zip' && merge.items.length === 2) {
-    const order = mergeZipOrder();
-    for (const it of merge.items) { check(); srcs.push(await PDFDocument.load((await fileBytes(it.src)).bytes)); }
+  if (order) {
+    for (const it of items) { check(); srcs.push(await PDFDocument.load((await fileBytes(it.src)).bytes)); }
     const copied = [];
     for (const k of [0, 1]) copied.push(await copy(k, order.filter(o => o[0] === k).map(o => o[1])));
     const next = [0, 0];
     for (const [k] of order) out.addPage(copied[k][next[k]++]);
-  } else for (const it of merge.items) {
+  } else for (let k = 0; k < items.length; k++) {
     check();
-    const r = mergePicks(it); if (r.error) throw new Error(`「${it.name}」${r.error}`);
-    srcs.push(await PDFDocument.load((await fileBytes(it.src)).bytes));
-    (await copy(srcs.length - 1, r.idx)).forEach(p => out.addPage(p));
+    srcs.push(await PDFDocument.load((await fileBytes(items[k].src)).bytes));
+    (await copy(k, picks[k].idx)).forEach(p => out.addPage(p));
   }
   check();
   relinkDests(out, (k, i) => placed.get(`${k}:${i}`));
   relinkFormFields(out, srcs); // keep form fields fillable
   // Bookmarks: each file's own, and (when merging in order) one per file holding them.
-  const perFile = $('#merge-bm').checked && $('#merge-how').value !== 'zip';
   writeOutline(out, srcs.flatMap((src, k) => {
     let own = [];
     try { own = placeOutline(readOutline(src), i => placed.get(`${k}:${i}`)); } catch (err) { own = []; } // a broken outline is left out
     if (!perFile) return own;
-    const it = merge.items[k], first = placed.get(`${k}:${mergePicks(it).idx[0]}`);
+    const it = items[k], first = placed.get(`${k}:${picks[k].idx[0]}`);
     return first ? [{ title: baseName(it.name), page: first, open: true, kids: own }] : [];
   }));
   const bytes = await out.save({ useObjectStreams: true });

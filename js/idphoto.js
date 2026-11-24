@@ -58,7 +58,7 @@ async function loadPh(files) {
   Object.assign(ph, { file: f, bmp });
   phReset();
   $('#ph-drop').hidden = true; $('#ph-sample-row').hidden = true; $('#ph-edit').hidden = false;
-  $('#ph-go').disabled = false;
+  setJobButton($('#ph-go'), { disabled: false });
   drawPhAll();
 }
 /* A first guess for a typical portrait: the face is a little above the middle and the frame takes about two thirds
@@ -145,8 +145,7 @@ function updatePhSummary(L) {
   const s = L.s;
   $('#ph-summary').textContent = !L.cells.length ? '這個尺寸放不進這張紙'
     : `${s.label} ${s.w / 10} × ${s.h / 10} cm · ${L.paper.name}排 ${L.cells.length} 張`;
-  $('#ph-go').disabled = !ph.bmp || !L.cells.length;
-  $('#ph-go').textContent = $('#ph-paper').value === 'a4' ? '產生 PDF' : '產生 JPG';
+  setJobButton($('#ph-go'), { disabled: !ph.bmp || !L.cells.length, text: $('#ph-paper').value === 'a4' ? '產生 PDF' : '產生 JPG' });
   const name = $('#ph-name'), ext = $('#ph-paper').value === 'a4' ? '.pdf' : '.jpg';
   if (/^證件照-.*\.(jpg|pdf)$/.test(name.value) || !name.value.trim()) name.value = `證件照-${s.label}${ext}`;
   else name.value = name.value.replace(/\.(jpg|jpeg|pdf)$/i, '') + ext;

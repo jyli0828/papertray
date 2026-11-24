@@ -98,7 +98,9 @@ $('#rf-go').addEventListener('click', e => {
   const targets = $('#rf-scope').value === 'page' ? [te.page] : edit.pages.filter(fillMeta);
   const out = $('#rf-result'), useOcr = $('#rf-ocr').checked;
   runJob(e.currentTarget, '尋找中…', async check => {
-    const counts = {}; let hits = 0, pagesHit = 0, anyText = false, ocrPages = 0;
+    // Boxes are put on the pages only once every page has been searched: closing the editor cancels the search
+    // (finishEditor), and a search cut short must not leave boxes behind outside the editor's undo step.
+    const counts = {}, adds = []; let hits = 0, anyText = false, ocrPages = 0;
     for (let n = 0; n < targets.length; n++) {
       check();
       const p = targets[n], m = edit.meta[metaKey(p)], R = (p.baseRot + p.rot) % 360;
@@ -124,6 +126,11 @@ $('#rf-go').addEventListener('click', e => {
           counts[pat.label] = (counts[pat.label] || 0) + 1; hits++;
         }
       }
+      if (boxes.length) adds.push([p, boxes]);
+    }
+    check();
+    let pagesHit = 0;
+    for (const [p, boxes] of adds) {
       let added = 0;
       for (const bx of boxes) {
         if (p.annots.some(a => a.type === 'redact' && boxOverlap(annotUserBox(a, p.view), bx) > .8)) continue; // already covered

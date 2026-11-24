@@ -35,7 +35,7 @@ function renderCmpSlots() {
     $('#cmp-drop-' + s).hidden = !!d; $('#cmp-card-' + s).hidden = !d;
     if (d) { $('#cmp-name-' + s).textContent = d.name; $('#cmp-meta-' + s).textContent = `${d.pj.numPages} 頁 · ${fmtSize(d.size)}`; }
   }
-  $('#cmp-go').disabled = !(cmp.a && cmp.b);
+  setJobButton($('#cmp-go'), { disabled: !(cmp.a && cmp.b) });
   $('#cmp-sample-row').hidden = !!(cmp.a && cmp.b);
 }
 function clearCmpResult() {
@@ -201,6 +201,7 @@ $('#cmp-go').addEventListener('click', e => {
       return;
     }
     const { hunks, tooBig } = cmpDiff(TA, TB);
+    check();
     $('#cmp-progress').hidden = true;
     cmp.res = { A, B, TA, TB, hunks };
     showCmpResult(tooBig);
@@ -329,9 +330,11 @@ function setCmpMode(m) {
   [$('#cmp-mode-note').textContent, $('#cmp-note').textContent] = CMP_NOTES[m];
   clearCmpResult();
 }
-$('#cmp-m-text').addEventListener('click', () => setCmpMode('text'));
-$('#cmp-m-visual').addEventListener('click', () => setCmpMode('visual'));
-$('#cmp-sens').addEventListener('change', clearCmpResult);
+/* Changing what is compared cancels a comparison under way: its result would answer the question asked before. */
+const cmpStop = () => { const go = $('#cmp-go'); if (go._job) go._job.abort(); };
+$('#cmp-m-text').addEventListener('click', () => { cmpStop(); setCmpMode('text'); });
+$('#cmp-m-visual').addEventListener('click', () => { cmpStop(); setCmpMode('visual'); });
+$('#cmp-sens').addEventListener('change', () => { cmpStop(); clearCmpResult(); });
 setCmpMode('text');
 
 /* One page drawn upright, CMP_VIS_W pixels wide. */
@@ -432,6 +435,7 @@ async function cmpVisual(A, B, s, check) {
       }
     } finally { ra.cv.width = ra.cv.height = 0; rb.cv.width = rb.cv.height = 0; }
   }
+  check();
   $('#cmp-progress').hidden = true;
   cmp.res = { vis: true, A, B, hunks };
   showCmpVisual(nA, nB, pagesHit);

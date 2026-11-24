@@ -28,8 +28,11 @@ async function loadForm(files) {
     $('#ff-go').disabled = true; return;
   }
   const maxW = Math.min(900, box.clientWidth || 900), dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let unreadable = 0;
   for (let i = 1; i <= pj.numPages; i++) {
-    const pg = await pj.getPage(i); if (token !== ff.token) return;
+    let pg;
+    try { pg = await pj.getPage(i); } catch (e) { if (token !== ff.token) return; unreadable++; continue; } // a broken page: show the rest
+    if (token !== ff.token) return;
     const vp1 = pg.getViewport({ scale: 1 });
     const pageEl = document.createElement('div'); pageEl.className = 'ff-page';
     pageEl.style.aspectRatio = `${vp1.width} / ${vp1.height}`; pageEl.style.maxWidth = maxW + 'px';
@@ -68,6 +71,7 @@ async function loadForm(files) {
   $('#ff-none').hidden = names.size > 0;
   $('#ff-none-text').textContent = '這份 PDF 沒有可填寫的欄位。要在任何位置加上文字或打勾，請改用「編輯」分頁的文字工具。';
   $('#ff-go').disabled = !names.size;
+  if (unreadable) toast(`「${f.name}」有 ${unreadable} 頁無法讀取，檔案可能已損壞；其他頁面可以照常填寫。`, 'err');
   const first = box.querySelector('.ff-field'); if (first) first.focus({ preventScroll: true });
 }
 function initialValue(a) {
@@ -211,6 +215,8 @@ async function pictureAppearance(doc, field, text) {
   }
 }
 $('#ff-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…', async check => {
+  // The values as they are now (清除 or typing while this runs must not reach only some of the fields).
+  const vals = new Map(ff.vals), flatten = $('#ff-flatten').checked, name = ensurePdf($('#ff-name').value);
   await needPdfLib();
   const L = window.PDFLib;
   const doc = await PDFDocument.load(await ff.pj.getData());
@@ -218,8 +224,8 @@ $('#ff-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
   const problems = [];
   for (const field of form.getFields()) {
     check();
-    const name = field.getName(); if (!ff.vals.has(name)) continue;
-    const v = ff.vals.get(name);
+    const fname = field.getName(); if (!vals.has(fname)) continue;
+    const v = vals.get(fname);
     try {
       if (field instanceof L.PDFTextField) {
         field.setText(v ? v : undefined);
@@ -235,16 +241,16 @@ $('#ff-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
         if (v) field.select(v); else field.clear();
         await writeAppearance(doc, field, helv, v || '');
       }
-    } catch (err) { problems.push(name); }
+    } catch (err) { problems.push(fname); }
   }
   check();
-  if ($('#ff-flatten').checked) {
+  if (flatten) {
     try { form.flatten({ updateFieldAppearances: false }); }
     catch (err) { throw new Error('這份表單無法壓平，可以取消「壓平」再試一次'); }
   }
   const bytes = await doc.save({ useObjectStreams: true, updateFieldAppearances: false });
   if (problems.length) toast(`有 ${problems.length} 個欄位無法寫入：${problems.slice(0, 3).join('、')}${problems.length > 3 ? '…' : ''}`, 'err');
-  await deliver(pdfFile(bytes, ensurePdf($('#ff-name').value)), 'pdf', 'form');
+  await deliver(pdfFile(bytes, name), 'pdf', 'form');
 }).catch(err => toast('匯出失敗：' + err.message, 'err')));
 
 bindInput($('#ff-input'), loadForm);

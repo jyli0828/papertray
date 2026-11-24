@@ -25,7 +25,12 @@ function renderSigLists() {
 }
 function onSigListClick(e) {
   const del = e.target.closest('[data-del]');
-  if (del) { e.stopPropagation(); const i = +del.dataset.del; sigs.list.splice(i, 1); sigs.sel = sigs.list.length ? 0 : -1; persistSigs(); renderSigLists(); toast('已刪除簽名'); return; }
+  if (del) {
+    e.stopPropagation(); const i = +del.dataset.del; sigs.list.splice(i, 1);
+    // The chosen signature stays chosen when another one is deleted.
+    sigs.sel = !sigs.list.length ? -1 : i < sigs.sel ? sigs.sel - 1 : i === sigs.sel ? 0 : sigs.sel;
+    persistSigs(); renderSigLists(); toast('已刪除簽名'); return;
+  }
   const it = e.target.closest('.sig-item'); if (!it) return;
   sigs.sel = +it.dataset.i; renderSigLists();
   if (te.page) toast('點頁面上要簽的位置');

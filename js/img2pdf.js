@@ -58,11 +58,12 @@ function renderImgs() {
     list.append(li);
   });
   $('#img-empty').hidden = n > 0;
-  $('#img-go').disabled = !n;
+  setJobButton($('#img-go'), { disabled: !n });
   $('#img-summary').textContent = n ? `${n} 張圖片 → ${n} 頁 PDF` : '';
 }
 $('#img-list').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
+  if ($('#img-go').classList.contains('is-running')) { toast('正在轉換，請等完成（或按「取消」）再調整清單'); return; }
   const id = b.closest('.file-row').dataset.id;
   const a = imgs.items, i = a.findIndex(x => x.id === id);
   if (b.dataset.act === 'up' && i > 0) [a[i - 1], a[i]] = [a[i], a[i - 1]];
@@ -104,7 +105,7 @@ $('#img-go').addEventListener('click', e => runJob(e.currentTarget, '轉換中�
   const sizeOpt = $('#img-size').value, orient = $('#img-orient').value, margin = +$('#img-margin').value;
   const PAPER = { a4: [595.28, 841.89], letter: [612, 792] };
   const out = await PDFDocument.create();
-  for (const it of imgs.items) {
+  for (const it of imgs.items.slice()) { // the list as it was when the button was pressed
     check();
     const { kind, bytes } = await imageBytesFor(it);
     const img = kind === 'png' ? await out.embedPng(bytes) : await out.embedJpg(bytes);

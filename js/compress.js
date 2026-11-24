@@ -43,6 +43,11 @@ async function loadCompFile(files) {
   renderCompList();
 }
 function clearCompResults() { comp.items.forEach(it => { it.out = null; }); $('#comp-result').hidden = true; $('#comp-progress').hidden = true; }
+/* A setting changed: the results so far no longer match it, and a run under way stops (its results are cleared too). */
+function compSettingsChanged() {
+  const go = $('#comp-go'); if (go._job) go._job.abort();
+  clearCompResults(); renderCompList();
+}
 function renderCompList() {
   const n = comp.items.length;
   $('#comp-empty').hidden = n > 0; $('#comp-work').hidden = !n;
@@ -66,7 +71,7 @@ function renderCompList() {
   }
   const total = comp.items.reduce((s, x) => s + x.size, 0);
   $('#comp-hint').textContent = n > 1 ? `${n} 份 · 共 ${fmtSize(total)}，會用同樣的設定依序壓縮` : '壓縮在你的裝置上進行，頁數多時需要一點時間。';
-  $('#comp-go').textContent = n > 1 ? `壓縮 ${n} 份` : '開始壓縮';
+  setJobButton($('#comp-go'), { text: n > 1 ? `壓縮 ${n} 份` : '開始壓縮' });
 }
 $('#comp-list').addEventListener('click', e => {
   const b = e.target.closest('[data-act="remove"]'); if (!b || $('#comp-go').classList.contains('is-running')) return;
@@ -88,7 +93,7 @@ function setCompMode(m) {
   bwOpt.disabled = m === 'keep';
   if (m === 'keep' && $('#comp-color').value === 'bw') $('#comp-color').value = 'gray';
   updateCompSpecs();
-  clearCompResults(); renderCompList();
+  compSettingsChanged();
 }
 function updateCompSpecs() {
   const bw = comp.mode === 'raster' && $('#comp-color').value === 'bw', target = compTarget();
@@ -104,13 +109,13 @@ function updateCompSpecs() {
 }
 $('#comp-m-keep').addEventListener('click', () => setCompMode('keep'));
 $('#comp-m-raster').addEventListener('click', () => setCompMode('raster'));
-document.querySelectorAll('input[name="level"]').forEach(r => r.addEventListener('change', () => { clearCompResults(); renderCompList(); }));
-$('#comp-color').addEventListener('change', () => { updateCompSpecs(); clearCompResults(); renderCompList(); });
+document.querySelectorAll('input[name="level"]').forEach(r => r.addEventListener('change', compSettingsChanged));
+$('#comp-color').addEventListener('change', () => { updateCompSpecs(); compSettingsChanged(); });
 $('#comp-target').addEventListener('change', () => {
-  updateCompSpecs(); clearCompResults(); renderCompList();
+  updateCompSpecs(); compSettingsChanged();
   if ($('#comp-target').value === 'custom') $('#comp-target-custom').focus();
 });
-$('#comp-target-custom').addEventListener('input', () => { updateCompSpecs(); clearCompResults(); renderCompList(); });
+$('#comp-target-custom').addEventListener('input', () => { updateCompSpecs(); compSettingsChanged(); });
 
 function progress(i, n, unit = '頁') {
   const f = comp.file, pre = (f.n > 1 ? `第 ${f.i + 1} / ${f.n} 份 · ` : '') + (comp.attempt ? `第 ${comp.attempt} 次試壓 · ` : '');
@@ -474,6 +479,7 @@ $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中�
       renderCompList();
     }
   } finally { comp.attempt = 0; }
+  check(); // a setting changed during the last file: its results were cleared
   comp.file.i = comp.items.length - 1; progress(1, 1);
   const before = comp.items.reduce((s, x) => s + x.size, 0), after = comp.items.reduce((s, x) => s + x.out.size, 0);
   const max = Math.max(before, after, 1);

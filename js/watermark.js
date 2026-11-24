@@ -66,8 +66,15 @@ async function renderWmPage() {
   // Rapid page flips or resizes must not start two renders on the same canvas (pdf.js refuses that).
   const token = wm.renderToken = (wm.renderToken || 0) + 1;
   if (wm.task) { try { wm.task.cancel(); } catch (e) {} wm.task = null; }
-  const pg = await wm.pj.getPage(wm.cur + 1);
+  let pg;
+  try { pg = await wm.pj.getPage(wm.cur + 1); } catch (e) { pg = null; }
   if (token !== wm.renderToken) return;
+  $('#wm-pno').textContent = `${wm.cur + 1} / ${wm.n}`;
+  $('#wm-prev').disabled = wm.cur === 0; $('#wm-next').disabled = wm.cur >= wm.n - 1;
+  if (!pg) { // a broken page: nothing to show, the other pages still can be
+    for (const cv of [$('#wm-canvas'), $('#wm-over')]) cv.getContext('2d').clearRect(0, 0, cv.width, cv.height);
+    toast(`第 ${wm.cur + 1} 頁無法顯示，檔案可能已損壞`, 'err'); return;
+  }
   const vp1 = pg.getViewport({ scale: 1 });
   wm.disp = [vp1.width, vp1.height];
   const box = $('#wm-page').parentElement;
@@ -84,8 +91,6 @@ async function renderWmPage() {
   try { await wm.task.promise; } catch (e) { if (token !== wm.renderToken) return; }
   if (token !== wm.renderToken) return;
   wm.task = null;
-  $('#wm-pno').textContent = `${wm.cur + 1} / ${wm.n}`;
-  $('#wm-prev').disabled = wm.cur === 0; $('#wm-next').disabled = wm.cur >= wm.n - 1;
   drawWmOverlay();
 }
 function wmTargets() {
@@ -105,7 +110,7 @@ function drawWmOverlay() {
   $('#wm-err').hidden = !tg.error; $('#wm-err').textContent = tg.error || '';
   const count = tg.error ? 0 : tg.set ? tg.set.size : wm.n;
   $('#wm-summary').textContent = tg.error ? '' : `會套用到 ${count} 頁` + (tg.set && !tg.set.has(wm.cur) ? '（目前預覽的這頁不套用）' : '');
-  $('#wm-go').disabled = !!tg.error || (wm.type === 'img' && !wm.img);
+  setJobButton($('#wm-go'), { disabled: !!tg.error || (wm.type === 'img' && !wm.img) });
   if (tg.error || (tg.set && !tg.set.has(wm.cur))) return;
   const [dw, dh] = wm.disp, mark = wmMark(dw); if (!mark) return;
   const k = cv.width / dw, deg = +$('#wm-angle').value;

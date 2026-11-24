@@ -9,14 +9,17 @@ async function loadSplit(files) {
   const { bytes, owned } = got, size = bytes.length;
   let pj;
   try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
+  // Page sizes are quick to read; thumbnails are drawn only when their card comes near the screen. The file shown so
+  // far stays open until the new one is read, so its cards (and 拆分) keep working meanwhile.
+  const pages = [];
+  try {
+    for (let i = 0; i < pj.numPages; i++) {
+      const vp = (await pj.getPage(i + 1)).getViewport({ scale: 1 });
+      pages.push({ id: uid(), index: i, thumb: null, tw: 1, th: 1, w: vp.width, h: vp.height });
+    }
+  } catch (e) { pj.destroy(); toast(loadErr(f.name, e), 'err'); return; }
   if (split.pj) split.pj.destroy();
   releaseThumbs(split.pages);
-  // Page sizes are quick to read; thumbnails are drawn only when their card comes near the screen.
-  const pages = [];
-  for (let i = 0; i < pj.numPages; i++) {
-    const vp = (await pj.getPage(i + 1)).getViewport({ scale: 1 });
-    pages.push({ id: uid(), index: i, thumb: null, tw: 1, th: 1, w: vp.width, h: vp.height });
-  }
   Object.assign(split, { name: f.name, pj, pages, size });
   $('#split-fname').textContent = f.name;
   $('#split-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)}`;
@@ -65,8 +68,7 @@ function renderSplit() {
   }
   const shown = groups.slice(0, 8).map(groupLabel).join('、') + (groups.length > 8 ? '…' : '');
   $('#split-summary').textContent = groups.length ? `會產生 ${groups.length} 份 PDF：第 ${shown} 頁` : '';
-  $('#split-go').disabled = !groups.length;
-  $('#split-go').textContent = groups.length > 1 ? `拆成 ${groups.length} 份` : '拆分';
+  setJobButton($('#split-go'), { disabled: !groups.length, text: groups.length > 1 ? `拆成 ${groups.length} 份` : '拆分' });
 }
 document.querySelectorAll('input[name="split-mode"]').forEach(r => r.addEventListener('change', renderSplit));
 $('#split-ranges').addEventListener('input', renderSplit);

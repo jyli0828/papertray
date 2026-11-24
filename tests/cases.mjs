@@ -9,6 +9,9 @@ export default [
       T.eq(parseRanges('１－３，５、7～', 9).ranges, [[1, 3], [5, 5], [7, 9]], '全形輸入');
       for (const bad of ['3-1', '11', '0', 'abc', '-']) T.ok(parseRanges(bad, 10).error, `「${bad}」應該報錯`);
       T.eq(parseRanges(' ， ', 10).ranges, [], '只有分隔符號');
+      T.eq(parseRanges('1 - 3, 5', 10).ranges, [[1, 3], [5, 5]], '橫線前後有空格');
+      T.eq(parseRanges('1 -3 5', 10).ranges, [[1, 3], [5, 5]], '橫線前有空格不會多出第 1 頁');
+      T.eq(parseRanges('２ － ４，8 -', 10).ranges, [[2, 4], [8, 10]], '全形加空格');
     }
   },
   {
@@ -689,6 +692,340 @@ export default [
       T.eq((text.match(/OLD\d/g) || []).length, 10, '舊檔案的 10 頁都在');
     }
   },
+  {
+    name: '打得開但有一頁壞掉的 PDF：拆分保留原本的檔案，填表單、加浮水印照常顯示其他頁',
+    async run() {
+      T.allowErrors = true;
+      const bad = async () => { // page 2 of the page tree is not a page at all
+        const d = await PDFDocument.load((await T.labeled(['A', 'B', 'C'])).bytes);
+        d.catalog.Pages().Kids().set(1, d.context.obj(5));
+        return pdfFile(await d.save({ useObjectStreams: false }), 'badpage.pdf');
+      };
+      showTab('split');
+      await loadSplit([await T.labeled(['S1', 'S2'], 'good.pdf')]);
+      let e0 = T.errors.length;
+      await loadSplit([await bad()]);
+      T.ok(T.errors.length > e0, '拆分要說明檔案有問題');
+      T.eq(split.name, 'good.pdf', '拆分留著原本的檔案');
+      const r = await T.result(() => T.click('#split-go'));
+      T.eq(r.kind, 'zip', '原本的檔案還能拆分');
+      showTab('form'); e0 = T.errors.length;
+      await loadForm([await bad()]);
+      T.ok(T.errors.length > e0 && /無法讀取/.test(T.errors[T.errors.length - 1]), '填表單說明有頁面讀不到');
+      T.eq($('#ff-pages').querySelectorAll('.ff-page').length, ff.pj.numPages - 1, '其他頁照常顯示');
+      showTab('watermark');
+      await loadWm([await bad()]);
+      e0 = T.errors.length; T.click('#wm-next');
+      await T.until(() => T.errors.length > e0, '第 2 頁的錯誤提示');
+      T.eq($('#wm-pno').textContent, `2 / ${wm.n}`, '頁碼跟著換');
+      T.click('#wm-prev'); await T.until(() => $('#wm-pno').textContent === `1 / ${wm.n}` && !wm.task, '回到第 1 頁');
+    }
+  },
+  {
+    name: '處理中調整清單：合併、圖片轉 PDF 照按下時的清單產生，書籤名稱也對得上',
+    async run() {
+      showTab('merge'); merge.items = []; renderMerge();
+      const files = [];
+      for (const k of ['A', 'B', 'C']) files.push(await T.labeled(Array.from({ length: 150 }, (_, i) => k + i), k + '.pdf'));
+      await addMergeFiles(files);
+      T.set('#merge-bm', true);
+      let pending = T.result(() => T.click('#merge-go'));
+      $('#merge-list .file-row:nth-child(1) [data-act="remove"]').click(); // refused while merging
+      T.eq(merge.items.length, 3, '合併中不能移除');
+      merge.items.reverse(); renderMerge(); // a drag in the list while merging
+      let r = await pending;
+      const text = await T.pdfText(r.file);
+      T.eq(['A', 'B', 'C'].map(k => text.findIndex(s => s.trim() === k + '0')), [0, 150, 300], '照按下時的順序');
+      T.eq((await T.outline(r.file)).map(o => [o.t, o.p]), [['A', 1], ['B', 151], ['C', 301]], '每份檔案的書籤名稱');
+      T.set('#merge-bm', false);
+      showTab('img2pdf'); imgs.items = []; renderImgs();
+      const pics = [];
+      for (let i = 0; i < 3; i++) {
+        const cv = document.createElement('canvas'); cv.width = 1600; cv.height = 1000 + i * 100;
+        cv.getContext('2d').fillRect(0, 0, 10, 10);
+        pics.push(new File([await new Promise(res => cv.toBlob(res, 'image/webp', .9))], `p${i}.webp`, { type: 'image/webp' }));
+      }
+      await addImages(pics);
+      pending = T.result(() => T.click('#img-go'));
+      $('#img-list .file-row:nth-child(1) [data-act="remove"]').click();
+      T.eq(imgs.items.length, 3, '轉換中不能移除');
+      imgs.items.reverse(); renderImgs();
+      r = await pending;
+      T.eq((await T.pdfPages(r.file)).length, 3, '三張圖片都在');
+    }
+  },
+  {
+    name: '去浮水印：處理中按「復原」不會被處理完的結果蓋回去',
+    async run() {
+      showTab('unmark'); T.click('#um-sample'); await T.until(() => um.w, '範例');
+      const paint = (x0, y0, x1, y1) => { mctxU.save(); mctxU.setTransform(um.ms, 0, 0, um.ms, 0, 0); mctxU.fillStyle = '#ff2a4a'; mctxU.fillRect(x0, y0, x1 - x0, y1 - y0); mctxU.restore(); };
+      paint(250, 250, 300, 300); T.click('#um-go'); await T.idle('#um-go');
+      T.eq(um.history.length, 1, '第一次移除');
+      paint(400, 250, 460, 310); T.click('#um-go');
+      T.ok(um.busy, '第二次移除進行中');
+      $('#um-undo').click();
+      T.eq(um.history.length, 1, '處理中不復原');
+      await T.idle('#um-go');
+      T.eq(um.history.length, 2, '兩次移除都能復原');
+    }
+  },
+  {
+    name: '比較：比對中切換方式會停下，不會顯示另一種方式的結果',
+    async run() {
+      showTab('compare'); setCmpMode('visual');
+      await loadCmp('a', [await T.labeled(Array.from({ length: 12 }, (_, i) => 'Old ' + i), 'a.pdf')]);
+      await loadCmp('b', [await T.labeled(Array.from({ length: 12 }, (_, i) => (i % 3 ? 'Old ' : 'New ') + i), 'b.pdf')]);
+      T.click('#cmp-go');
+      $('#cmp-m-text').click();
+      await T.idle('#cmp-go');
+      T.ok($('#cmp-result').hidden && !cmp.res, '比對畫面的結果不會出現在比對文字');
+      T.click('#cmp-go'); await T.idle('#cmp-go');
+      T.ok(cmp.res && !cmp.res.vis && cmp.res.hunks.length === 4, '再按一次比對文字：' + $('#cmp-sum').textContent);
+    }
+  },
+  {
+    name: '壓縮：處理中改設定會停下，不會在最後出錯',
+    async run() {
+      showTab('compress'); comp.items = []; clearCompResults(); renderCompList();
+      await loadCompFile([await T.labeled(['A1', 'A2', 'A3'], 'a.pdf'), await T.labeled(Array.from({ length: 6 }, (_, i) => 'B' + i), 'b.pdf')]);
+      setCompMode('raster');
+      try {
+        T.click('#comp-go');
+        await T.until(() => comp.items[0].out, '第一份完成');
+        const strong = $('input[name="level"][value="strong"]'); strong.checked = true; strong.dispatchEvent(new Event('change', { bubbles: true }));
+        await T.idle('#comp-go');
+        T.ok($('#comp-result').hidden && comp.items.every(it => !it.out), '停下，舊設定的結果清掉');
+        T.click('#comp-go'); await T.idle('#comp-go');
+        T.ok(comp.items.every(it => it.out) && !$('#comp-result').hidden, '用新設定再壓一次');
+      } finally { setCompMode('keep'); $('input[name="level"][value="medium"]').checked = true; }
+    }
+  },
+  {
+    name: '圖片工具：處理中改格式會停下；同一批的圖片都是同一種格式',
+    async run() {
+      showTab('imgtool'); itool.items = []; renderImgTool();
+      const files = [];
+      for (let i = 0; i < 4; i++) {
+        const cv = document.createElement('canvas'); cv.width = 2400; cv.height = 1600; cv.getContext('2d').fillRect(0, 0, 50, 50);
+        files.push(new File([await new Promise(r => cv.toBlob(r, 'image/jpeg', .9))], `p${i}.jpg`, { type: 'image/jpeg' }));
+      }
+      await addImgTool(files);
+      try {
+        T.set('#it-fmt', 'jpg');
+        const n = T.results.length;
+        T.click('#it-go');
+        await T.until(() => itool.items[0].out, '第一張完成');
+        T.set('#it-fmt', 'png');
+        await T.idle('#it-go');
+        T.eq(T.results.length, n, '改了格式就不交出混合格式的結果');
+        const r = await T.result(() => T.click('#it-go'));
+        T.eq(Object.keys((await T.zip(r.file)).files).map(k => k.split('.').pop()), ['png', 'png', 'png', 'png'], '同一種格式');
+      } finally { T.set('#it-fmt', 'keep'); }
+    }
+  },
+  {
+    name: '按下匯出、產生之後才改的頁面或設定，不會跑進結果（編輯、填表單）',
+    async run() {
+      showTab('edit');
+      await loadEditFiles([await T.labeled(['P1', 'P2', 'P3'], 'three.pdf')]);
+      await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
+      $('#edit-numbers').checked = false;
+      try {
+        let pending = T.result(() => T.click('#edit-export'));
+        edit.pages.forEach(p => { p.rot = 90; }); renderEdit(); $('#edit-numbers').checked = true;
+        let r = await pending;
+        T.eq((await T.pdfPages(r.file)).map(p => p.rotate), [0, 0, 0], '按下後才轉的頁面不轉');
+        T.eq((await T.pdfText(r.file)).map(s => s.trim()), ['P1', 'P2', 'P3'], '按下後才勾的頁碼不加');
+        r = await T.result(() => T.click('#edit-export'));
+        T.eq((await T.pdfPages(r.file)).map(p => p.rotate), [90, 90, 90], '再匯出一次就有');
+      } finally { $('#edit-numbers').checked = false; }
+      showTab('form'); T.click('#ff-sample'); await T.until(() => ff.fields.length > 3, '表單');
+      const inp = $('#ff-pages .ff-field[data-name="name"]'); inp.value = '王小明'; inp.dispatchEvent(new Event('input', { bubbles: true }));
+      const pending = T.result(() => T.click('#ff-go'));
+      $('#ff-reset').click();
+      const f = await pending;
+      T.eq((await PDFDocument.load(f.file.bytes)).getForm().getTextField('name').getText(), '王小明', '按下產生後才清除，結果還是填好的');
+    }
+  },
+  {
+    name: '文字辨識：辨識中切換輸出格式，檔名的副檔名還是對的',
+    slow: true, http: true, timeout: 180000,
+    async run() {
+      showTab('ocr'); T.click('#ocr-sample');
+      await T.until(() => ocrTab.pj && ocrTab.hasText.length === 1, '掃描範例');
+      T.set('#ocr-out', 'pdf');
+      try {
+        const pending = T.result(() => T.click('#ocr-go'), '辨識', 150000);
+        await T.sleep(50); T.set('#ocr-out', 'txt');
+        const r = await pending;
+        T.eq([r.kind, r.file.name], ['pdf', '範例掃描檔-可搜尋.pdf'], '輸出 PDF 的檔名');
+      } finally { T.set('#ocr-out', 'pdf'); }
+    }
+  },
+  {
+    name: '處理中的按鈕一直顯示「取消」而且按得到，處理完才換成新的標籤（壓縮、拆分、只匯出選取）',
+    async run() {
+      showTab('compress'); comp.items = []; clearCompResults(); renderCompList();
+      await loadCompFile([await T.labeled(['A1', 'A2'], 'a.pdf'), await T.labeled(Array.from({ length: 6 }, (_, i) => 'B' + i), 'b.pdf')]);
+      setCompMode('raster');
+      try {
+        const go = $('#comp-go'); T.click('#comp-go');
+        await T.until(() => comp.items[0].out, '第一份完成');
+        T.ok(go.querySelector('.cancel-hint'), '壓縮完第一份後還顯示「取消」');
+        await T.idle('#comp-go');
+        T.eq(go.textContent, '壓縮 2 份', '完成後恢復');
+      } finally { setCompMode('keep'); }
+      showTab('split');
+      await loadSplit([await T.labeled(Array.from({ length: 120 }, (_, i) => 'S' + i), 's.pdf')]);
+      T.click('#split-go'); T.set('#split-ranges', 'abc'); // a mistake typed while splitting
+      T.ok(!$('#split-go').disabled && $('#split-go').querySelector('.cancel-hint'), '拆分中還能按取消');
+      $('#split-go')._jobAt -= 1000; // as if a moment had passed (a click right after the first is a double-click)
+      $('#split-go').click(); await T.idle('#split-go');
+      T.ok($('#split-go').disabled, '停下後才照新的（有誤的）頁碼停用');
+      showTab('edit');
+      await loadEditFiles([await T.labeled(['P1', 'P2', 'P3'], 'e.pdf')]);
+      await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
+      edit.pages[0].selected = true; renderEdit();
+      const xs = $('#edit-export-sel'), pending = T.result(() => xs.click());
+      edit.pages.forEach(p => { p.selected = true; }); renderEdit(); // all selected: the button would hide
+      T.ok(!xs.hidden && xs.querySelector('.cancel-hint'), '匯出中按鈕不會消失');
+      await pending; await T.idle('#edit-export-sel');
+      T.ok(xs.hidden, '完成後才藏起來');
+    }
+  },
+  {
+    name: '連按兩下（雙擊）開始的按鈕不會馬上取消',
+    async run() {
+      showTab('pdf2img');
+      await loadP2i([await T.labeled(Array.from({ length: 8 }, (_, i) => 'P' + i), 'many.pdf')]);
+      T.set('#p2i-fmt', 'png'); T.set('#p2i-dpi', '300');
+      const pending = T.result(async () => { T.click('#p2i-go'); await T.sleep(150); $('#p2i-go').click(); });
+      const r = await pending;
+      T.eq(Object.keys((await T.zip(r.file)).files).length, 8, '雙擊後照常轉完');
+      T.set('#p2i-dpi', '150');
+    }
+  },
+  {
+    name: '簽名：刪除其他簽名時，選好的簽名不會換掉',
+    async run() {
+      const mk = c => { const cv = document.createElement('canvas'); cv.width = 200; cv.height = 80; const x = cv.getContext('2d'); x.fillStyle = c; x.fillRect(10, 10, 180, 60); return { src: cv.toDataURL(), w: 200, h: 80 }; };
+      sigs.list = []; const [red, green, blue] = [mk('red'), mk('green'), mk('blue')];
+      addSignature(red); addSignature(green); addSignature(blue); // newest first: blue, green, red
+      $('#sign-sig-list .sig-item[data-i="2"]').click();
+      T.ok(sigs.list[sigs.sel] === red, '選了紅色');
+      $('#sign-sig-list [data-del="0"]').click();
+      T.ok(sigs.list[sigs.sel] === red, '刪掉藍色後還是紅色');
+      $('#sign-sig-list [data-del="1"]').click();
+      T.ok(sigs.list[sigs.sel] === green, '刪掉選好的，改選剩下的');
+      $('#sign-sig-list [data-del="0"]').click();
+      T.eq(sigs.sel, -1, '全部刪掉');
+    }
+  },
+  {
+    name: '首頁推薦的工具正在處理時，檔案不會被塞進去',
+    async run() {
+      showTab('pdf2img');
+      await loadP2i([await T.labeled(Array.from({ length: 30 }, (_, i) => 'OLD' + i), 'old.pdf')]);
+      await T.until(() => p2i.pages.every(p => p.w), '頁面資訊');
+      T.set('#p2i-fmt', 'png'); T.set('#p2i-dpi', '300');
+      const n = T.results.length;
+      T.click('#p2i-go');
+      await T.until(() => $('#p2i-go').classList.contains('is-running'), '開始');
+      showTab('home'); await homeTakeFiles([await T.labeled(['NEW'], 'new.pdf')]);
+      await sendHomeFiles('pdf2img');
+      T.ok(!$('#panel-home').hidden, '工具在忙時應該留在首頁');
+      await T.idle('#p2i-go');
+      T.ok(T.results.length > n && T.results[T.results.length - 1].kind === 'zip', '舊檔案的轉換要完成');
+      T.eq(p2i.name, 'old.pdf', '處理中不換檔案');
+      await sendHomeFiles('pdf2img'); // done now: the waiting file goes in
+      await T.until(() => p2i.name === 'new.pdf', '之後再交給工具');
+    }
+  },
+  {
+    name: '換檔載入中：舊的頁面卡片不會留在畫面上；拆分換檔時舊檔案在讀完前都還能用',
+    async run() {
+      showTab('pdf2img');
+      await loadP2i([await T.labeled(['A', 'B'], 'small.pdf')]);
+      const loading = loadP2i([await T.labeled(Array.from({ length: 300 }, (_, i) => 'P' + i), 'big.pdf')]);
+      await T.until(() => p2i.pages.length === 300, '新檔案的頁面');
+      T.eq($('#p2i-grid').children.length, 300, '格子裡是新檔案的頁面');
+      $('#p2i-grid [data-act="sel"]').click();
+      await loading;
+      T.eq(p2i.pages.filter(p => p.selected).length, 299, '取消勾選一頁');
+      showTab('split');
+      await loadSplit([await T.labeled(['S1', 'S2'], 'first.pdf')]);
+      // The old file is closed only after every page of the new one has been read.
+      const old = split.pj, order = [], realOpen = openPdfjs, realDestroy = old.destroy.bind(old);
+      old.destroy = () => { order.push('close old'); return realDestroy(); };
+      openPdfjs = async (...a) => { const pj = await realOpen(...a), get = pj.getPage.bind(pj); pj.getPage = n => { order.push('read'); return get(n); }; return pj; };
+      try { await loadSplit([await T.labeled(Array.from({ length: 30 }, (_, i) => 'N' + i), 'next.pdf')]); } finally { openPdfjs = realOpen; }
+      T.eq(order.indexOf('close old'), 30, '讀完新檔案的 30 頁才關掉舊檔案');
+      T.eq(split.pages.length, 30, '換成新檔案');
+    }
+  },
+  {
+    name: '編輯：放入不能用的檔案不會多出空的復原步驟；插入頁面一次復原',
+    async run() {
+      T.allowErrors = true;
+      showTab('edit');
+      await loadEditFiles([await T.labeled(['P1', 'P2'], 'two.pdf')]);
+      await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
+      $('#panel-edit')._paste([new File(['hello'], 'notes.txt', { type: 'text/plain' })]);
+      await T.sleep(200);
+      T.eq(editHist.undo.length, 0, '沒有加入頁面就不該有復原步驟');
+      T.ok($('#edit-undo').disabled, '復原按鈕停用');
+      $('#panel-edit')._paste([await T.labeled(['P3'], 'three.pdf')]);
+      await T.until(() => edit.pages.length === 3, '插入');
+      T.click('#edit-blank'); await T.until(() => edit.pages.length === 4, '空白頁');
+      T.eq(editHist.undo.length, 2, '插入 PDF、空白頁各一步');
+      undoEdit(); undoEdit();
+      T.eq(edit.pages.length, 2, '復原兩次回到原本兩頁');
+    }
+  },
+  {
+    name: '合併：交錯合併時取頁有錯，提示不會留著舊的順序',
+    async run() {
+      showTab('merge');
+      await addMergeFiles([await T.labeled(['F1', 'F2'], 'front.pdf'), await T.labeled(['B2', 'B1'], 'back.pdf')]);
+      T.set('#merge-how', 'zip');
+      T.ok($('#merge-how-hint').textContent.startsWith('順序'), '顯示順序');
+      merge.items[0].range = '9'; updateMergeSummary();
+      T.ok(!$('#merge-how-hint').textContent.includes('順序：'), '頁碼有誤時不顯示舊的順序：' + $('#merge-how-hint').textContent);
+      T.ok($('#merge-go').disabled, '不能合併');
+      merge.items[0].range = ''; updateMergeSummary();
+      T.ok($('#merge-how-hint').textContent.startsWith('順序') && !$('#merge-how-hint').classList.contains('warn'), '修正後恢復');
+      T.set('#merge-how', 'seq');
+    }
+  },
+  {
+    name: '遮蔽個資：自動尋找還沒完成就關掉編輯視窗，不會在背後加上遮蔽框',
+    async run() {
+      showTab('edit');
+      await loadEditFiles([await T.labeled(Array.from({ length: 4 }, () => 'ID A123456789'), 'ids.pdf')]);
+      await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
+      // Hold the search on its second page (as a slow OCR page would), then close the editor.
+      let release; const gate = new Promise(r => { release = r; });
+      const real = pageChars; let calls = 0;
+      pageChars = async (...a) => { if (++calls === 2) await gate; return real(...a); };
+      try {
+        await openTextEditor(edit.pages[0], 'redact');
+        $('#rf-scope').value = 'all'; document.querySelectorAll('[data-rf]').forEach(c => { c.checked = c.dataset.rf === 'id'; });
+        T.click('#rf-go');
+        await T.until(() => calls === 2, '尋找到第二頁');
+        $('#te-done').click();
+        release(); await T.idle('#rf-go');
+      } finally { pageChars = real; }
+      T.eq(edit.pages.map(p => p.annots.length), [0, 0, 0, 0], '關掉後沒有遮蔽框');
+      T.ok($('#edit-undo').disabled, '沒有要復原的');
+      await openTextEditor(edit.pages[0], 'redact');
+      T.click('#rf-go'); await T.idle('#rf-go');
+      $('#te-done').click();
+      T.eq(edit.pages.map(p => p.annots.length), [1, 1, 1, 1], '找完再關：每頁一個框');
+      T.eq($('#edit-grid').querySelectorAll('.badge.redact').length, 4, '頁面上看得到');
+      undoEdit();
+      T.eq(edit.pages.map(p => p.annots.length), [0, 0, 0, 0], '一次復原');
+    }
+  },
 
   /* ---------- 互動 ---------- */
   {
@@ -969,12 +1306,14 @@ export default [
     async run() {
       const cancelMid = async (btn, started) => {
         T.click(btn); await T.until(started, btn + ' 開始處理', 20000);
+        await T.sleep(Math.max(0, 520 - (Date.now() - $(btn)._jobAt))); // not the second click of a double-click
         $(btn).click(); await T.idle(btn);
         T.eq($('#toast').textContent, '已取消', btn + ' 取消');
       };
       // 壓縮: photos are being re-encoded in background workers when it is cancelled
       showTab('compress');
-      await loadCompFile([pdfFile(await makePhotoSample(), 'p1.pdf'), pdfFile(await makePhotoSample(), 'p2.pdf'), pdfFile(await makePhotoSample(), 'p3.pdf')]);
+      const photos = await makePhotoSample();
+      await loadCompFile(Array.from({ length: 8 }, (_, i) => pdfFile(photos.slice(), `p${i + 1}.pdf`)));
       await cancelMid('#comp-go', () => /張照片|頁/.test($('#comp-plabel').textContent));
       const n = T.results.length;
       T.click('#comp-go'); await T.idle('#comp-go');

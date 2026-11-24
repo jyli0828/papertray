@@ -95,7 +95,7 @@ function updatePwLock() {
   else if (a && !b) msg = '請再輸入一次密碼';
   $('#pw-lock-msg').textContent = msg || (a ? '開啟檔案時要輸入密碼' : '不用密碼就能開啟，但' + [...document.querySelectorAll('[data-pw-deny]:checked')].map(c => c.dataset.label).join('、'));
   $('#pw-lock-msg').classList.toggle('bad', !!msg && !!(a && b && a !== b));
-  $('#pw-lock-go').disabled = !!msg;
+  setJobButton($('#pw-lock-go'), { disabled: !!msg });
 }
 ['#pw-new', '#pw-new2', '#pw-owner'].forEach(s => $(s).addEventListener('input', updatePwLock));
 document.querySelectorAll('[data-pw-deny]').forEach(c => c.addEventListener('change', updatePwLock));

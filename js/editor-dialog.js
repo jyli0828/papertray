@@ -268,6 +268,7 @@ dlg.addEventListener('keydown', e => { if ((e.key === 'Delete') && te.sel && doc
    (that event is not delivered reliably in every embedded view, so nothing may depend on it alone). */
 function finishEditor() {
   if (!te.page) return;
+  const find = $('#rf-go'); if (find._job) find._job.abort(); // 自動尋找 still running: its boxes would land after this visit
   te.page.annots = te.page.annots.filter(a => a.type !== 'text' || a.text.trim());
   if (te.snap && annotSig() !== te.sig0) pushUndo(te.snap); // the whole visit to the editor is one undo step
   te.snap = null; te.page = null; te.sel = null; renderEdit();

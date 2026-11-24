@@ -16,7 +16,8 @@ async function loadP2i(files) {
   $('#p2i-fname').textContent = f.name;
   $('#p2i-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)}`;
   $('#p2i-empty').hidden = true; $('#p2i-work').hidden = false; $('#p2i-progress').hidden = true;
-  // Page sizes first (fast), so the summary is right; thumbnails come as cards scroll near the screen.
+  renderP2i(); // the previous file's cards must not stay on screen while the sizes are read
+  // Page sizes next (fast), so the summary is right; thumbnails come as cards scroll near the screen.
   for (const p of p2i.pages) {
     if (p2i.pj !== pj) return;
     try { const vp = (await pj.getPage(p.index + 1)).getViewport({ scale: 1 }); p.w = vp.width; p.h = vp.height; } catch (e) {}
@@ -65,8 +66,7 @@ function updateP2iSummary() {
   const px = first ? ` · 每張約 ${Math.round(first.w * dpi / 72)} × ${Math.round(first.h * dpi / 72)} px` : '';
   $('#p2i-summary').textContent = !sel.length ? '請至少選一頁' : txt ? `${sel.length} 頁的文字 → 1 個 TXT` : `${sel.length} 張 ${fmt.toUpperCase()}${px}`;
   const go = $('#p2i-go');
-  go.disabled = !sel.length;
-  go.textContent = txt ? '抽出文字' : sel.length > 1 ? `轉成 ${sel.length} 張圖片` : '轉成圖片';
+  setJobButton(go, { disabled: !sel.length, text: txt ? '抽出文字' : sel.length > 1 ? `轉成 ${sel.length} 張圖片` : '轉成圖片' });
   $('#p2i-dpi-wrap').hidden = $('#p2i-q-wrap').hidden = txt; $('#p2i-ocr-wrap').hidden = !txt;
   $('#p2i-q-wrap').style.opacity = fmt === 'png' ? .45 : 1; $('#p2i-q').disabled = fmt === 'png';
   document.querySelectorAll('#p2i-grid [data-act="one"]').forEach(b => { b.title = txt ? '只抽出這一頁的文字' : '只下載這一頁'; });
@@ -183,7 +183,7 @@ $('#p2i-grid').addEventListener('click', e => {
     openPreview(p2i.pages.length, i0, async i => { const page = await p2i.pj.getPage(i + 1); return { page, rotation: page.rotate }; });
     return;
   }
-  const p = p2i.pages.find(x => x.id === t.closest('.page-card').dataset.id);
+  const p = p2i.pages.find(x => x.id === t.closest('.page-card').dataset.id); if (!p) return;
   if (t.dataset.act === 'sel') {
     const i = p2i.pages.indexOf(p), j = p2i.pages.findIndex(x => x.id === p2i.anchor);
     if (e.shiftKey && j >= 0) { for (let k = Math.min(i, j); k <= Math.max(i, j); k++) p2i.pages[k].selected = t.checked; renderP2i(); }

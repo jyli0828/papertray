@@ -268,8 +268,7 @@ function updateOcrSummary() {
   $('#ocr-summary').textContent = checking ? '檢查哪些頁面需要辨識…'
     : !k ? (txt ? `${ocrTab.n} 頁都有文字，直接抽出` : '每一頁都已經有文字，可以直接搜尋')
     : `要辨識 ${k} 頁，每頁約 5–20 秒`;
-  $('#ocr-go').disabled = checking || (!txt && !k);
-  $('#ocr-go').textContent = txt ? '辨識並抽出文字' : '辨識文字';
+  setJobButton($('#ocr-go'), { disabled: checking || (!txt && !k), text: txt ? '辨識並抽出文字' : '辨識文字' });
 }
 ['#ocr-out', '#ocr-scope', '#ocr-lang'].forEach(s => $(s).addEventListener('change', updateOcrSummary));
 function ocrProgress(k, n, msg) {
@@ -308,12 +307,14 @@ $('#ocr-go').addEventListener('click', e => {
       if (txt) parts.push(ocrTab.n > 1 ? `──── 第 ${i + 1} 頁 ────\n\n${text || '（這一頁辨識不出文字）'}` : text);
     }
     if (targets.size && !found) { toast('辨識不出任何文字。照片太模糊、太暗，或字太小時會這樣；可以先用「圖片轉 PDF」的校正功能拉正、調亮再試。', 'err'); return; }
+    // The name field follows 輸出 (.pdf ↔ .txt); switched while this ran, it has the other one's ending.
+    const asked = $('#ocr-name').value.trim();
     if (txt) {
-      const name = $('#ocr-name').value.trim().replace(/\.txt$/i, '') + '.txt';
+      const name = asked.replace(/\.txt$/i, '').replace(/(-可搜尋)?\.pdf$/i, '') + '.txt';
       await deliver(new File(['﻿' + parts.join('\n\n\n')], name, { type: 'text/plain;charset=utf-8' }), 'text', 'ocr');
     } else {
       const bytes = await lib.save({ useObjectStreams: true });
-      await deliver(pdfFile(bytes, $('#ocr-name').value), 'pdf', 'ocr');
+      await deliver(pdfFile(bytes, asked.replace(/\.txt$/i, '-可搜尋.pdf')), 'pdf', 'ocr');
       toast(`已辨識 ${found} 頁，文字可以搜尋、選取和複製`);
     }
   }).catch(err => toast('辨識失敗：' + err.message, 'err'));
