@@ -427,6 +427,34 @@ export default [
     }
   },
 
+  {
+    name: 'Google 字型連不上（連線被吃掉、一直沒有回應）時，紙匣照常啟動',
+    stallFonts: 'all',
+    async run() {
+      // Getting here at all is the test: the runner waits for app.js to have run.
+      showTab('watermark'); T.click('#wm-sample');
+      await T.until(() => wm.n === 3, '範例檔');
+    }
+  },
+  {
+    name: '字型檔一直下載不完時，加文字與文字浮水印不會一直等下去',
+    stallFonts: 'files',
+    async run() {
+      const link = $('link[rel="stylesheet"][href*="fonts.googleapis.com"]');
+      const loaded = () => link.sheet && link.media !== 'print';
+      for (let i = 0; i < 100 && !loaded(); i++) await T.sleep(100);
+      if (!loaded()) return '略過：連不到 Google Fonts';
+      const t0 = performance.now();
+      await ensureFont('測試文字', 20);
+      const waited = performance.now() - t0;
+      T.ok(waited > 1000 && waited < 5000, `等字型等了 ${Math.round(waited)} ms`);
+      showTab('watermark'); T.click('#wm-sample');
+      await T.until(() => wm.n === 3 && $('#wm-pno').textContent, '範例檔');
+      T.eq(wm.type, 'text', '預設是文字浮水印'); T.set('#wm-text', '僅供參考');
+      const r = await T.result(() => T.click('#wm-go'));
+      T.eq((await T.pdf(r.file)).numPages, 3, '浮水印做完');
+    }
+  },
 
   /* ---------- 轉換 ---------- */
   {

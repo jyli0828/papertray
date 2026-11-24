@@ -151,7 +151,7 @@ bindInput($('#wm-img-input'), async files => {
 });
 $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async check => {
   const tg = wmTargets(); if (tg.error) { toast(tg.error, 'err'); return; }
-  if (wm.type === 'text') { try { await document.fonts.load(wmFont(64), $('#wm-text').value.trim() || ' '); } catch (e) {} }
+  if (wm.type === 'text') await loadFont(wmFont(64), $('#wm-text').value.trim() || ' ');
   const out = await PDFDocument.load(await wm.pj.getData());
   const deg = +$('#wm-angle').value, opacity = +$('#wm-opacity').value / 100, pos = $('#wm-pos').value;
   const cache = new Map();

@@ -119,6 +119,12 @@ async function runCase(cdp, base, tc) {
   try {
     await Promise.all([s('Runtime.enable'), s('Log.enable'), s('Page.enable')]);
     if (tc.viewport) await s('Emulation.setDeviceMetricsOverride', { mobile: true, deviceScaleFactor: 2, ...tc.viewport });
+    // Requests to Google Fonts are held and never answered, as on a network that drops them: 'all', or only the font
+    // files ('files'; the stylesheet still arrives).
+    if (tc.stallFonts) {
+      const hosts = tc.stallFonts === 'files' ? ['fonts.gstatic.com'] : ['fonts.googleapis.com', 'fonts.gstatic.com'];
+      await s('Fetch.enable', { patterns: hosts.map(h => ({ urlPattern: `*://${h}/*` })) });
+    }
     await s('Page.navigate', { url: base + (tc.hash ? '#' + tc.hash : '') });
     const evaluate = async (expression, ms) => {
       const r = await withTimeout(s('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true, userGesture: true }), ms, tc.name);
@@ -127,8 +133,9 @@ async function runCase(cdp, base, tc) {
       }
       return r.result.value;
     };
-    for (let i = 0; ; i++) { // the page is ready once app.js (loaded last) has run
-      try { if (await evaluate(`document.readyState === 'complete' && typeof showTab === 'function'`, 5000)) break; } catch (e) {}
+    // The page is ready once app.js (loaded last) has run. Not the load event: that also waits for the web fonts.
+    for (let i = 0; ; i++) {
+      try { if (await evaluate(`document.readyState !== 'loading' && typeof showTab === 'function'`, 5000)) break; } catch (e) {}
       if (i > 150) throw new Error('頁面沒有載入完成');
       await sleep(100);
     }
@@ -141,7 +148,7 @@ async function runCase(cdp, base, tc) {
       await s('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
       await s('Page.reload', { ignoreCache: false });
       for (let i = 0; ; i++) {
-        try { if (await evaluate(`document.readyState === 'complete' && typeof showTab === 'function'`, 5000)) break; } catch (e) {}
+        try { if (await evaluate(`document.readyState !== 'loading' && typeof showTab === 'function'`, 5000)) break; } catch (e) {}
         if (i > 100) throw new Error('離線時頁面沒有載入完成');
         await sleep(100);
       }

@@ -189,7 +189,7 @@ node tests/run.mjs
 - `node tests/run.mjs 比較 合併`：只跑名稱含有這些字的測試；`--skip-slow` 略過文字辨識；`--headed` 開著視窗看過程。
 - `--file`：改成直接開啟 `index.html`（`file://`），也就是使用者雙擊開啟的情況；`--bundle`：測試單一檔案版 `dist/紙匣.html`（先執行 `python tools/build.py`，需要網路）。三種都要通過。
 - 測試在 `tests/cases.mjs`：每個 `run()` 在頁面裡執行，`js/` 的所有名稱都能直接用，另外有 `tests/helpers.js` 的 `T`（`T.result()` 等工具產生結果、`T.pdfText()` 讀出 PDF 的文字、`T.ink()` 找出頁面上某種顏色畫在哪裡、`T.eq()`／`T.ok()` 檢查）。
-- 測試的選項：`slow: true` 可用 `--skip-slow` 略過；`http: true` 只在本機伺服器下跑（離線快取、文字辨識）；`viewport` 模擬手機；`offline: true` 先跑 `run()`，再斷網重新開啟頁面跑 `after()`。
+- 測試的選項：`slow: true` 可用 `--skip-slow` 略過；`http: true` 只在本機伺服器下跑（離線快取、文字辨識）；`viewport` 模擬手機；`offline: true` 先跑 `run()`，再斷網重新開啟頁面跑 `after()`；`stallFonts: 'all'`／`'files'` 讓 Google Fonts 的請求（或只有字型檔）一直沒有回應，模擬會吃掉連線的網路。
 - 測試失敗的情況：`run()` 丟出錯誤、逾時、主控台有錯誤或未處理的例外，或出現沒預期的錯誤提示（預期會出錯的測試設 `T.allowErrors = true`）。
 - 涵蓋每個工具的主要流程；旋轉過、裁切框不在原點的頁面；表單和內部連結經過編輯、合併、拆分；取消、處理中放入新檔案、背景程式當掉、壞掉的檔案；斷網重新開啟；以及修過的每個錯誤。新增工具或修好錯誤時，在 `cases.mjs` 加一個測試。
 
@@ -205,6 +205,7 @@ node tests/run.mjs
 
 - 外觀取自辦公室的紙匣和文件櫃：鋼櫃灰的底、影印紙白的工作區、牛皮紙色的卷宗（工具分類）、原子筆藍的主要按鈕與圖示；螢光筆黃（`--mark`）只用來標示「目前這個」（開著的工具、最推薦的工具），不要拿來裝飾。標題和分類標籤用霞鶩文楷（`--font-display`），其他都用 Noto Sans TC。
 - 介面文字用繁體中文、全形標點；按鈕寫動作（「產生 PDF」「解除密碼」），錯誤訊息說明怎麼辦。
+- 外部資源（目前只有 Google Fonts）不能擋住頁面：連不上或一直沒有回應時，紙匣也要照常啟動、照常做完工作。等網路字型一律用 `loadFont()`／`ensureFont()`，它們最多等 3 秒。
 - 程式註解用英文，寫「為什麼」，不重述程式在做什麼。
 - 2 格縮排、單引號、每個檔案開頭 `'use strict'`。
 - 換行一律 LF（`.gitattributes` 會處理）。

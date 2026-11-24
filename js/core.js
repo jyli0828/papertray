@@ -910,7 +910,12 @@ function userToDisplay(view, R, ux, uy) {
 const LH = 1.3;
 const fontStr = s => `500 ${s}px "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif`;
 const mctx = document.createElement('canvas').getContext('2d');
-async function ensureFont(text, size) { try { await document.fonts.load(fontStr(size || 16), text); } catch (e) {} }
+/* Waits for a web font, but not for long: when the network drops the request instead of refusing it, the font never
+   arrives and the job would hang. The system font is drawn instead. */
+function loadFont(font, text, ms = 3000) {
+  return Promise.race([Promise.resolve().then(() => document.fonts.load(font, text)).catch(() => {}), new Promise(r => setTimeout(r, ms))]);
+}
+const ensureFont = (text, size) => loadFont(fontStr(size || 16), text);
 function measureAnnot(a) {
   mctx.font = fontStr(a.size);
   const lines = a.text.split('\n');
