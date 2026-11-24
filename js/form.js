@@ -214,6 +214,13 @@ async function pictureAppearance(doc, field, text) {
     w.setNormalAppearance(doc.context.register(stream));
   }
 }
+/* The export value (as stored in the file) of the option shown as `text`, when it differs from the text; else null. */
+function optionExportValue(field, text) {
+  for (const { value, display } of field.acroField.getOptions()) {
+    if (display && value && display.decodeText() === text && value.decodeText() !== text) return value;
+  }
+  return null;
+}
 $('#ff-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…', async check => {
   // The values as they are now (清除 or typing while this runs must not reach only some of the fields).
   const vals = new Map(ff.vals), flatten = $('#ff-flatten').checked, name = ensurePdf($('#ff-name').value);
@@ -239,7 +246,12 @@ $('#ff-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
       }
       else if (field instanceof L.PDFDropdown || field instanceof L.PDFOptionList) {
         if (v) field.select(v); else field.clear();
-        await writeAppearance(doc, field, helv, v || '');
+        // pdf-lib stores the text shown. When the options have export values of their own (shown 「高雄」, stored
+        // "KH"), the value is the export value; the field still shows the text, drawn here.
+        // (Set directly: pdf-lib refuses a value that is not one of the texts shown.)
+        const exp = v && optionExportValue(field, v);
+        if (exp) { field.acroField.dict.set(PDFName.of('V'), exp); await pictureAppearance(doc, field, v); }
+        else await writeAppearance(doc, field, helv, v || '');
       }
     } catch (err) { problems.push(fname); }
   }

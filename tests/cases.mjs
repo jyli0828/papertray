@@ -1319,6 +1319,23 @@ export default [
     }
   },
   {
+    name: '填表單：下拉選項有自己的匯出值時，存的是匯出值，畫面顯示選項文字',
+    async run() {
+      const doc = await PDFDocument.create(), L = window.PDFLib, ctx = doc.context, N = k => PDFName.of(k);
+      const p = doc.addPage([400, 400]), dd = doc.getForm().createDropdown('city');
+      dd.addOptions(['x']); dd.addToPage(p, { x: 50, y: 300, width: 200, height: 24 });
+      dd.acroField.dict.set(N('Opt'), ctx.obj([['TP', 'Taipei'], ['KH', '高雄']].map(([v, d]) => ctx.obj([L.PDFString.of(v), L.PDFHexString.fromText(d)]))));
+      showTab('form'); await loadForm([pdfFile(await doc.save(), 'opt.pdf')]);
+      const sel = $('#ff-pages select'); T.eq([...sel.options].map(o => o.textContent), ['', 'Taipei', '高雄'], '選單顯示選項文字');
+      sel.value = '高雄'; sel.dispatchEvent(new Event('input', { bubbles: true }));
+      const r = await T.result(() => T.click('#ff-go'));
+      const out = await PDFDocument.load(r.file.bytes);
+      T.eq(out.getForm().getField('city').acroField.dict.lookup(N('V')).decodeText(), 'KH', '欄位的值');
+      T.ok(await T.ink(r.file, 0, (R, G, B) => R < 60 && G < 60 && B < 60, 1), '欄位上畫出「高雄」');
+      await loadForm([r.file]); T.eq($('#ff-pages select').value, '高雄', '再打開時選的是高雄');
+    }
+  },
+  {
     name: '壓縮（保留文字）：透明的 PNG 照片保留透明',
     async run() {
       const doc = await PDFDocument.create(), page = doc.addPage([595, 842]);
