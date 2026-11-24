@@ -21,17 +21,40 @@ function jpegOrientation(buf) {
   } catch (e) {}
   return 1;
 }
+/* A PNG can carry the same EXIF orientation as a JPEG, in an eXIf chunk; browsers show the picture turned. */
+function pngOrientation(buf) {
+  try {
+    const v = new DataView(buf);
+    for (let o = 8; o + 8 <= v.byteLength;) {
+      const len = v.getUint32(o), type = v.getUint32(o + 4);
+      if (type === 0x65584966) { // eXIf: a TIFF header and its first directory
+        const t = o + 8, le = v.getUint16(t) === 0x4949, ifd = t + v.getUint32(t + 4, le), n = v.getUint16(ifd, le);
+        for (let i = 0; i < n; i++) { const e = ifd + 2 + i * 12; if (v.getUint16(e, le) === 0x0112) return v.getUint16(e + 8, le); }
+        return 1;
+      }
+      if (type === 0x49454E44) break; // IEND
+      o += 12 + len;
+    }
+  } catch (e) {}
+  return 1;
+}
+/* Pictures that go into the PDF as they are: JPEGs and PNGs that need no turning; the rest is re-encoded the way the
+   browser shows it. Told by the content, not the name: a WebP or PNG saved as .jpg (common for pictures from the
+   web) would not embed as a JPEG. */
+function directKind(buf) {
+  const b = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
+  if (b[0] === 0xFF && b[1] === 0xD8 && b[2] === 0xFF) return jpegOrientation(buf) === 1 ? 'jpg' : 'other';
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return pngOrientation(buf) === 1 ? 'png' : 'other';
+  return 'other';
+}
 async function addImages(files) {
   files = await prepImages(files);
   for (const f of files) {
     if (!isImage(f)) { toast(`「${f.name}」不是支援的圖片格式`, 'err'); continue; }
     try {
       const bmp = await createImageBitmap(f);
-      const buf = await f.arrayBuffer();
-      const isJpg = f.type === 'image/jpeg' || /\.jpe?g$/i.test(f.name);
-      const isPng = f.type === 'image/png' || /\.png$/i.test(f.name);
       imgs.items.push({ id: uid(), name: f.name, size: f.size, file: f, url: URL.createObjectURL(f), w: bmp.width, h: bmp.height,
-        kind: isJpg && jpegOrientation(buf) === 1 ? 'jpg' : isPng ? 'png' : 'other' });
+        kind: directKind(await f.arrayBuffer()) });
       bmp.close && bmp.close();
     } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); }
   }

@@ -741,13 +741,21 @@ function sizeThumbImg(img, tw, th, rot) {
 
 const isImage = f => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|bmp|hei[cf])$/i.test(f.name);
 const isHeic = f => /^image\/hei[cf]/i.test(f.type) || /\.hei[cf]$/i.test(f.name);
+/* A HEIC photo renamed to .jpg is still HEIC, which most browsers cannot open: its first bytes tell. */
+async function looksHeic(f) {
+  if (isPdf(f) || !isImage(f)) return false;
+  try {
+    const b = new Uint8Array(await f.slice(0, 12).arrayBuffer());
+    return /^ftyp(heic|heix|hevc|hevx|heim|heis|hevm|hevs|mif1|msf1)$/.test(String.fromCharCode(...b.subarray(4, 12)));
+  } catch (e) { return false; }
+}
 /* iPhone photos (HEIC) become JPEG before any tool sees them. Safari can decode HEIC itself; other browsers
    use heic2any, loaded the first time it is needed. Other files pass through untouched. */
 async function prepImages(files) {
   const out = [];
   for (const f of files) {
-    if (!isHeic(f)) { out.push(f); continue; }
-    const name = f.name.replace(/\.hei[cf]$/i, '') + '.jpg';
+    if (!isHeic(f) && !(await looksHeic(f))) { out.push(f); continue; }
+    const name = f.name.replace(/\.[^.]+$/, '') + '.jpg';
     try {
       let blob = null;
       try {

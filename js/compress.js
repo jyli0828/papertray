@@ -261,9 +261,33 @@ function pngUnfilter(data, w, h, bpp) {
   }
   return out;
 }
+/* A JPEG's EXIF orientation is for photo viewers; a PDF shows the pixels as stored, but browsers turn the picture
+   when they decode it (a phone photo put into a PDF as it is would come out turned and squashed). So a copy with the
+   orientation set to 1, "as stored", is decoded instead. Also put into the photo workers' code. */
+function jpegAsStored(bytes) {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (bytes.length < 4 || v.getUint16(0) !== 0xFFD8) return bytes;
+  for (let o = 2; o + 4 <= bytes.length;) {
+    const m = v.getUint16(o); if ((m & 0xFF00) !== 0xFF00 || m === 0xFFDA) break;
+    if (m === 0xFFE1 && o + 10 <= bytes.length && v.getUint32(o + 4) === 0x45786966) { // APP1 "Exif"
+      try {
+        const t = o + 10, le = v.getUint16(t) === 0x4949, ifd = t + v.getUint32(t + 4, le), n = v.getUint16(ifd, le);
+        for (let i = 0; i < n; i++) {
+          const e = ifd + 2 + i * 12;
+          if (v.getUint16(e, le) === 0x0112 && v.getUint16(e + 8, le) !== 1) {
+            const out = bytes.slice(); new DataView(out.buffer).setUint16(e + 8, 1, le); return out;
+          }
+        }
+      } catch (e) {}
+      return bytes;
+    }
+    o += 2 + v.getUint16(o + 2);
+  }
+  return bytes;
+}
 async function decodeToCanvas(info, stream) {
   if (info.kind === 'jpeg') {
-    const bmp = await createImageBitmap(new Blob([stream.contents], { type: 'image/jpeg' }));
+    const bmp = await createImageBitmap(new Blob([jpegAsStored(stream.contents)], { type: 'image/jpeg' }));
     const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
     cv.getContext('2d').drawImage(bmp, 0, 0); bmp.close && bmp.close();
     return cv;
@@ -285,7 +309,8 @@ async function decodeToCanvas(info, stream) {
    Each worker decodes one photo (JPEG, or Flate pixels), shrinks it and writes a JPEG with OffscreenCanvas, so the
    page stays responsive and a multi-core machine handles several photos at the same time. Browsers without
    OffscreenCanvas in workers fall back to doing the same work on the page, one photo at a time.
-   The function below is self-contained: it is turned into the workers' source code. */
+   The function below is self-contained (apart from jpegAsStored(), which is put next to it): it is turned into the
+   workers' source code. */
 function photoWorkerMain() {
   async function inflate(bytes) {
     const ds = new DecompressionStream('deflate');
@@ -314,7 +339,7 @@ function photoWorkerMain() {
     const { info } = t;
     let src, w, h;
     if (info.kind === 'jpeg') {
-      src = await createImageBitmap(new Blob([t.contents], { type: 'image/jpeg' })); w = src.width; h = src.height;
+      src = await createImageBitmap(new Blob([jpegAsStored(t.contents)], { type: 'image/jpeg' })); w = src.width; h = src.height;
     } else {
       let px = await inflate(t.contents);
       if (info.predictor >= 10) px = pngUnfilter(px, info.w, info.h, info.comps);
@@ -348,7 +373,7 @@ function photoWorkerMain() {
 }
 const workersCanDraw = () => typeof OffscreenCanvas !== 'undefined' && 'convertToBlob' in OffscreenCanvas.prototype && typeof Worker !== 'undefined';
 function photoPool(size) {
-  const url = URL.createObjectURL(new Blob([`(${photoWorkerMain.toString()})()`], { type: 'text/javascript' }));
+  const url = URL.createObjectURL(new Blob([`${jpegAsStored.toString()}\n(${photoWorkerMain.toString()})()`], { type: 'text/javascript' }));
   const workers = [], waiting = new Map(); let seq = 0;
   for (let i = 0; i < size; i++) {
     const w = new Worker(url);
@@ -387,9 +412,15 @@ async function reencodeOnPage(info, obj, lv, gray) {
 async function compressKeepText(bytes, lv, gray, check, signal) {
   const doc = await PDFDocument.load(bytes);
   const ctx = doc.context;
-  const cands = [];
-  for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
+  const cands = [], masks = new Set();
+  // A picture's transparency (/SMask, or /Mask as a picture) is a grey picture of its own; made into a colour JPEG it
+  // is no longer a valid mask and the photo it belongs to disappears. Masks are left as they are.
+  for (const [, obj] of ctx.enumerateIndirectObjects()) {
     if (!(obj instanceof PDFRawStream)) continue;
+    for (const k of ['SMask', 'Mask']) { const m = obj.dict.get(N(k)); if (m instanceof PDFLib.PDFRef) masks.add(m.toString()); }
+  }
+  for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
+    if (!(obj instanceof PDFRawStream) || masks.has(ref.toString())) continue;
     const info = imageInfo(ctx, obj.dict);
     // Small Flate images are usually logos or line art; JPEG would blur them, so leave them alone.
     if (info && (info.kind === 'jpeg' || info.w * info.h >= 250000)) cands.push({ ref, obj, info });

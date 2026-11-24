@@ -414,6 +414,58 @@ export default [
     }
   },
   {
+    name: '圖片轉 PDF：副檔名和內容不符的圖片（網路下載的 WebP 存成 .jpg 之類）照樣轉換',
+    async run() {
+      const cv = document.createElement('canvas'); cv.width = 300; cv.height = 200;
+      const c = cv.getContext('2d'); c.fillStyle = '#c00'; c.fillRect(0, 0, 300, 200);
+      const bytes = async t => new Uint8Array(await (await new Promise(r => cv.toBlob(r, t, .9))).arrayBuffer());
+      const files = [new File([await bytes('image/png')], 'png.jpg', { type: 'image/jpeg' }), new File([await bytes('image/webp')], 'webp.jpg', { type: 'image/jpeg' }),
+        new File([await bytes('image/jpeg')], 'jpeg.png', { type: 'image/png' })];
+      showTab('img2pdf'); await addImages(files);
+      T.eq(imgs.items.map(it => it.kind), ['png', 'other', 'jpg'], '依內容判斷格式');
+      const r = await T.result(() => T.click('#img-go'));
+      T.eq((await T.pdfPages(r.file)).length, 3, '三張都轉成一頁');
+      for (let i = 0; i < 3; i++) T.ok(await T.ink(r.file, i, (R, G, B) => R > 150 && G < 60 && B < 60), `第 ${i + 1} 頁有圖`);
+    }
+  },
+  {
+    name: '圖片轉 PDF：帶 EXIF 轉向的 PNG 照瀏覽器顯示的方向放，不會被壓扁',
+    async run() {
+      const cv = document.createElement('canvas'); cv.width = 400; cv.height = 200;
+      const c = cv.getContext('2d'); c.fillStyle = '#f00'; c.fillRect(0, 0, 200, 200); c.fillStyle = '#00f'; c.fillRect(200, 0, 200, 200);
+      const png = new Uint8Array(await (await new Promise(r => cv.toBlob(r, 'image/png'))).arrayBuffer());
+      // an eXIf chunk (orientation 6: turn 90° clockwise) right after IHDR
+      const table = Array.from({ length: 256 }, (_, n) => { let k = n; for (let i = 0; i < 8; i++) k = k & 1 ? 0xEDB88320 ^ (k >>> 1) : k >>> 1; return k >>> 0; });
+      const crc = b => { let x = 0xFFFFFFFF; for (const v of b) x = table[(x ^ v) & 255] ^ (x >>> 8); return (x ^ 0xFFFFFFFF) >>> 0; };
+      const tiff = [0x4D, 0x4D, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0];
+      const body = [0x65, 0x58, 0x49, 0x66, ...tiff], sum = crc(body), be = n => [n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255];
+      const chunk = [...be(tiff.length), ...body, ...be(sum)], at = 8 + 25;
+      const out = new Uint8Array(png.length + chunk.length); out.set(png.subarray(0, at)); out.set(chunk, at); out.set(png.subarray(at), at + chunk.length);
+      showTab('img2pdf'); await addImages([new File([out], 'turned.png', { type: 'image/png' })]);
+      T.eq([imgs.items[0].w, imgs.items[0].h, imgs.items[0].kind], [200, 400, 'other'], '照顯示的方向（直的）、重新編碼');
+      const r = await T.result(() => T.click('#img-go'));
+      const red = await T.ink(r.file, 0, (R, G, B) => R > 200 && G < 60 && B < 60), blue = await T.ink(r.file, 0, (R, G, B) => B > 200 && R < 60 && G < 60);
+      T.ok(red && blue && red[3] <= blue[1] + .01, `紅色在上、藍色在下：${JSON.stringify({ red, blue })}`);
+    }
+  },
+  {
+    name: 'HEIC 照片改名成 .jpg 也會先轉成 JPEG（依檔案開頭判斷）',
+    async run() {
+      // The start of a HEIC file ("ftyp" + brand "heic"); the converter is replaced by one that records its input.
+      const heic = new File([new Uint8Array([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0, 0, 0, 0])], 'IMG_0001.jpg', { type: 'image/jpeg' });
+      const cv = document.createElement('canvas'); cv.width = 40; cv.height = 30;
+      const jpg = await new Promise(r => cv.toBlob(r, 'image/jpeg'));
+      const seen = [], real = window.heic2any;
+      window.heic2any = async ({ blob }) => { seen.push(blob.name); return jpg; };
+      try {
+        const out = await prepImages([heic, new File([jpg], 'real.jpg', { type: 'image/jpeg' })]);
+        T.eq(seen, ['IMG_0001.jpg'], '只有 HEIC 送去轉換');
+        T.eq(out.map(f => [f.name, f.type]), [['IMG_0001.jpg', 'image/jpeg'], ['real.jpg', 'image/jpeg']], '轉換後的檔案');
+        T.ok(out[1].size === jpg.size, '一般 JPEG 原封不動');
+      } finally { window.heic2any = real; }
+    }
+  },
+  {
     name: 'PDF 轉圖片與文字',
     async run() {
       showTab('pdf2img'); T.click('#p2i-sample');
@@ -1259,6 +1311,56 @@ export default [
       const pj = await T.pdf(r.file), ops = await (await pj.getPage(1)).getOperatorList();
       T.ok(ops.fnArray.includes(pdfjsLib.OPS.paintImageXObject), '照片還在');
       return `${(comp.items[0].size / 1e6).toFixed(2)} MB → ${(r.file.size / 1e6).toFixed(2)} MB`;
+    }
+  },
+  {
+    name: '壓縮（保留文字）：Word、Acrobat 那種沒有 /Decode 的透明遮罩不會被轉成 JPEG，照片不會消失',
+    async run() {
+      const W = 800, H = 600, doc = await PDFDocument.create(), ctx = doc.context, N = k => PDFName.of(k);
+      // a photo, and a soft-edged mask: left half (nearly) opaque, right half (nearly) transparent
+      const px = new Uint8Array(W * H * 3), mask = new Uint8Array(W * H);
+      for (let i = 0; i < W * H; i++) {
+        px[i * 3] = 20 + Math.random() * 30; px[i * 3 + 1] = 40 + Math.random() * 30; px[i * 3 + 2] = 200 + Math.random() * 50;
+        mask[i] = (i % W) < W / 2 ? 180 + Math.random() * 75 : Math.random() * 20;
+      }
+      const sm = ctx.register(ctx.stream(await deflate(mask), { Type: 'XObject', Subtype: 'Image', Width: W, Height: H, ColorSpace: 'DeviceGray', BitsPerComponent: 8, Filter: 'FlateDecode' }));
+      const im = ctx.register(ctx.stream(await deflate(px), { Type: 'XObject', Subtype: 'Image', Width: W, Height: H, ColorSpace: 'DeviceRGB', BitsPerComponent: 8, Filter: 'FlateDecode', SMask: sm }));
+      const p = doc.addPage([400, 300]);
+      p.node.set(N('Resources'), ctx.obj({ XObject: ctx.obj({ Im1: im }) }));
+      p.node.set(N('Contents'), ctx.register(ctx.flateStream('q 400 0 0 300 0 0 cm /Im1 Do Q')));
+      const blue = (r, g, b) => b > 120 && r < 120 && b - r > 60;
+      showTab('compress'); await loadCompFile([pdfFile(await doc.save(), 'smask.pdf')]);
+      const r = await T.result(() => T.click('#comp-go'));
+      const shown = await T.ink(r.file, 0, blue);
+      T.ok(shown && shown[0] < .05 && Math.abs(shown[2] - .5) < .05, '照片的左半邊還在、右半邊透明：' + JSON.stringify(shown));
+      const d = await PDFDocument.load(r.file.bytes), mk = d.context.enumerateIndirectObjects().find(([, o]) => o instanceof window.PDFLib.PDFRawStream && o.dict.get(N('SMask')));
+      T.eq(String(d.context.lookup(mk[1].dict.get(N('SMask'))).dict.get(N('ColorSpace'))), '/DeviceGray', '遮罩還是灰階');
+    }
+  },
+  {
+    name: '壓縮（保留文字）：PDF 裡帶 EXIF 轉向的手機照片不會被轉向、壓扁（背景程式和頁面上都一樣）',
+    async run() {
+      // 1600 × 800, red left half and blue right half, with an EXIF tag saying "turn 90°" (which PDF viewers ignore)
+      const cv = document.createElement('canvas'); cv.width = 1600; cv.height = 800;
+      const c = cv.getContext('2d'), id = c.createImageData(1600, 800);
+      for (let y = 0; y < 800; y++) for (let x = 0; x < 1600; x++) {
+        const o = (y * 1600 + x) * 4, n = Math.random() * 40, left = x < 800;
+        id.data[o] = left ? 215 + n : n; id.data[o + 1] = n; id.data[o + 2] = left ? n : 215 + n; id.data[o + 3] = 255;
+      }
+      c.putImageData(id, 0, 0);
+      const jpg = new Uint8Array(await (await new Promise(r => cv.toBlob(r, 'image/jpeg', .97))).arrayBuffer());
+      const tiff = [0x4D, 0x4D, 0, 42, 0, 0, 0, 8, 0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0];
+      const body = [0x45, 0x78, 0x69, 0x66, 0, 0, ...tiff], len = body.length + 2, app1 = [0xFF, 0xE1, len >> 8, len & 255, ...body];
+      const exif = new Uint8Array(jpg.length + app1.length); exif.set(jpg.subarray(0, 2)); exif.set(app1, 2); exif.set(jpg.subarray(2), 2 + app1.length);
+      const red = (r, g, b) => r > 180 && g < 90 && b < 90, blue = (r, g, b) => b > 180 && r < 90 && g < 90;
+      for (const n of [1, 2]) { // one photo is done on the page, several in background workers
+        const doc = await PDFDocument.create(), img = await doc.embedJpg(exif);
+        for (let k = 0; k < n; k++) doc.addPage([400, 200]).drawImage(n > 1 && k ? await doc.embedJpg(exif.slice()) : img, { x: 0, y: 0, width: 400, height: 200 });
+        showTab('compress'); comp.items = []; await loadCompFile([pdfFile(await doc.save(), `exif-${n}.pdf`)]);
+        const r = await T.result(() => T.click('#comp-go'));
+        T.ok(!comp.items[0].out.kept, '照片有重新壓縮');
+        T.eq([await T.ink(r.file, 0, red), await T.ink(r.file, 0, blue)], [[0, 0, .5, 1], [.5, 0, 1, 1]], `${n} 張照片：紅左藍右，和原本一樣`);
+      }
     }
   },
 

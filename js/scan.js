@@ -279,8 +279,7 @@ $('#sc-reset').addEventListener('click', async () => {
   const it = sc.it; if (!it || !it.scan) return;
   const src = it.scan.src; delete it.scan;
   const bmp = await createImageBitmap(src);
-  const isJpg = src.type === 'image/jpeg' || /\.jpe?g$/i.test(src.name), isPng = src.type === 'image/png' || /\.png$/i.test(src.name);
-  replaceImgItem(it, src, bmp.width, bmp.height, isJpg && jpegOrientation(await src.arrayBuffer()) === 1 ? 'jpg' : isPng ? 'png' : 'other');
+  replaceImgItem(it, src, bmp.width, bmp.height, directKind(await src.arrayBuffer()));
   bmp.close && bmp.close();
   const done = sc.done; closeScan(); done(); toast('已還原成原圖');
 });
