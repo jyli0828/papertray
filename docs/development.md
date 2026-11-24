@@ -17,7 +17,7 @@ python -m http.server 8000
 ```
 papertray/
 ├─ index.html           頁面結構：頁首、分頁列、每個工具的 <section>、共用對話框，最後依序載入 js/
-├─ icon.svg             網站圖示（分頁 icon、頁首標誌）
+├─ icon.svg             網站圖示（分頁 icon；頁首的標誌是 index.html 裡同樣圖形的 SVG，顏色跟著深淺色模式）
 ├─ icons/               安裝成 App 用的 PNG 圖示（tools/make_icons.py 產生）
 ├─ manifest.webmanifest App 的名稱、圖示、顏色（PWA）
 ├─ sw.js                service worker：離線使用
@@ -192,6 +192,7 @@ node tests/run.mjs
 
 ## 慣例
 
+- 外觀取自辦公室的紙匣和文件櫃：鋼櫃灰的底、影印紙白的工作區、牛皮紙色的卷宗（工具分類）、原子筆藍的主要按鈕與圖示；螢光筆黃（`--mark`）只用來標示「目前這個」（開著的工具、最推薦的工具），不要拿來裝飾。標題和分類標籤用霞鶩文楷（`--font-display`），其他都用 Noto Sans TC。
 - 介面文字用繁體中文、全形標點；按鈕寫動作（「產生 PDF」「解除密碼」），錯誤訊息說明怎麼辦。
 - 程式註解用英文，寫「為什麼」，不重述程式在做什麼。
 - 2 格縮排、單引號、每個檔案開頭 `'use strict'`。

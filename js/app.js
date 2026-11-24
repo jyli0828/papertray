@@ -15,6 +15,8 @@ function showTab(name) {
     $('#panel-' + t).hidden = t !== name;
   });
   try { localStorage.setItem('papertray.tab', name); } catch (e) {}
+  // The home page lists every tool itself, as a drawer of folders; the tool tabs would only repeat it.
+  document.body.classList.toggle('at-home', name === 'home');
   // On a phone the tab bar is one row that scrolls sideways: bring the open tool into view.
   const nav = $('.tabs'), tb = $('#tab-' + name);
   if (nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: Math.max(0, tb.offsetLeft - (nav.clientWidth - tb.offsetWidth) / 2), behavior: 'smooth' });
@@ -46,8 +48,9 @@ document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () =>
 }));
 $('.tabs').addEventListener('keydown', e => {
   if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
-  const cur = TABS.findIndex(t => $('#tab-' + t).getAttribute('aria-selected') === 'true');
-  const next = TABS[(cur + (e.key === 'ArrowRight' ? 1 : TABS.length - 1)) % TABS.length];
+  // Arrows move between the tools; 全部工具 hides the tab bar, so they pass it by.
+  const tools = TABS.filter(t => t !== 'home'), cur = tools.findIndex(t => $('#tab-' + t).getAttribute('aria-selected') === 'true');
+  const next = tools[(cur + (e.key === 'ArrowRight' ? 1 : tools.length - 1)) % tools.length];
   $('#tab-' + next).click(); $('#tab-' + next).focus();
 });
 $('#handoff-close').addEventListener('click', hideNext);

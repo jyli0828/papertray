@@ -12,8 +12,8 @@ from PIL import Image, ImageDraw
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, 'icons')
-GREEN, PAPER, FOLD, TRAY = (11, 122, 107, 255), (255, 255, 255, 255), (169, 220, 210, 255), (255, 216, 77, 255)
-LINE = (11, 122, 107, round(255 * .45))
+INK, PAPER, FOLD, TRAY = (28, 63, 163, 255), (255, 255, 255, 255), (201, 212, 242, 255), (229, 199, 107, 255)
+LINE = (28, 63, 163, round(255 * .45))
 SS = 8  # drawn 8× larger, then scaled down, for smooth edges
 
 
@@ -22,9 +22,9 @@ def draw(size, rounded=True, inset=1.0):
     img = Image.new('RGBA', (big, big), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     if rounded:
-        d.rounded_rectangle([0, 0, big - 1, big - 1], radius=14 / 64 * big, fill=GREEN)
+        d.rounded_rectangle([0, 0, big - 1, big - 1], radius=14 / 64 * big, fill=INK)
     else:
-        d.rectangle([0, 0, big, big], fill=GREEN)
+        d.rectangle([0, 0, big, big], fill=INK)
     # icon.svg works in a 64-unit box; inset < 1 shrinks the drawing around the centre (maskable icons)
     k = big / 64 * inset
     o = (big - 64 * k) / 2

@@ -24,5 +24,4 @@
 | 字型 | 用在 | 授權 |
 |---|---|---|
 | Noto Sans TC | 內文、加在 PDF 上的中文文字 | SIL Open Font License 1.1 |
-| Bricolage Grotesque | 標題 | SIL Open Font License 1.1 |
-| JetBrains Mono | 數字、檔案大小 | SIL Open Font License 1.1 |
+| 霞鶩文楷 TC（LXGW WenKai TC） | 標題、工具分類的標籤；離線時改用標楷體 | SIL Open Font License 1.1 |

@@ -30,7 +30,7 @@ function renderHomeGroups() {
   const q = $('#home-q').value, list = toolList(), groups = [...new Set(list.map(t => t.group))];
   $('#home-groups').innerHTML = groups.map(g => {
     const ts = list.filter(t => t.group === g && toolMatches(t, q));
-    return ts.length ? `<div class="home-group"><h3>${g}</h3>${ts.map(t => toolButton(t, 'home-tool')).join('')}</div>` : '';
+    return ts.length ? `<div class="home-group"><h3>${g}</h3><div class="home-sheet">${ts.map(t => toolButton(t, 'home-tool')).join('')}</div></div>` : '';
   }).join('') || '<p class="hint">沒有符合的工具，換個說法試試。</p>';
 }
 $('#home-q').addEventListener('input', renderHomeGroups);
