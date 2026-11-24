@@ -34,6 +34,7 @@ papertray/
 ├─ tests/               自動化測試：run.mjs（執行）、cases.mjs（測試案例）、helpers.js（頁面裡的輔助函式）
 ├─ docs/                說明文件
 ├─ dist/                build.py 的產出，不在版本控制內
+├─ LICENSE              MIT 授權（紙匣自己的程式碼；lib/ 裡的函式庫各有授權）
 ├─ .nojekyll            讓 GitHub Pages 原樣提供檔案，不經過 Jekyll
 └─ .gitattributes       文字檔一律存成 LF，圖片、壓縮檔、wasm 視為二進位
 ```

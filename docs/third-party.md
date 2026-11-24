@@ -1,5 +1,7 @@
 # 第三方函式庫
 
+紙匣自己的程式碼（`index.html`、`css/`、`js/`、`tests/`、`tools/`）以 [MIT 授權](../LICENSE) 釋出；下面列的函式庫與字型維持各自的授權。
+
 `lib/` 裡是下列函式庫的本機副本，讓紙匣不用網路也能使用。全部都在第一次用到時才載入，見 [development.md](development.md#共用機制jscorejs)。打包成單一檔案版時，改從表中的 CDN 載入（`tools/build.py` 的 `CDN` 表）。
 
 | 函式庫 | 版本 | 本機檔案 | 大小 | 用在 | 授權 | CDN |

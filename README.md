@@ -87,3 +87,7 @@ docs/           說明文件
 - [docs/features.md](docs/features.md)：每個工具的完整說明
 - [docs/development.md](docs/development.md)：程式架構、檔案結構、新增工具、測試、打包與發布、記憶體管理
 - [docs/third-party.md](docs/third-party.md)：使用的函式庫、字型、版本與授權
+
+## 授權
+
+紙匣的程式碼以 [MIT 授權](LICENSE) 釋出，作者 Jun-Yan Li。`lib/` 裡的第三方函式庫和介面字型各有自己的授權，見 [docs/third-party.md](docs/third-party.md)。
