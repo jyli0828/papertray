@@ -36,7 +36,8 @@ $('#redact-sample').addEventListener('click', async () => {
 const RF_PATTERNS = {
   id: { label: '身分證', re: /(?<![A-Za-z0-9])[A-Z](?:[1289]|[A-D])\d{8}(?!\d)/g },
   mobile: { label: '手機', re: /(?<!\d)(?:\+?886[-\s]?|0)9\d{2}[-\s]?\d{3}[-\s]?\d{3}(?!\d)/g },
-  phone: { label: '市話', re: /(?<!\d)(?:\(0\d{1,2}\)\s?|0\d{1,2}[-\s])\d{3,4}[-\s]?\d{4}(?:\s?(?:#|轉|ext\.?)\s?\d{1,5})?(?!\d)/g },
+  // 7–8 digit numbers (02-2345-6789), and the 5–6 digit ones of 苗栗 037, 台東 089, 金門 082, 馬祖 0836 (037-559999)
+  phone: { label: '市話', re: /(?<!\d)(?:(?:\(0\d{1,2}\)\s?|0\d{1,2}[-\s])\d{3,4}[-\s]?\d{4}|(?:\(0[2-8]\d{1,2}\)\s?|0[2-8]\d{1,2}[-\s])\d{5,6})(?:\s?(?:#|轉|ext\.?)\s?\d{1,5})?(?!\d)/g },
   email: { label: 'Email', re: /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g },
   card: { label: '卡號', re: /(?<!\d)(?:\d{4}[-\s]?){3}\d{4}(?!\d)/g },
   birth: { label: '日期', re: /(?<!\d)(?:(?:19|20)\d{2}|\d{2,3})\s?[/\-.年]\s?\d{1,2}\s?[/\-.月]\s?\d{1,2}日?(?!\d)/g }
@@ -90,6 +91,22 @@ function rfPatterns() {
   }
   return list;
 }
+/* What was typed into a filled-in form is not part of the page's text: the values of its fields, one per line, every
+   character boxed by its whole field, so a match covers the field (pageChars()'s { text, boxes } shape). */
+async function formFieldChars(pg) {
+  let annots = []; try { annots = await pg.getAnnotations({ intent: 'display' }); } catch (e) {}
+  let text = ''; const list = [];
+  for (const a of annots) {
+    if (a.subtype !== 'Widget' || a.hidden || a.checkBox || a.radioButton || !a.rect) continue;
+    let v = Array.isArray(a.fieldValue) ? a.fieldValue.join('\n') : a.fieldValue;
+    const opt = (a.options || []).find(o => o.exportValue === v); if (opt) v = opt.displayValue; // a list shows its text
+    if (typeof v !== 'string' || !v.trim()) continue;
+    const r = a.rect, box = [Math.min(r[0], r[2]), Math.min(r[1], r[3]), Math.max(r[0], r[2]), Math.max(r[1], r[3])];
+    if (text) { text += '\n'; list.push(null); }
+    for (let i = 0; i < v.length; i++) { text += v[i]; list.push(v[i] === '\n' ? null : box); }
+  }
+  return { text, boxes: packBoxes(list) };
+}
 const boxOverlap = (p, q) => {
   const w = Math.min(p[2], q[2]) - Math.max(p[0], q[0]), h = Math.min(p[3], q[3]) - Math.max(p[1], q[1]);
   return w > 0 && h > 0 ? (w * h) / Math.min((p[2] - p[0]) * (p[3] - p[1]), (q[2] - q[0]) * (q[3] - q[1])) : 0;
@@ -106,19 +123,19 @@ $('#rf-go').addEventListener('click', e => {
     for (let n = 0; n < targets.length; n++) {
       check();
       const p = targets[n], m = edit.meta[metaKey(p)], R = (p.baseRot + p.rot) % 360;
+      const page = () => edit.docs[p.docId].pj.getPage(p.index + 1);
       // Kept with the page: reading a scanned page again would take as long as the first time.
       if (!m.chars || (useOcr && !m.chars.ocr && !m.chars.text.trim()) || (m.chars.ocr && m.chars.R !== R)) {
-        const pg = await edit.docs[p.docId].pj.getPage(p.index + 1);
-        m.chars = await pageChars(pg, { ocr: useOcr, rotation: R, onProgress: msg => {
+        m.chars = await pageChars(await page(), { ocr: useOcr, rotation: R, onProgress: msg => {
           out.hidden = false; out.textContent = `第 ${n + 1} / ${targets.length} 頁是掃描的圖片，正在辨識文字（OCR）：${ocrProgressText(msg)}`;
         } });
         m.chars.R = R;
       }
-      const { text, boxes: chars, ocr } = m.chars;
-      if (text.trim()) anyText = true;
-      if (ocr) ocrPages++;
+      if (!m.fields) m.fields = await formFieldChars(await page());
+      if (m.chars.text.trim() || m.fields.text.trim()) anyText = true;
+      if (m.chars.ocr) ocrPages++;
       const boxes = [];
-      for (const pat of pats) {
+      for (const { text, boxes: chars, ocr } of [m.chars, m.fields]) for (const pat of pats) {
         pat.re.lastIndex = 0;
         for (let mt; (mt = pat.re.exec(text));) {
           if (!mt[0]) { pat.re.lastIndex++; continue; }

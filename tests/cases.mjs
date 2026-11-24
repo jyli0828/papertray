@@ -349,6 +349,36 @@ export default [
     }
   },
   {
+    name: '遮蔽個資：自動尋找也找填好的表單欄位，匯出後欄位和內容都不在',
+    async run() {
+      const doc = await PDFDocument.create(), p = doc.addPage([400, 400]), form = doc.getForm();
+      p.drawText('ID / Phone / City', { x: 30, y: 340, size: 12, font: await doc.embedFont(StandardFonts.Helvetica) });
+      const id = form.createTextField('idno'); id.addToPage(p, { x: 80, y: 292, width: 200, height: 24 }); id.setText('A123456789');
+      const ph = form.createTextField('notes'); ph.enableMultiline(); ph.addToPage(p, { x: 80, y: 200, width: 250, height: 60 }); ph.setText('call me\n0912-345-678');
+      const keep = form.createTextField('city'); keep.addToPage(p, { x: 80, y: 120, width: 200, height: 24 }); keep.setText('Taipei');
+      showTab('redact'); await startRedacting([pdfFile(await doc.save(), 'filled.pdf')]);
+      await T.until(() => dlg.open && te.page, '遮蔽視窗');
+      document.querySelectorAll('[data-rf]').forEach(c => { c.checked = ['id', 'mobile'].includes(c.dataset.rf); });
+      T.click('#rf-go'); await T.idle('#rf-go');
+      T.eq(edit.pages[0].annots.filter(a => a.type === 'redact').length, 2, '身分證、手機各一個框：' + $('#rf-result').textContent);
+      $('#te-done').click();
+      const r = await T.result(() => T.click('#edit-export'));
+      const pj = await T.pdf(r.file), fo = await pj.getFieldObjects(); pj.destroy();
+      T.ok(!fo || !Object.keys(fo).length, '匯出檔不留欄位：' + JSON.stringify(fo && Object.keys(fo)));
+      const bytes = (await fileBytes(r.file)).bytes, d = await PDFDocument.load(bytes);
+      T.ok(!d.getForm().getFields().length, '沒有表單欄位');
+    }
+  },
+  {
+    name: '遮蔽個資：市話包括苗栗、台東、金門、馬祖的 5、6 碼號碼，日期和手機不算市話',
+    async run() {
+      const re = RF_PATTERNS.phone.re, hit = s => { re.lastIndex = 0; const m = re.exec(s); return m ? m[0] : null; };
+      for (const s of ['02-2345-6789', '(02)2345-6789', '04 2345 6789', '049-2345678', '037-559999', '(037)559999', '089-326141', '082-318823', '0836-22381', '02-2345-6789 轉 123'])
+        T.eq(hit(`電話：${s}。`), s, '市話');
+      for (const s of ['2026-11-24', '01-02-2024', '0912-345678', '0912345678', '05-11']) T.eq(hit(`見 ${s} 。`), null, `不是市話：${s}`);
+    }
+  },
+  {
     name: '密碼：中文密碼加密、解除，就地解除限制',
     async run() {
       showTab('password');
