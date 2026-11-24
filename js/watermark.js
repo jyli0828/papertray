@@ -167,7 +167,7 @@ $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
     if (tg.set && !tg.set.has(i)) continue;
     const page = out.getPage(i);
     const R = ((page.getRotation().angle % 360) + 360) % 360;
-    const cb = page.getCropBox(), view = [cb.x, cb.y, cb.x + cb.width, cb.y + cb.height];
+    const view = visibleBox(page);
     const [dw, dh] = dispSize(view, R);
     const mark = wmMark(dw); if (!mark) break;
     const img = await embedMark(mark);

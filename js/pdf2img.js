@@ -94,7 +94,9 @@ function runsToText(items, vp) {
   for (const it of items) {
     if (!it.str || !it.transform) continue;
     const t = pdfjsLib.Util.transform(vp.transform, it.transform);
-    const h = Math.hypot(t[2], t[3]) || 10, x = t[4], y = t[5], w = (it.width || 0) * vp.scale;
+    // x along the line and y down to the next line, in the text's own direction: on a page turned by /Rotate (or
+    // text set sideways) the lines run down or up the screen.
+    const { x, y } = textAxes(t, t), h = Math.hypot(t[2], t[3]) || 10, w = (it.width || 0) * vp.scale;
     if (prev) {
       const dy = y - prev.y, lh = Math.max(h, prev.h);
       if (Math.abs(dy) > lh * .5 || x < prev.x - lh * 2) { // a new line

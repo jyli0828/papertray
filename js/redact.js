@@ -49,8 +49,10 @@ async function pageTextMap(pg) {
   tc.items.forEach((it, k) => {
     if (typeof it.str !== 'string' || !it.str) { if (it.hasEOL && prev) { text += '\n'; map.push(null); prev = null; } return; }
     if (prev) {
+      // Measured in the text's own direction (sideways text runs up or down the page).
       const fh = Math.hypot(it.transform[2], it.transform[3]) || 10;
-      const dy = Math.abs(it.transform[5] - prev.transform[5]), gap = it.transform[4] - (prev.transform[4] + prev.width);
+      const a = textAxes(it.transform, it.transform), b = textAxes(prev.transform, it.transform);
+      const dy = Math.abs(a.y - b.y), gap = a.x - (b.x + prev.width);
       if (dy > fh * .5) { text += '\n'; map.push(null); }
       else if (gap > fh * .15) { text += ' '; map.push(null); }
     }

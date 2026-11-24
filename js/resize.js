@@ -7,8 +7,9 @@ const PAPERS = { a4: [595.28, 841.89], a3: [841.89, 1190.55], a5: [419.53, 595.2
 /* src: the file itself (on disk for a picked file), read again when the job runs */
 const rs = { name: '', src: null, size: 0, n: 0, mode: 'fit', first: [595.28, 841.89] };
 const pageDisp = page => {
-  const cb = page.getCropBox(), R = ((page.getRotation().angle % 360) + 360) % 360;
-  return { cb, R, view: [cb.x, cb.y, cb.x + cb.width, cb.y + cb.height], dims: R % 180 ? [cb.height, cb.width] : [cb.width, cb.height] };
+  const view = visibleBox(page), R = ((page.getRotation().angle % 360) + 360) % 360;
+  const cb = { x: view[0], y: view[1], width: view[2] - view[0], height: view[3] - view[1] };
+  return { cb, R, view, dims: R % 180 ? [cb.height, cb.width] : [cb.width, cb.height] };
 };
 async function loadResize(files) {
   const f = files[0];

@@ -725,6 +725,22 @@ function parseRanges(text, n) {
 }
 
 
+/* The part of a pdf-lib page that is shown, [x0, y0, x1, y1]: its crop box within its media box. Viewers (and pdf.js,
+   whose page.view is the same box) show only where the two overlap; getCropBox() gives the crop box as written,
+   which can reach past the paper. */
+function visibleBox(page) {
+  const box = b => [Math.min(b.x, b.x + b.width), Math.min(b.y, b.y + b.height), Math.max(b.x, b.x + b.width), Math.max(b.y, b.y + b.height)];
+  const m = box(page.getMediaBox()), c = box(page.getCropBox());
+  const v = [Math.max(m[0], c[0]), Math.max(m[1], c[1]), Math.min(m[2], c[2]), Math.min(m[3], c[3])];
+  return v[2] > v[0] && v[3] > v[1] ? v : m;
+}
+/* Where a text run starts, measured along the direction of the run `dir` (x) and across it (y), both transforms as
+   pdf.js gives them ([a b c d e f]). For text as usually set this is just (e, f); for a line running down or up the
+   page it still gives x along the line and y from line to line. */
+function textAxes(tr, dir) {
+  const n = Math.hypot(dir[0], dir[1]) || 1, ux = dir[0] / n, uy = dir[1] / n;
+  return { x: tr[4] * ux + tr[5] * uy, y: tr[5] * ux - tr[4] * uy };
+}
 /* coordinate mapping between display space (top-left origin, y down, after rotation) and PDF user space */
 function dispSize(view, R) { const W = view[2] - view[0], H = view[3] - view[1]; return R % 180 ? [H, W] : [W, H]; }
 function displayToUser(view, R, dx, dy) {

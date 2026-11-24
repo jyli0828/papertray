@@ -335,7 +335,7 @@ function stampOptions() {
 /* Draw one line of small grey text in a page corner or edge (pos: t/b + l/c/r), upright on the page as shown.
    Plain Latin text is drawn as real text (Helvetica); Chinese and other text as a sharp picture, like 加文字. */
 async function drawLabel(out, page, text, pos, size, font, R) {
-  const cb = page.getCropBox(), view = [cb.x, cb.y, cb.x + cb.width, cb.y + cb.height];
+  const view = visibleBox(page);
   const [dw, dh] = dispSize(view, R), m = 24;
   const base = pos[0] === 't' ? m + size * .75 : dh - m + 2; // baseline, in the page's display space
   const place = w => pos[1] === 'l' ? m : pos[1] === 'r' ? dw - m - w : (dw - w) / 2;

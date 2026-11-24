@@ -225,6 +225,25 @@ export default [
   },
 
   {
+    name: '裁切框超出紙張（CropBox 比 MediaBox 大）：浮水印、頁碼、調整尺寸都照看得到的範圍',
+    async run() {
+      const doc = await PDFDocument.create(), p = doc.addPage([400, 400]);
+      p.node.set(PDFName.of('CropBox'), doc.context.obj([0, 0, 800, 400])); // viewers show only the 400 × 400 paper
+      const src = pdfFile(await doc.save(), 'crop.pdf');
+      showTab('watermark'); await loadWm([src]);
+      T.set('#wm-text', 'MARK'); T.set('#wm-color', '#ff0000'); T.set('#wm-pos', 'center'); T.set('#wm-angle', '0'); T.set('#wm-opacity', '100');
+      const wmBox = await T.ink((await T.result(() => T.click('#wm-go'))).file, 0, (r, g, b) => r > 200 && g < 100 && b < 100);
+      T.ok(wmBox && Math.abs((wmBox[0] + wmBox[2]) / 2 - .5) < .03, '浮水印在看得到的頁面中央：' + JSON.stringify(wmBox));
+      showTab('edit'); await loadEditFiles([src]); await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
+      T.set('#edit-numbers', true); T.set('#pn-fmt', 'n'); T.set('#pn-pos', 'br');
+      const at = await T.textAt((await T.result(() => T.click('#edit-export'))).file, 0, '1');
+      T.set('#edit-numbers', false);
+      T.ok(at.length === 1 && at[0][0] > .8 && at[0][0] < 1 && at[0][1] > .9, '頁碼在看得到的右下角：' + JSON.stringify(at));
+      showTab('resize'); await loadResize([src]);
+      T.ok($('#rs-fmeta').textContent.includes('141×141mm'), '尺寸是看得到的範圍：' + $('#rs-fmeta').textContent);
+    }
+  },
+  {
     name: '裁切框不在原點的頁面、編輯器的文字與「套用到其他頁」',
     async run() {
       const red = (r, g, b) => r > 150 && g < 110 && b < 110, black = (r, g, b) => r < 30 && g < 30 && b < 30;
@@ -366,6 +385,7 @@ export default [
     }
   },
 
+
   /* ---------- 轉換 ---------- */
   {
     name: '壓縮：保留文字縮小照片；整頁黑白',
@@ -404,6 +424,34 @@ export default [
       const t = await T.result(() => T.click('#p2i-go'));
       const text = await t.file.text();
       T.ok(text.includes('Quarterly Report') && text.includes('第 3 頁'), text.slice(0, 120));
+    }
+  },
+  {
+    name: '轉向的頁面與橫放的文字：抽出文字分得出行與字；遮蔽個資找得到分成幾段的電話',
+    async run() {
+      const doc = await PDFDocument.create(), font = await doc.embedFont(StandardFonts.Helvetica);
+      // page 1: ordinary text on a page turned by /Rotate 90 (a landscape page)
+      const p1 = doc.addPage([400, 300]);
+      p1.drawText('First line', { x: 30, y: 250, size: 14, font }); p1.drawText('here', { x: 140, y: 250, size: 14, font });
+      p1.drawText('Second line', { x: 30, y: 230, size: 14, font });
+      p1.setRotation(degrees(90));
+      // page 2: text set sideways (running up the page), with the phone number in three runs
+      const p2 = doc.addPage([300, 400]);
+      [['Tel', 60], ['0912', 100], ['345', 140], ['678', 172]].forEach(([s, y]) => p2.drawText(s, { x: 150, y, size: 14, font, rotate: degrees(90) }));
+      p2.drawText('next', { x: 170, y: 60, size: 14, font, rotate: degrees(90) });
+      const src = pdfFile(await doc.save(), 'turned.pdf');
+      showTab('pdf2img'); await loadP2i([src]);
+      T.set('#p2i-fmt', 'txt');
+      const text = (await (await T.result(() => T.click('#p2i-go'))).file.text()).replace(/^﻿/, '');
+      T.set('#p2i-fmt', 'jpg');
+      T.ok(/First line here\nSecond line/.test(text), '第 1 頁分行、字之間有空格：' + JSON.stringify(text));
+      T.ok(/Tel 0912 345 678\s*\n\s*next/.test(text), '第 2 頁：' + JSON.stringify(text));
+      showTab('redact'); await startRedacting([src]);
+      await T.until(() => dlg.open && te.page, '遮蔽視窗');
+      document.querySelectorAll('[data-rf]').forEach(c => { c.checked = c.dataset.rf === 'mobile'; });
+      $('#rf-scope').value = 'all'; T.click('#rf-go'); await T.idle('#rf-go');
+      T.eq(edit.pages[1].annots.filter(a => a.type === 'redact').length, 1, '橫放的手機號碼：' + $('#rf-result').textContent);
+      $('#te-done').click();
     }
   },
   {
