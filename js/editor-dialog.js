@@ -298,14 +298,18 @@ $('#te-apply-go').addEventListener('click', () => {
   const [l, t] = annotTopLeft(a), [dw, dh] = dispSize(te.page.view, te.R);
   const right = l + a.wPt / 2 > dw / 2, bottom = t + a.hPt / 2 > dh / 2;
   const mx = right ? dw - (l + a.wPt) : l, my = bottom ? dh - (t + a.hPt) : t;
+  // Copies remember the item they were made from: applying it again (a second click, or after moving it) replaces
+  // them instead of stacking another one on each page (a highlight stacked twice came out darker).
+  const root = a.from || a.id;
   let done = 0, skipped = 0;
   for (const i of targets) {
     const p = edit.pages[i];
     if (!fillMeta(p)) { skipped++; continue; }
     const R = (p.baseRot + p.rot) % 360, [w2, h2] = dispSize(p.view, R);
     const L = Math.max(0, right ? w2 - mx - a.wPt : mx), T = Math.max(0, bottom ? h2 - my - a.hPt : my);
-    const c = { ...a, id: uid(), rot: R, pts: a.pts && a.pts.map(q => q.slice()) };
+    const c = { ...a, id: uid(), from: root, rot: R, pts: a.pts && a.pts.map(q => q.slice()) };
     [c.ux, c.uy] = displayToUser(p.view, R, L, T + a.hPt);
+    p.annots = p.annots.filter(x => (x.from || x.id) !== root);
     p.annots.push(c); done++;
   }
   toast(`已套用到 ${done} 頁` + (skipped ? `，${skipped} 頁還在載入所以略過` : ''));

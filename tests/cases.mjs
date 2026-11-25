@@ -298,6 +298,8 @@ export default [
       const p0 = edit.pages[0]; te.page = p0; te.R = 0;
       const a = { id: uid(), type: 'text', text: 'Hi', size: 30, color: '#ff0000' }; measureAnnot(a); setTopLeft(a, 30, 30); p0.annots.push(a);
       te.sel = a; $('#te-apply-to').value = 'all'; $('#te-apply-go').click();
+      $('#te-apply-go').click(); // a second click replaces the copies, it does not stack another set
+      T.eq(edit.pages.map(p => p.annots.length), [1, 1, 1], '按兩次「套用」每頁還是一個');
       const p1 = edit.pages[1]; te.page = p1; te.R = 90;
       const box = { id: uid(), type: 'shape', kind: 'rect', color: '#000000', lw: 3, wPt: 100, hPt: 60 }; setTopLeft(box, 650 - 100 - 20, 420 - 60 - 20); p1.annots.push(box);
       te.page = null; te.sel = null;
