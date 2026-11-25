@@ -58,15 +58,47 @@ function rsProgress(i, n) {
   $('#rs-bar').style.width = (i / n * 100) + '%';
   $('#rs-plabel').textContent = i < n ? `處理第 ${i + 1} / ${n} 頁` : `完成 ${n} 頁`;
 }
+/* A page of another document as a picture-like object in out (a Form XObject, which page.drawPage() draws), the box
+   cb of it showing: what out.embedPage() makes, without three costs of it.
+   - embedPage() copies each page with a copier of its own, so the pictures and fonts the pages share were copied once
+     per page: a 266 KB file of 200 pages came out 4.8 MB. Here one copier serves every page.
+   - It copies the whole page, so the page's content went into the file twice (the copy unused), along with its links
+     (a link to another page brings that page too), form fields and thumbnail. Only the resources are copied here.
+   - It inflates the content and deflates it again with pako. A page whose content is one stream (most) keeps that
+     stream's bytes and filters as they are; several are joined, as pdf-lib does, and deflated by the browser. */
+async function embedPageForm(out, copier, page, cb) {
+  const L = window.PDFLib, N = k => PDFName.of(k), sctx = page.doc.context;
+  const { Contents, Resources } = page.node.normalizedEntries(); // Resources inherited from the page tree included
+  const dict = { Type: 'XObject', Subtype: 'Form', FormType: 1, BBox: [cb.x, cb.y, cb.x + cb.width, cb.y + cb.height],
+    // The resources on their own (a reference): a stream's dictionary is written out plain, while an object of its own
+    // goes into a compressed object stream.
+    Matrix: [1, 0, 0, 1, -cb.x, -cb.y], Resources: out.context.register(Resources ? copier.copy(Resources) : out.context.obj({})) };
+  const parts = Contents ? Contents.asArray().map(r => sctx.lookup(r)).filter(s => s instanceof L.PDFStream) : [];
+  let stream;
+  if (parts.length === 1 && parts[0] instanceof PDFRawStream) {
+    const s = parts[0];
+    for (const k of ['Filter', 'DecodeParms']) { const v = s.dict.get(N(k)); if (v) dict[k] = copier.copy(v); }
+    stream = out.context.stream(s.contents, dict);
+  } else { // several pieces, or none (a blank page)
+    const pieces = parts.map(s => s instanceof PDFRawStream ? L.decodePDFRawStream(s).decode() : s.getUnencodedContents());
+    const all = new Uint8Array(pieces.reduce((n, p) => n + p.length + 1, 0)); let o = 0;
+    for (const p of pieces) { all.set(p, o); o += p.length; all[o++] = 10; }
+    dict.Filter = 'FlateDecode';
+    stream = out.context.stream(await deflate(all), dict);
+  }
+  const ref = out.context.register(stream), w = cb.width, h = cb.height;
+  // PDFEmbeddedPage accepts only pdf-lib's own embedder; this one has nothing left to do.
+  const e = Object.assign(Object.create(L.PDFPageEmbedder.prototype), { width: w, height: h, embedIntoContext: async () => ref });
+  return L.PDFEmbeddedPage.of(ref, out, e);
+}
 async function resizeFit(check) {
   const src = await PDFDocument.load((await fileBytes(rs.src)).bytes), out = await PDFDocument.create();
   markLayers(src, 'r'); // see relinkLayers() in core.js
   const orient = $('#rs-orient').value, scaleMode = $('#rs-scale').value, m = +$('#rs-margin').value;
-  const pages = src.getPages();
+  const pages = src.getPages(), copier = PDFLib.PDFObjectCopier.for(src.context, out.context);
   for (let i = 0; i < pages.length; i++) {
     check(); rsProgress(i, pages.length);
-    const { cb, R, dims: [dw, dh] } = pageDisp(pages[i]);
-    const emb = await out.embedPage(pages[i], { left: cb.x, bottom: cb.y, right: cb.x + cb.width, top: cb.y + cb.height });
+    const { cb, R, dims: [dw, dh] } = pageDisp(pages[i]), emb = await embedPageForm(out, copier, pages[i], cb);
     let [TW, TH] = rsTarget();
     const land = orient === 'landscape' || (orient === 'auto' && dw > dh);
     if (land !== TW > TH) [TW, TH] = [TH, TW];
@@ -116,13 +148,16 @@ async function resizeCrop(check) {
       const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
       const r = { pg, cv, k, px: cv.width * cv.height };
       try {
-        const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        // An ordinary (graphics card) canvas, though its pixels are read once: drawn on the processor instead
+        // (willReadFrequently), reading them took 13 ms a page, since the browser draws only when they are read; 200
+        // pages took 6.3 s instead of 4.7. Faint, thin lines come out a little differently, so a box can move by 1–2 pt.
+        const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
         await pg.render({ canvasContext: ctx, viewport: vp }).promise;
       } catch (e) { pg.cleanup(); cv.width = cv.height = 0; throw e; }
       return r;
     }, ({ cv, k }, i) => {
       rsProgress(i, n);
-      const box = inkBox(cv.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height);
+      const box = inkBox(cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height);
       if (!box) return; // blank page
       const [x0, y0, x1, y1] = box;
       const page = doc.getPage(i), { view, R, dims: [dw, dh] } = pageDisp(page);

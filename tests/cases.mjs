@@ -2039,7 +2039,7 @@ export default [
       showTab('img2pdf'); dragIn(); await T.sleep(400);
       T.ok(!window.pdfjsLib && !window.PDFLib, '圖片工具不載入 PDF 的函式庫');
       showTab('split'); dragIn();
-      await T.until(() => window.pdfjsLib && window.PDFLib && sharedWorker !== undefined, '拖進來時載入');
+      await T.until(() => window.pdfjsLib && window.PDFLib && pdfWorkers[0] !== undefined, '拖進來時載入');
       // The picker's input is clicked by its button: that starts the loading too (already done here, so nothing new).
       $('#split-input').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       const t = performance.now();
@@ -2313,6 +2313,82 @@ export default [
       let worst = 0; for (let k = 0; k < a.length; k++) worst = Math.max(worst, Math.abs(a[k] - b[k]));
       T.ok(worst <= 2, `畫布：顏色最多差 ${worst}`);
       return cases.length + ' 種 PNG';
+    }
+  },
+  {
+    name: '調整尺寸（統一大小）：畫出來和 pdf-lib 的 embedPage 一樣；共用的圖只放一次，空白頁、多段內容、繼承的資源都對',
+    async run() {
+      await needPdfLib();
+      const N = k => PDFName.of(k);
+      const doc = await PDFDocument.create(), font = await doc.embedFont(StandardFonts.Helvetica);
+      const cv = document.createElement('canvas'); cv.width = 120; cv.height = 90;
+      const c = cv.getContext('2d'); c.fillStyle = '#c33'; c.fillRect(0, 0, 60, 90); c.fillStyle = '#36c'; c.fillRect(60, 0, 60, 90);
+      const logo = await doc.embedJpg(new Uint8Array(await (await new Promise(r => cv.toBlob(r, 'image/jpeg', .9))).arrayBuffer()));
+      const pages = [];
+      for (let i = 0; i < 12; i++) {
+        const p = doc.addPage(i === 3 ? [700, 400] : [595.28, 841.89]); pages.push(p);
+        if (i === 5) continue; // a blank page: no content at all
+        p.drawImage(logo, { x: 40, y: 300, width: 120, height: 90 });
+        p.drawText('Page ' + (i + 1), { x: 60, y: 200, size: 30, font, color: rgb(.1, .5, .3) });
+        if (i === 2) p.setRotation(degrees(90));
+        if (i === 4) p.setCropBox(30, 150, 300, 300);
+      }
+      // Page 7's content in two streams, and page 8's resources inherited from the page tree.
+      const ctx = doc.context;
+      const two = pages[6].node.Contents(); ctx.lookup(two instanceof PDFArray ? two.get(0) : two);
+      pages[6].node.set(N('Contents'), ctx.obj([...(pages[6].node.Contents() instanceof PDFArray ? pages[6].node.Contents().asArray() : [pages[6].node.get(N('Contents'))]),
+        ctx.register(ctx.flateStream('q 0 0 1 rg 300 500 80 80 re f Q'))]));
+      const res = pages[7].node.get(N('Resources')); pages[7].node.delete(N('Resources')); doc.catalog.Pages().set(N('Resources'), res);
+      const src = await doc.save(), f = pdfFile(src, 'many.pdf');
+      showTab('resize'); await loadResize([f]); setRsMode('fit');
+      const r = await T.result(() => T.click('#rs-go'));
+      // The same layout, made with pdf-lib's own embedPage(), page by page.
+      const ref = await PDFDocument.create(), s2 = await PDFDocument.load(src);
+      for (const p of s2.getPages()) {
+        if (!p.node.Contents()) p.node.set(N('Contents'), s2.context.register(s2.context.stream('')));
+        const { cb, R, dims: [dw, dh] } = pageDisp(p), emb = await ref.embedPage(p, { left: cb.x, bottom: cb.y, right: cb.x + cb.width, top: cb.y + cb.height });
+        let [TW, TH] = PAPERS.a4; if (dw > dh) [TW, TH] = [TH, TW];
+        const s = Math.min((TW - 2 * +$('#rs-margin').value) / dw, (TH - 2 * +$('#rs-margin').value) / dh), mode = $('#rs-scale').value;
+        const k = mode === 'shrink' ? Math.min(1, s) : mode === 'none' ? 1 : s;
+        const th = -R * Math.PI / 180, cs = Math.cos(th), sn = Math.sin(th), w = cb.width * k, h = cb.height * k;
+        const xs = [0, w * cs, w * cs - h * sn, -h * sn], ys = [0, w * sn, w * sn + h * cs, h * cs];
+        ref.addPage([TW, TH]).drawPage(emb, { x: TW / 2 - (Math.min(...xs) + Math.max(...xs)) / 2, y: TH / 2 - (Math.min(...ys) + Math.max(...ys)) / 2, xScale: k, yScale: k, rotate: degrees(-R) });
+      }
+      const mine = (await fileBytes(r.file)).bytes, theirs = await ref.save({ useObjectStreams: true });
+      const shot = async (bytes, i) => {
+        const pj = await openPdfjs(bytes), pg = await pj.getPage(i), vp = pg.getViewport({ scale: .6 }), c2 = document.createElement('canvas');
+        c2.width = Math.ceil(vp.width); c2.height = Math.ceil(vp.height);
+        const x = c2.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c2.width, c2.height);
+        await pg.render({ canvasContext: x, viewport: vp }).promise; pj.destroy(); return x.getImageData(0, 0, c2.width, c2.height).data;
+      };
+      for (let i = 1; i <= 12; i++) {
+        const a = await shot(mine, i), b = await shot(theirs, i);
+        T.eq(a.length, b.length, `第 ${i} 頁大小`);
+        let off = 0; for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) off++;
+        T.eq(off, 0, `第 ${i} 頁畫出來不同的點`);
+      }
+      const out = await PDFDocument.load(mine); let pics = 0;
+      for (const [, o] of out.context.enumerateIndirectObjects()) if (o instanceof PDFRawStream && o.dict.get(N('Subtype')) === N('Image')) pics++;
+      T.eq(pics, 1, '共用的圖只放一次');
+      T.ok(mine.length < theirs.length * .6, `檔案大小 ${mine.length}，pdf-lib 逐頁嵌入 ${theirs.length}`);
+      return `${src.length >> 10} KB → ${mine.length >> 10} KB（pdf-lib 逐頁嵌入 ${theirs.length >> 10} KB）`;
+    }
+  },
+  {
+    name: '比較：新版用自己的 pdf.js 背景程式，清空時關掉，再放入又能比較',
+    http: true,
+    async run() {
+      showTab('compare'); setCmpMode('visual');
+      await loadCmp('a', [await T.labeled(['Same', 'Old'], 'a.pdf')]); await loadCmp('b', [await T.labeled(['Same', 'New'], 'b.pdf')]);
+      T.ok(pdfWorkers[1] && pdfWorkers[1] !== pdfWorkers[0], '新版有自己的背景程式');
+      T.click('#cmp-go'); await T.idle('#cmp-go');
+      T.eq([...new Set(cmp.res.hunks.map(h => h.pa))], [1], '只有第 2 頁不同');
+      clearCmp();
+      T.eq(pdfWorkers[1], undefined, '清空後關掉');
+      await loadCmp('a', [await T.labeled(['X', 'Y'], 'a.pdf')]); await loadCmp('b', [await T.labeled(['X', 'Z'], 'b.pdf')]);
+      setCmpMode('text'); T.click('#cmp-go'); await T.idle('#cmp-go');
+      T.ok(cmp.res.hunks.length >= 1, '再放入又能比較');
+      clearCmp();
     }
   },
   {

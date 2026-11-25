@@ -69,17 +69,27 @@ async function needPdfjs() {
 /* pdf.js parses in a background worker (blob wrapper around the worker script). It is started the first time a PDF
    is opened, not at page load: the worker script alone is about 1 MB and its thread holds memory of its own.
    Opened straight from disk (file://) browsers refuse that, and pdf.js runs the worker code on the page instead. */
-let sharedWorker; // undefined = not tried yet, null = unavailable
-function pdfWorker() {
-  if (sharedWorker !== undefined) return sharedWorker;
-  sharedWorker = null;
+/* Slot 0 is shared by every document. 比較 opens its second file in slot 1, a worker of its own: with one worker the
+   two files took turns, and a scanned page (whose pictures pdf.js decodes in the worker) waited for the other file's.
+   dropPdfWorker(1) ends that worker when 比較 lets its files go. */
+const pdfWorkers = []; // per slot: undefined = not tried yet, null = unavailable
+function pdfWorker(slot = 0) {
+  if (pdfWorkers[slot] !== undefined) return pdfWorkers[slot];
+  pdfWorkers[slot] = null;
   if (location.protocol !== 'file:') {
     try {
       const w = new Worker(URL.createObjectURL(new Blob([`importScripts('${WORKER_URL}');`], { type: 'text/javascript' })));
-      sharedWorker = new pdfjsLib.PDFWorker({ port: w });
-    } catch (e) { sharedWorker = null; }
+      pdfWorkers[slot] = new pdfjsLib.PDFWorker({ port: w });
+      pdfWorkers[slot]._thread = w;
+    } catch (e) { pdfWorkers[slot] = null; }
   }
-  return sharedWorker;
+  return pdfWorkers[slot];
+}
+/* after: settles once the documents in that worker are closed (pj.destroy()). A file opened meanwhile gets a new worker. */
+function dropPdfWorker(slot, after) {
+  const w = pdfWorkers[slot]; if (!w) return;
+  pdfWorkers[slot] = undefined;
+  Promise.resolve(after).catch(() => {}).then(() => { try { w.destroy(); } catch (e) {} try { w._thread.terminate(); } catch (e) {} });
 }
 /* Choosing a file in the file picker, or dragging one over the page, takes a second or more: the libraries that will
    read it load meanwhile (and pdf.js's worker starts), so the file opens at once instead of first waiting for them,
@@ -289,9 +299,9 @@ async function readPdf(f) {
 function encryptedMsg(name) { return `「${name}」有密碼保護，可以到「密碼」分頁解除。`; }
 /* pdf.js takes ownership of the bytes it is given. Pass owned = true only when nothing else needs them afterwards;
    otherwise a copy goes to pdf.js. */
-async function openPdfjs(bytes, owned) {
+async function openPdfjs(bytes, owned, slot = 0) { // slot: which worker (see pdfWorker())
   await needPdfjs();
-  return await pdfjsLib.getDocument(pdfjsOpts(owned ? bytes : bytes.slice())).promise;
+  return await pdfjsLib.getDocument(pdfjsOpts(owned ? bytes : bytes.slice(), slot)).promise;
 }
 /* Work on items 0..n-1 read a few ahead: ahead(i) gives what make(i) started (a promise, or null when make(i) gave
    null: nothing to read), and starts the next ones. Reading one page's text at a time, the page waited for pdf.js's
@@ -323,10 +333,10 @@ async function eachPage(pj, page, { batch, stop } = {}) {
   return true;
 }
 /* The options every pdf.js document is opened with (call after needPdfjs). */
-function pdfjsOpts(data) {
+function pdfjsOpts(data, slot = 0) {
   const maps = location.protocol === 'file:' && /^lib\//.test(LIBS.cmaps) ? LIB_FALLBACK.cmaps : LIBS.cmaps;
   const opts = { data, isEvalSupported: false, cMapUrl: new URL(maps, location.href).href, cMapPacked: true };
-  const w = pdfWorker(); if (w) opts.worker = w;
+  const w = pdfWorker(slot); if (w) opts.worker = w;
   return opts;
 }
 

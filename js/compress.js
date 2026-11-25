@@ -198,7 +198,9 @@ async function compressBW(bytes, dpi, check) {
       const W = Math.ceil(vp.width), H = Math.ceil(vp.height);
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
       try {
-        const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+        // An ordinary (graphics card) canvas: the pixels are read once, and drawn on the processor (willReadFrequently)
+        // a 300 dpi page took about a third longer.
+        const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
         await pg.render({ canvasContext: ctx, viewport: vp }).promise;
         return { d: ctx.getImageData(0, 0, W, H).data, W, H, vp1, px: W * H };
       } finally { pg.cleanup(); cv.width = cv.height = 0; }

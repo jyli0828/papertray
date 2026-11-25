@@ -16,7 +16,8 @@ async function loadCmp(side, files) {
   const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
   const { bytes, owned } = got, size = bytes.length;
   let pj;
-  try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
+  // The new version in a pdf.js worker of its own, so the two files are read at the same time (see pdfWorker()).
+  try { pj = await openPdfjs(bytes, owned, side === 'b' ? 1 : 0); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
   if (cmp[side]) cmp[side].pj.destroy();
   cmp[side] = { name: f.name, pj, size, chars: [] };
   clearCmpResult();
@@ -50,7 +51,8 @@ function forgetCmpPages(box) {
 }
 function clearCmp() {
   clearCmpResult();
-  for (const s of ['a', 'b']) { if (cmp[s]) cmp[s].pj.destroy(); cmp[s] = null; }
+  const closing = ['a', 'b'].map(s => { const d = cmp[s]; cmp[s] = null; return d && d.pj.destroy(); });
+  dropPdfWorker(1, closing[1]); // the new version's worker is not kept idle
   renderCmpSlots();
 }
 for (const s of ['a', 'b']) {
@@ -408,37 +410,50 @@ async function cmpVisual(A, B, s, check) {
   const nA = A.pj.numPages, nB = B.pj.numPages, n = Math.max(nA, nB), hunks = [];
   A.geo = []; B.geo = [];
   let pagesHit = 0;
-  for (let i = 0; i < n; i++) {
-    check(); cmpProgress(`比對第 ${i + 1} / ${n} 頁的畫面`, i / n);
-    if (i >= nA || i >= nB) { // a page only one of the files has
-      const d = i >= nA ? B : A; d.geo[i] = await cmpGeo(d, i);
-      hunks.push(i >= nA ? { vis: true, kind: 'ins', pa: nA - 1, pb: i, boxB: [0, 0, 1, 1] } : { vis: true, kind: 'del', pa: i, pb: nB - 1, boxA: [0, 0, 1, 1] });
-      pagesHit++; continue;
+  // Both files' page i are drawn at the same time (each file has its own pdf.js worker), and page i + 1 while page i
+  // is compared: one after the other, every page waited for each step in turn.
+  const both = Math.min(nA, nB), drop = ([ra, rb]) => { ra.cv.width = ra.cv.height = 0; rb.cv.width = rb.cv.height = 0; };
+  const pair = i => {
+    if (i >= both) return null;
+    const p = Promise.all([cmpRenderPage(A, i), cmpRenderPage(B, i)]); p.catch(() => {});
+    return p;
+  };
+  let next = pair(0);
+  try {
+    for (let i = 0; i < n; i++) {
+      check(); cmpProgress(`比對第 ${i + 1} / ${n} 頁的畫面`, i / n);
+      if (i >= nA || i >= nB) { // a page only one of the files has
+        const d = i >= nA ? B : A; d.geo[i] = await cmpGeo(d, i);
+        hunks.push(i >= nA ? { vis: true, kind: 'ins', pa: nA - 1, pb: i, boxB: [0, 0, 1, 1] } : { vis: true, kind: 'del', pa: i, pb: nB - 1, boxA: [0, 0, 1, 1] });
+        pagesHit++; continue;
+      }
+      const cur = next; next = null;
+      const [ra, rb] = await cur;
+      next = pair(i + 1);
+      A.geo[i] = ra.geo; B.geo[i] = rb.geo;
+      try {
+        const w = CMP_VIS_W, ha = ra.cv.height, hb = rb.cv.height;
+        if (Math.abs(ha - hb) > w * .02) { // another paper size or orientation: pixels cannot be lined up
+          hunks.push({ vis: true, kind: 'size', pa: i, pb: i, boxA: [0, 0, 1, 1], boxB: [0, 0, 1, 1] }); pagesHit++; continue;
+        }
+        await new Promise(r => setTimeout(r, 0)); // let the progress label paint
+        const h = Math.min(ha, hb), { cells, cw, ch } = cmpDiffCells(ra.data, rb.data, w, h, s);
+        const { boxes, frac } = cmpRegions(cells, cw, ch, s.min);
+        if (!boxes.length) continue;
+        pagesHit++;
+        // Most of the page changed (everything moved down a line, say): one mark says more than hundreds.
+        const whole = frac > .35 || boxes.length > 60;
+        const list = whole ? [[0, 0, cw, ch]] : boxes.sort((p, q) => p[1] - q[1] || p[0] - q[0]);
+        for (const [x0, y0, x1, y1] of list) {
+          const px = [x0 * CMP_CELL, y0 * CMP_CELL, Math.min(w, x1 * CMP_CELL), Math.min(h, y1 * CMP_CELL)];
+          const hk = { vis: true, kind: whole ? 'page' : 'change', pa: i, pb: i,
+            boxA: [px[0] / w, px[1] / ha, px[2] / w, px[3] / ha], boxB: [px[0] / w, px[1] / hb, px[2] / w, px[3] / hb] };
+          if (hunks.length < 300) hk.crops = { a: await cmpCrop(ra.cv, px), b: await cmpCrop(rb.cv, px) };
+          hunks.push(hk);
+        }
+      } finally { drop([ra, rb]); }
     }
-    const ra = await cmpRenderPage(A, i), rb = await cmpRenderPage(B, i);
-    A.geo[i] = ra.geo; B.geo[i] = rb.geo;
-    try {
-      const w = CMP_VIS_W, ha = ra.cv.height, hb = rb.cv.height;
-      if (Math.abs(ha - hb) > w * .02) { // another paper size or orientation: pixels cannot be lined up
-        hunks.push({ vis: true, kind: 'size', pa: i, pb: i, boxA: [0, 0, 1, 1], boxB: [0, 0, 1, 1] }); pagesHit++; continue;
-      }
-      await new Promise(r => setTimeout(r, 0)); // let the progress label paint
-      const h = Math.min(ha, hb), { cells, cw, ch } = cmpDiffCells(ra.data, rb.data, w, h, s);
-      const { boxes, frac } = cmpRegions(cells, cw, ch, s.min);
-      if (!boxes.length) continue;
-      pagesHit++;
-      // Most of the page changed (everything moved down a line, say): one mark says more than hundreds.
-      const whole = frac > .35 || boxes.length > 60;
-      const list = whole ? [[0, 0, cw, ch]] : boxes.sort((p, q) => p[1] - q[1] || p[0] - q[0]);
-      for (const [x0, y0, x1, y1] of list) {
-        const px = [x0 * CMP_CELL, y0 * CMP_CELL, Math.min(w, x1 * CMP_CELL), Math.min(h, y1 * CMP_CELL)];
-        const hk = { vis: true, kind: whole ? 'page' : 'change', pa: i, pb: i,
-          boxA: [px[0] / w, px[1] / ha, px[2] / w, px[3] / ha], boxB: [px[0] / w, px[1] / hb, px[2] / w, px[3] / hb] };
-        if (hunks.length < 300) hk.crops = { a: await cmpCrop(ra.cv, px), b: await cmpCrop(rb.cv, px) };
-        hunks.push(hk);
-      }
-    } finally { ra.cv.width = ra.cv.height = 0; rb.cv.width = rb.cv.height = 0; }
-  }
+  } finally { if (next) next.then(drop, () => {}); } // cancelled or failed: free the pages drawn ahead
   check();
   $('#cmp-progress').hidden = true;
   cmp.res = { vis: true, A, B, hunks };

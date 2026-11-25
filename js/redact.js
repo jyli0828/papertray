@@ -57,7 +57,9 @@ async function pageTextMap(pg, read) { // read: the page's text content, when al
       if (dy > fh * .5) { text += '\n'; map.push(null); }
       else if (gap > fh * .15) { text += ' '; map.push(null); }
     }
-    for (let i = 0; i < it.str.length; i++) { text += fixCjk(it.str[i]); map.push([k, i]); }
+    // fixCjk() keeps every character one character, so the whole run at once gives what each character alone does.
+    text += fixCjk(it.str);
+    for (let i = 0; i < it.str.length; i++) map.push([k, i]);
     if (it.hasEOL) { text += '\n'; map.push(null); prev = null; } else prev = it;
   });
   return { text, map, items: tc.items };
