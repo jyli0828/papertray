@@ -47,16 +47,27 @@ function directKind(buf) {
   if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4E && b[3] === 0x47) return pngOrientation(buf) === 1 ? 'png' : 'other';
   return 'other';
 }
+/* What a file-list row shows of a picture: { url (its small picture, see listThumb()), w, h, kind (directKind) }.
+   A picture that needs no turning (most photos) is decoded straight to the small size: decoding a 12 MP photo whole
+   (48 MB) only to shrink it made adding photos take about 1.4 times as long. A turned one is decoded whole, as the
+   browser shows it. */
+async function listPicture(f, px = 96) {
+  const kind = directKind(await f.arrayBuffer());
+  if (kind !== 'other') {
+    const { w, h } = await imageSize(f), k = Math.min(1, px / Math.min(w, h));
+    const bmp = await createImageBitmap(f, { resizeWidth: Math.max(1, Math.round(w * k)), resizeHeight: Math.max(1, Math.round(h * k)), resizeQuality: 'high' });
+    try { return { url: await listThumb(bmp, px), w, h, kind }; } finally { bmp.close && bmp.close(); }
+  }
+  const bmp = await createImageBitmap(f);
+  try { return { url: await listThumb(bmp, px), w: bmp.width, h: bmp.height, kind }; } finally { bmp.close && bmp.close(); }
+}
 async function addImages(files) {
   files = await prepImages(files);
   for (const f of files) {
     if (!isImage(f)) { toast(`「${f.name}」不是支援的圖片格式`, 'err'); continue; }
     try {
-      const bmp = await createImageBitmap(f);
-      try {
-        imgs.items.push({ id: uid(), name: f.name, size: f.size, file: f, url: await listThumb(bmp), w: bmp.width, h: bmp.height,
-          kind: directKind(await f.arrayBuffer()) });
-      } finally { bmp.close && bmp.close(); }
+      const { url, w, h, kind } = await listPicture(f);
+      imgs.items.push({ id: uid(), name: f.name, size: f.size, file: f, url, w, h, kind });
     } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); }
   }
   if (imgs.items.length && $('#img-name').value === '圖片.pdf') $('#img-name').value = baseName(imgs.items[0].name.replace(/\.[^.]+$/, '')) + '.pdf';

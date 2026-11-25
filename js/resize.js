@@ -83,35 +83,56 @@ async function resizeFit(check) {
   relinkLayers(out, [['r', src]]); // hidden layers stay hidden
   return out.save({ useObjectStreams: true });
 }
+/* Where the ink is on a page drawn as RGBA pixels: [x0, y0, x1, y1] (inclusive), or null for a blank page. Rows are
+   read from the top and the bottom until one has ink, then each row in between only as far in as the box so far:
+   on a page with text the margins are read, not every pixel. */
+function inkBox(d, W, H) {
+  const ink = o => d[o] < 240 || d[o + 1] < 240 || d[o + 2] < 240;
+  const rowHasInk = y => { for (let o = y * W * 4, end = o + W * 4; o < end; o += 4) if (ink(o)) return true; return false; };
+  let y0 = 0; while (y0 < H && !rowHasInk(y0)) y0++;
+  if (y0 === H) return null;
+  let y1 = H - 1; while (y1 > y0 && !rowHasInk(y1)) y1--;
+  let x0 = W, x1 = -1;
+  for (let y = y0; y <= y1; y++) {
+    const r = y * W * 4;
+    for (let x = 0; x < x0; x++) if (ink(r + x * 4)) { x0 = x; break; }
+    for (let x = W - 1; x > x1; x--) if (ink(r + x * 4)) { x1 = x; break; }
+  }
+  return [x0, y0, x1, y1];
+}
 async function resizeCrop(check) {
   const { bytes } = await fileBytes(rs.src);
-  const doc = await PDFDocument.load(bytes), pj = await openPdfjs(bytes);
-  const pad = +$('#rs-pad').value;
+  const opening = openPdfjs(bytes); // both libraries read the file at the same time
+  let doc;
+  try { doc = await PDFDocument.load(bytes); } catch (e) { opening.then(pj => pj.destroy(), () => {}); throw e; }
+  const pj = await opening;
+  const pad = +$('#rs-pad').value, n = pj.numPages;
   let cropped = 0;
   try {
-    for (let i = 0; i < pj.numPages; i++) {
-      check(); rsProgress(i, pj.numPages);
+    // Page i+1 is drawn while page i is read (see pagePipeline() in core.js).
+    await pagePipeline(n, async i => {
       const pg = await pj.getPage(i + 1), vp1 = pg.getViewport({ scale: 1 });
       const k = Math.min(2, 700 / Math.max(vp1.width, vp1.height)), vp = pg.getViewport({ scale: k });
       const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-      const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-      await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-      const d = ctx.getImageData(0, 0, cv.width, cv.height).data;
-      let x0 = cv.width, y0 = cv.height, x1 = -1, y1 = -1;
-      for (let y = 0; y < cv.height; y++) for (let x = 0; x < cv.width; x++) {
-        const o = (y * cv.width + x) * 4;
-        if (d[o] < 240 || d[o + 1] < 240 || d[o + 2] < 240) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
-      }
-      pg.cleanup(); cv.width = cv.height = 0;
-      if (x1 < 0) continue; // blank page
+      const r = { pg, cv, k, px: cv.width * cv.height };
+      try {
+        const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+      } catch (e) { pg.cleanup(); cv.width = cv.height = 0; throw e; }
+      return r;
+    }, ({ cv, k }, i) => {
+      rsProgress(i, n);
+      const box = inkBox(cv.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height);
+      if (!box) return; // blank page
+      const [x0, y0, x1, y1] = box;
       const page = doc.getPage(i), { view, R, dims: [dw, dh] } = pageDisp(page);
       const L = Math.max(0, x0 / k - pad), T = Math.max(0, y0 / k - pad), Rt = Math.min(dw, (x1 + 1) / k + pad), B = Math.min(dh, (y1 + 1) / k + pad);
-      if (L < 1 && T < 1 && Rt > dw - 1 && B > dh - 1) continue; // nothing to trim
+      if (L < 1 && T < 1 && Rt > dw - 1 && B > dh - 1) return; // nothing to trim
       const [ax, ay] = displayToUser(view, R, L, T), [bx, by] = displayToUser(view, R, Rt, B);
       page.setCropBox(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay));
       cropped++;
-    }
-    rsProgress(pj.numPages, pj.numPages);
+    }, ({ pg, cv }) => { pg.cleanup(); cv.width = cv.height = 0; }, check);
+    rsProgress(n, n);
   } finally { pj.destroy(); }
   return { bytes: await doc.save({ useObjectStreams: true }), cropped };
 }

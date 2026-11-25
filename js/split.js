@@ -12,12 +12,13 @@ async function loadSplit(files) {
   // Page sizes are quick to read; thumbnails are drawn only when their card comes near the screen. The file shown so
   // far stays open until the new one is read, so its cards (and 拆分) keep working meanwhile.
   const pages = [];
-  try {
-    for (let i = 0; i < pj.numPages; i++) {
-      const vp = (await pj.getPage(i + 1)).getViewport({ scale: 1 });
-      pages.push({ id: uid(), index: i, thumb: null, tw: 1, th: 1, w: vp.width, h: vp.height });
-    }
-  } catch (e) { pj.destroy(); toast(loadErr(f.name, e), 'err'); return; }
+  let broken = false;
+  await eachPage(pj, (pg, i) => {
+    if (!pg) { broken = true; return; }
+    const vp = pg.getViewport({ scale: 1 });
+    pages.push({ id: uid(), index: i, thumb: null, tw: 1, th: 1, w: vp.width, h: vp.height });
+  }, { stop: () => broken });
+  if (broken) { pj.destroy(); toast(loadErr(f.name, null), 'err'); return; }
   if (split.pj) split.pj.destroy();
   releaseThumbs(split.pages);
   Object.assign(split, { name: f.name, pj, pages, size });

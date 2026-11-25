@@ -18,11 +18,10 @@ async function loadP2i(files) {
   $('#p2i-empty').hidden = true; $('#p2i-work').hidden = false; $('#p2i-progress').hidden = true;
   renderP2i(); // the previous file's cards must not stay on screen while the sizes are read
   // Page sizes next (fast), so the summary is right; thumbnails come as cards scroll near the screen.
-  for (const p of p2i.pages) {
-    if (p2i.pj !== pj) return;
-    try { const vp = (await pj.getPage(p.index + 1)).getViewport({ scale: 1 }); p.w = vp.width; p.h = vp.height; } catch (e) {}
-  }
-  if (p2i.pj !== pj) return;
+  const pages = p2i.pages;
+  if (!await eachPage(pj, (pg, i) => {
+    if (pg) { const vp = pg.getViewport({ scale: 1 }); pages[i].w = vp.width; pages[i].h = vp.height; }
+  }, { stop: () => p2i.pj !== pj })) return;
   // The sizes go into the cards already shown; building them all again would also lose the thumbnails drawn so far.
   for (const card of $('#p2i-grid').children) {
     const p = p2i.pages[card._index], el = card.querySelector('.psize');

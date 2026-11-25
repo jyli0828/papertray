@@ -7,10 +7,8 @@ async function addImgTool(files) {
   for (const f of files) {
     if (!isImage(f)) { toast(`「${f.name}」不是支援的圖片格式`, 'err'); continue; }
     try {
-      const bmp = await createImageBitmap(f);
-      try {
-        itool.items.push({ id: uid(), name: f.name, file: f, size: f.size, w: bmp.width, h: bmp.height, url: await listThumb(bmp), out: null });
-      } finally { bmp.close && bmp.close(); }
+      const { url, w, h } = await listPicture(f); // see img2pdf.js
+      itool.items.push({ id: uid(), name: f.name, file: f, size: f.size, w, h, url, out: null });
     } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); }
   }
   renderImgTool();

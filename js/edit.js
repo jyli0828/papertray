@@ -98,16 +98,14 @@ async function loadEditFiles(files, onFirst, insertAt, replace, undoable) {
     if (at == null) edit.pages.push(...fresh); else { edit.pages.splice(at, 0, ...fresh); at += fresh.length; }
     renderEdit();
     // Sizes and rotation are quick to read; thumbnails are drawn later, only for cards near the screen.
-    for (let k = 0; k < fresh.length; k++) {
+    await eachPage(pj, (pg, k) => {
       const p = fresh[k], m = { baseRot: 0, view: [0, 0, 595, 842], thumb: null, tw: 1, th: 1 };
-      try {
-        const pg = await pj.getPage(p.index + 1);
-        m.baseRot = ((pg.rotate % 360) + 360) % 360; m.view = pg.view.slice();
-      } catch (e) {}
+      if (pg) { m.baseRot = ((pg.rotate % 360) + 360) % 360; m.view = pg.view.slice(); }
       edit.meta[metaKey(p)] = m; Object.assign(p, m);
-      if (k % 40 === 39 || k === fresh.length - 1) scheduleEditRender();
-      if (onFirst) { const cb = onFirst; onFirst = null; cb(p); }
-    }
+    }, { batch: () => {
+      scheduleEditRender();
+      if (onFirst) { const cb = onFirst; onFirst = null; cb(fresh[0]); }
+    } });
   }
 }
 async function loadEditThumb(key) {
@@ -126,12 +124,12 @@ const selCount = () => edit.pages.filter(p => p.selected).length;
 /* New pages go right after the last selected page, or at the end when nothing is selected. */
 function insertPos() { let last = -1; edit.pages.forEach((p, i) => { if (p.selected) last = i; }); return last < 0 ? edit.pages.length : last + 1; }
 
-/* Cards are kept from one render to the next: a card is built again only when its size label or badges change; its
-   number, tick, arrows, thumbnail and turn are updated in place. Rebuilding all of them on every click
-   made each click on a 2000-page document take half a second, and opening it rebuilt them dozens of times. */
-function editCardLook(p, size) {
+/* Cards are kept from one render to the next: a card is built again only when its badges change; its number, size,
+   tick, arrows, thumbnail and turn are updated in place. Rebuilding all of them on every click made each click on a
+   2000-page document take half a second, and opening it built every card twice (again once its size was read). */
+function editCardLook(p) {
   const notes = p.annots.filter(a => a.type !== 'redact').length;
-  return [size, notes, isRedacted(p)].join('|');
+  return [notes, isRedacted(p)].join('|');
 }
 function newEditCard(p, size) {
   const card = document.createElement('div');
@@ -159,7 +157,8 @@ function newEditCard(p, size) {
     const img = card.querySelector('img'); img.src = p.thumb;
     sizeThumbImg(img, p.tw, p.th, p.rot);
   } else if (p.view) whenVisible(card, () => loadEditThumb(metaKey(p)));
-  card._look = editCardLook(p, size); card._at = ''; card._shown = p.thumb ? `${p.thumb}|${p.rot}` : '';
+  card._watch = !!p.view; card._size = size; card._psize = card.querySelector('.psize');
+  card._look = editCardLook(p); card._at = ''; card._shown = p.thumb ? `${p.thumb}|${p.rot}` : '';
   card._sel = card.querySelector('[data-act="sel"]'); card._pno = card.querySelector('.pno');
   card._left = card.querySelector('[data-act="left"]'); card._right = card.querySelector('[data-act="right"]');
   return card;
@@ -179,8 +178,11 @@ function renderEdit() {
     let size = '';
     if (p.view) { const W = p.view[2] - p.view[0], H = p.view[3] - p.view[1]; size = paperName(R % 180 ? H : W, R % 180 ? W : H); }
     let card = old.get(p.id); old.delete(p.id);
-    if (card && card._look !== editCardLook(p, size)) { const fresh = newEditCard(p, size); card.replaceWith(fresh); thumbIO.unobserve(card); card._thumbJob = null; card = fresh; }
+    if (card && card._look !== editCardLook(p)) { const fresh = newEditCard(p, size); card.replaceWith(fresh); thumbIO.unobserve(card); card._thumbJob = null; card = fresh; }
     else if (!card) card = newEditCard(p, size);
+    // The size arrives after the card is first shown (a long file lists its pages first): filled in, not rebuilt.
+    if (card._size !== size) { card._size = size; card._psize.textContent = size; }
+    if (!card._watch && p.view && !p.thumb) { card._watch = true; whenVisible(card, () => loadEditThumb(metaKey(p))); }
     const shown = p.thumb ? `${p.thumb}|${p.rot}` : '';
     if (shown && card._shown !== shown) { card._shown = shown; setCardThumb(card, p.thumb, p.tw, p.th, p.rot); }
     const at = `${i}/${n}/${p.selected}`;
@@ -366,9 +368,28 @@ function stampOptions() {
     foot: $('#hf-foot').value.trim() ? { text: $('#hf-foot').value.trim(), pos: 'b' + $('#hf-foot-pos').value } : null
   };
 }
+/* Pictures put on many pages (a header in Chinese, page numbers, the same note or signature on every page) are
+   embedded once and drawn wherever they are needed. A picture per page made a 1000-page file with a Chinese header
+   take 8 s to export and 8 MB more. pictures(key, make) → the embedded picture of what make() draws. */
+function pictureCache(out) {
+  const done = new Map();
+  return (key, make) => {
+    if (!done.has(key)) done.set(key, (async () => out.embedPng(await make()))());
+    return done.get(key);
+  };
+}
+/* A label drawn as pictures goes in pieces: each digit on its own and the text between digits whole, every piece at
+   the place it has in the whole label, so 「第 1 頁」…「第 1000 頁」 share a dozen pictures. Only for text that is drawn
+   letter by letter (Chinese, Japanese, Korean, Latin, digits, punctuation): right-to-left text and scripts whose
+   letters join stay one picture. */
+const PIECEWISE = /^[\x20-\x7e\xa0-\xff -⁯⺀-⿟　-ヿ㄀-ㄯ㐀-䶿一-鿿豈-﫿＀-￯]*$/;
+function labelPieces(text) {
+  if (!PIECEWISE.test(text)) return [{ s: text, at: 0 }];
+  return [...text.matchAll(/\d|\D+/g)].map(m => ({ s: m[0], at: m.index }));
+}
 /* Draw one line of small grey text in a page corner or edge (pos: t/b + l/c/r), upright on the page as shown.
    Plain Latin text is drawn as real text (Helvetica); Chinese and other text as a sharp picture, like 加文字. */
-async function drawLabel(out, page, text, pos, size, font, R) {
+async function drawLabel(out, page, text, pos, size, font, R, pictures) {
   const view = visibleBox(page);
   const [dw, dh] = dispSize(view, R), m = 24;
   const base = pos[0] === 't' ? m + size * .75 : dh - m + 2; // baseline, in the page's display space
@@ -381,9 +402,16 @@ async function drawLabel(out, page, text, pos, size, font, R) {
   }
   const a = { text, size, color: '#545c66' };
   await ensureFont(text, size); measureAnnot(a);
-  const png = await out.embedPng(await renderTextPng(a));
-  const [ux, uy] = displayToUser(view, R, place(a.wPt), base + size * .3);
-  page.drawImage(png, { x: ux, y: uy, width: a.wPt, height: a.hPt, rotate: degrees(R) });
+  const x0 = place(a.wPt), y = base + size * .3;
+  for (const { s, at } of labelPieces(text)) {
+    if (!s.trim()) continue;
+    const piece = { text: s, size, color: a.color }; measureAnnot(piece);
+    // Where the piece starts in the whole label (measureAnnot set the font)
+    const dx = at ? mctx.measureText(text.slice(0, at)).width : 0;
+    const png = await pictures(`label|${size}|${s}`, () => renderTextPng(piece));
+    const [ux, uy] = displayToUser(view, R, x0 + dx, y);
+    page.drawImage(png, { x: ux, y: uy, width: piece.wPt, height: piece.hPt, rotate: degrees(R) });
+  }
 }
 
 /* ---------- redaction ----------
@@ -460,7 +488,7 @@ async function exportEdit(onlySel, btn) {
     // Replaced by functions: a string replacement reads $& or $$ in a file name as a pattern, not as text.
     const fill = t => t.replace(/\{總頁\}/g, () => pages.length).replace(/\{日期\}/g, () => todayText(dateFmt))
       .replace(/\{檔名\}/g, () => baseName(name));
-    const sigCache = new Map(), placed = new Map(); // source page → its first new page, for internal links
+    const pictures = pictureCache(out), placed = new Map(); // source page → its first new page, for internal links
     for (let i = 0; i < pages.length; i++) {
       check();
       const p = pages[i], R = (p.baseRot + p.rot) % 360;
@@ -472,23 +500,22 @@ async function exportEdit(onlySel, btn) {
       for (const a of p.annots) {
         let png, extra = {};
         if (a.type === 'redact') continue; // already burnt into the page image
-        if (a.type === 'img') {
-          if (!sigCache.has(a.src)) sigCache.set(a.src, await out.embedPng(Uint8Array.from(atob(a.src.split(',')[1]), c => c.charCodeAt(0))));
-          png = sigCache.get(a.src);
-        } else if (a.type === 'shape') {
-          png = await out.embedPng(await renderShapePng(a));
+        // A signature's data: URL is its own key (no other key starts with "data:").
+        if (a.type === 'img') png = await pictures(a.src, async () => Uint8Array.from(atob(a.src.split(',')[1]), c => c.charCodeAt(0)));
+        else if (a.type === 'shape') {
+          png = await pictures('shape|' + JSON.stringify([a.kind, a.color, a.lw, a.wPt, a.hPt, a.pts]), () => renderShapePng(a));
           if (a.kind === 'highlight') extra = { opacity: .45, blendMode: BlendMode.Multiply };
         } else {
           if (!a.text.trim()) continue;
-          png = await out.embedPng(await renderTextPng(a));
+          png = await pictures('text|' + JSON.stringify([a.text, a.size, a.color, a.wPt, a.hPt]), () => renderTextPng(a));
         }
         page.drawImage(png, { x: a.ux - ox, y: a.uy - oy, width: a.wPt, height: a.hPt, rotate: degrees(a.rot), ...extra });
       }
       if (st.num && !(st.num.skip && i === 0)) {
         const n = st.num.start + i - (st.num.skip ? 1 : 0);
-        await drawLabel(out, page, st.num.fmt(n, lastNo), st.num.pos, st.size, font, R);
+        await drawLabel(out, page, st.num.fmt(n, lastNo), st.num.pos, st.size, font, R, pictures);
       }
-      for (const hf of [st.head, st.foot]) if (hf) await drawLabel(out, page, fill(hf.text).replace(/\{頁\}/g, i + 1), hf.pos, st.size, font, R);
+      for (const hf of [st.head, st.foot]) if (hf) await drawLabel(out, page, fill(hf.text).replace(/\{頁\}/g, i + 1), hf.pos, st.size, font, R, pictures);
     }
     check();
     relinkDests(out, (docId, i) => placed.get(docId + ':' + i));

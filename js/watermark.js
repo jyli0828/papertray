@@ -161,7 +161,7 @@ $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
     const img = await out.embedPng(new Uint8Array(await blob.arrayBuffer()));
     cache.set(mark.key, img); return img;
   };
-  let done = 0;
+  let done = 0, textMark = null; // a text mark is the same on every page: drawn once, not on a canvas per page
   for (let i = 0; i < out.getPageCount(); i++) {
     check();
     if (tg.set && !tg.set.has(i)) continue;
@@ -169,7 +169,7 @@ $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
     const R = ((page.getRotation().angle % 360) + 360) % 360;
     const view = visibleBox(page);
     const [dw, dh] = dispSize(view, R);
-    const mark = wmMark(dw); if (!mark) break;
+    const mark = wm.type === 'img' ? wmMark(dw) : textMark || (textMark = wmMark(dw)); if (!mark) break;
     const img = await embedMark(mark);
     const phi = (R + deg) * Math.PI / 180, cs = Math.cos(phi), sn = Math.sin(phi);
     const ox = mark.wPt / 2 * cs - mark.hPt / 2 * sn, oy = mark.wPt / 2 * sn + mark.hPt / 2 * cs;
@@ -179,6 +179,7 @@ $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
     }
     done++;
   }
+  if (textMark) textMark.canvas.width = textMark.canvas.height = 0;
   const bytes = await out.save({ useObjectStreams: true });
   const name = ensurePdf($('#wm-name').value);
   await deliver(pdfFile(bytes, name), 'pdf', 'watermark');

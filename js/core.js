@@ -81,6 +81,27 @@ function pdfWorker() {
   }
   return sharedWorker;
 }
+/* Choosing a file in the file picker, or dragging one over the page, takes a second or more: the libraries that will
+   read it load meanwhile (and pdf.js's worker starts), so the file opens at once instead of first waiting for them,
+   about 150 ms here and more on a phone. Only for tools that take PDFs, and only once a file is on its way. */
+let pdfLibsWarm = false;
+function warmPdfLibs() {
+  if (pdfLibsWarm) return; pdfLibsWarm = true;
+  // A failure shows up, with its message, when the file is opened.
+  Promise.all([needPdfjs(), needPdfLib()]).then(async () => {
+    // The first page pdf.js draws, and the first picture the browser encodes, take about 0.4 s longer than the rest
+    // (code compiled, encoders set up): a tiny page is drawn now so the file's first thumbnails do not wait for that.
+    const d = await PDFDocument.create(), font = await d.embedFont(StandardFonts.Helvetica);
+    d.addPage([60, 80]).drawText('Aa', { x: 8, y: 40, size: 14, font });
+    const pj = await openPdfjs(await d.save(), true);
+    try { URL.revokeObjectURL((await renderThumb(await pj.getPage(1))).thumb); } finally { pj.destroy(); }
+  }).catch(() => {});
+}
+const takesPdf = el => !!el && el.matches('input[type="file"]') && /pdf/i.test(el.accept);
+document.addEventListener('click', e => { if (takesPdf(e.target)) warmPdfLibs(); }, true);
+window.addEventListener('dragenter', e => {
+  if (e.dataTransfer && [...e.dataTransfer.types].includes('Files') && takesPdf($('.panel:not([hidden]) input[type="file"]'))) warmPdfLibs();
+});
 /* pdf.js waits on animation frames while painting images; those stop in a background tab.
    Fall back to a timer so long jobs keep going when the page is not on screen. */
 (() => {
@@ -272,6 +293,21 @@ async function openPdfjs(bytes, owned) {
   await needPdfjs();
   return await pdfjsLib.getDocument(pdfjsOpts(owned ? bytes : bytes.slice())).promise;
 }
+/* Goes through the pages of a pdf.js document: page(pg, i) gets each page (pg is null for a page that cannot be
+   read), batch() runs after each batch. Pages are asked for 50 at a time: asked one by one, each request waited
+   behind the thumbnails being drawn meanwhile, and only listing the page sizes of a 1000-page file took a second.
+   Stops early (giving false) once stop() is true. */
+async function eachPage(pj, page, { batch, stop } = {}) {
+  const to = pj.numPages;
+  for (let i = 0; i < to; i += 50) {
+    if (stop && stop()) return false;
+    const pgs = await Promise.all(Array.from({ length: Math.min(50, to - i) }, (_, k) => pj.getPage(i + k + 1).catch(() => null)));
+    if (stop && stop()) return false;
+    pgs.forEach((pg, k) => page(pg, i + k));
+    if (batch) batch(i);
+  }
+  return true;
+}
 /* The options every pdf.js document is opened with (call after needPdfjs). */
 function pdfjsOpts(data) {
   const maps = location.protocol === 'file:' && /^lib\//.test(LIBS.cmaps) ? LIB_FALLBACK.cmaps : LIBS.cmaps;
@@ -370,9 +406,17 @@ function namedDest(doc, name) {
   if (d instanceof PDFDict) d = d.lookup(N('D'));
   return d instanceof PDFArray && d.size() ? d : null;
 }
+/* Page index by page reference, kept per source: splitting a 1000-page file into single pages listed every page of
+   it again for each new file. Sources are only read, so the list stays right while the page count does. */
+const pageIndexes = new WeakMap();
+function pageIndexOf(src) {
+  let c = pageIndexes.get(src);
+  if (!c || c.n !== src.getPageCount()) pageIndexes.set(src, c = { n: src.getPageCount(), at: new Map(src.getPages().map((p, i) => [p.ref.toString(), i])) });
+  return c.at;
+}
 function unlinkDests(src, indices, tag) {
   const L = window.PDFLib, ctx = src.context, undo = [], N = k => PDFName.of(k);
-  const pageAt = new Map(src.getPages().map((p, i) => [p.ref.toString(), i]));
+  const pageAt = pageIndexOf(src);
   const copied = new Set(indices), seen = new Set();
   // Cuts references to pages left out, anywhere under an annotation (not into page contents or pictures).
   const cut = (holder, key, v) => {
@@ -841,11 +885,14 @@ async function pagePipeline(n, make, use, drop0, check) {
 
 /* ---------- page thumbnails ---------- */
 
-const THUMB_PX = 320;
+/* The long side of a thumbnail, in pixels. A card shows it about 130–270 CSS px tall (the grid's columns are 156 px
+   and up), so 240 px per CSS px, up to 320 on sharp screens. On an ordinary screen 320 px only made each thumbnail
+   kept for a long file nearly twice the bytes. */
+const thumbPx = () => Math.min(320, Math.round(240 * (window.devicePixelRatio || 1)));
 
 async function renderThumb(pg) {
   const vp1 = pg.getViewport({ scale: 1 });
-  const vp = pg.getViewport({ scale: THUMB_PX / Math.max(vp1.width, vp1.height) });
+  const vp = pg.getViewport({ scale: thumbPx() / Math.max(vp1.width, vp1.height) });
   const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
   const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
   await pg.render({ canvasContext: ctx, viewport: vp }).promise;

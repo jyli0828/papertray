@@ -144,6 +144,54 @@ export default [
     }
   },
   {
+    name: '編輯：中文頁碼和頁首拆成片段畫，看起來和整串一樣；同樣的圖只嵌一次',
+    async run() {
+      // A label drawn in pieces against the same label as one picture (the way it was drawn before), upright and turned.
+      const text = '第 12 頁，共 3,450 頁（機密）', size = 12;
+      const doc = await PDFDocument.create(), font = await doc.embedFont(StandardFonts.Helvetica), pictures = pictureCache(doc);
+      for (const R of [0, 90]) {
+        const a = doc.addPage([595.28, 841.89]), b = doc.addPage([595.28, 841.89]);
+        a.setRotation(degrees(R)); b.setRotation(degrees(R));
+        await drawLabel(doc, a, text, 'bc', size, font, R, pictures);
+        const whole = { text, size, color: '#545c66' }; await ensureFont(text, size); measureAnnot(whole);
+        const view = visibleBox(b), [dw, dh] = dispSize(view, R), [ux, uy] = displayToUser(view, R, (dw - whole.wPt) / 2, dh - 24 + 2 + size * .3);
+        b.drawImage(await doc.embedPng(await renderTextPng(whole)), { x: ux, y: uy, width: whole.wPt, height: whole.hPt, rotate: degrees(R) });
+      }
+      const pj = await openPdfjs(await doc.save());
+      const pixels = async i => {
+        const pg = await pj.getPage(i + 1), vp = pg.getViewport({ scale: 3 });
+        const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
+        const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+        return ctx.getImageData(0, 0, cv.width, cv.height).data;
+      };
+      const diff = [];
+      for (const i of [0, 2]) {
+        const p = await pixels(i), q = await pixels(i + 1);
+        let ink = 0, off = 0;
+        for (let k = 0; k < p.length; k += 4) {
+          if (q[k] < 200) ink++;
+          if (Math.abs(p[k] - q[k]) > 96) off++;
+        }
+        T.ok(ink > 500, '整串的頁碼有畫出來');
+        T.ok(off < ink * .03, `${i ? '轉向' : '直放'}的頁面：${off} / ${ink} 個點不一樣`);
+        diff.push((off / ink * 100).toFixed(1) + '%');
+      }
+      pj.destroy();
+      // Ten digits, 「第」「頁」 and the header: a few pictures for 30 pages, not one per page and label.
+      showTab('edit');
+      await loadEditFiles([await T.labeled(Array(30).fill(''), 'n.pdf')]);
+      await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
+      T.set('#edit-numbers', true); T.set('#pn-fmt', 'zh'); T.set('#hf-head', '機密文件');
+      const r = await T.result(() => T.click('#edit-export'));
+      const out = await PDFDocument.load((await fileBytes(r.file)).bytes);
+      const images = out.context.enumerateIndirectObjects().filter(([, o]) => o instanceof PDFRawStream && o.dict.get(PDFName.of('Subtype')) === PDFName.of('Image')).length;
+      T.ok(images <= 2 * 13, `${images} 張圖`); // each picture is a colour image and its transparency
+      T.eq(out.getPageCount(), 30);
+      return `和整串畫的差 ${diff.join('、')} · 30 頁 ${images} 張圖`;
+    }
+  },
+  {
     name: '編輯：頁首的 {檔名}，檔名有 $ 符號也照原樣',
     async run() {
       showTab('edit');
@@ -1979,6 +2027,43 @@ export default [
       T.ok(r === g && g === b && r > 40 && r < 110, `紅色變成灰（${r},${g},${b}）`);
       T.eq(px(30, 10).slice(0, 3), [255, 255, 255], '白色還是白色');
       T.eq(px(0, 0).slice(0, 3), [r, g, b], '畫面沒有移動');
+    }
+  },
+  {
+    name: '拖著檔案進來時先載入函式庫：只在收 PDF 的工具，之後開檔不必再等',
+    async run() {
+      const dragIn = () => { const dt = new DataTransfer(); dt.items.add(new File(['%PDF-1.4'], 'a.pdf', { type: 'application/pdf' })); window.dispatchEvent(new DragEvent('dragenter', { dataTransfer: dt })); };
+      T.ok(!window.pdfjsLib && !window.PDFLib, '剛開啟時沒有載入');
+      showTab('img2pdf'); dragIn(); await T.sleep(400);
+      T.ok(!window.pdfjsLib && !window.PDFLib, '圖片工具不載入 PDF 的函式庫');
+      showTab('split'); dragIn();
+      await T.until(() => window.pdfjsLib && window.PDFLib && sharedWorker !== undefined, '拖進來時載入');
+      // The picker's input is clicked by its button: that starts the loading too (already done here, so nothing new).
+      $('#split-input').dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const t = performance.now();
+      await loadSplit([await T.labeled(['A', 'B'], 'w.pdf')]);
+      T.eq(split.pages.length, 2);
+      return `之後開檔 ${Math.round(performance.now() - t)} ms`;
+    }
+  },
+  {
+    name: '裁白邊找內容範圍：只讀四周也和逐點檢查一樣',
+    async run() {
+      const brute = (d, W, H) => {
+        let x0 = W, y0 = H, x1 = -1, y1 = -1;
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+          const o = (y * W + x) * 4;
+          if (d[o] < 240 || d[o + 1] < 240 || d[o + 2] < 240) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        }
+        return x1 < 0 ? null : [x0, y0, x1, y1];
+      };
+      for (let t = 0; t < 300; t++) {
+        const W = 1 + (t * 7) % 23, H = 1 + (t * 5) % 19, d = new Uint8ClampedArray(W * H * 4).fill(255);
+        const dots = t % 6; // 0: a blank page
+        for (let k = 0; k < dots; k++) { const o = (Math.floor(Math.random() * W * H)) * 4 + Math.floor(Math.random() * 3); d[o] = Math.random() < .5 ? 239 : 0; }
+        T.eq(inkBox(d, W, H), brute(d, W, H), `${W}×${H}，${dots} 點`);
+      }
+      return '300 組';
     }
   },
   {
