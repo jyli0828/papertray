@@ -25,25 +25,29 @@ function wmFontReady(font, text) {
   wmFontAsked.add(key);
   document.fonts.load(font, text).then(() => drawWmOverlay()).catch(() => {});
 }
-function wmTextMark() {
-  const text = $('#wm-text').value.trim() || ' ';
-  const size = Math.max(8, Math.min(300, +$('#wm-size').value || 64)), k = 4;
+/* The settings, read at once: a job uses them as they were when its button was pressed. */
+function wmSettings() {
+  return { type: wm.type, img: wm.img, text: $('#wm-text').value.trim() || ' ', size: Math.max(8, Math.min(300, +$('#wm-size').value || 64)),
+    color: $('#wm-color').value, imgw: +$('#wm-imgw').value, deg: +$('#wm-angle').value, opacity: +$('#wm-opacity').value / 100, pos: $('#wm-pos').value };
+}
+function wmTextMark(s) {
+  const { text, size } = s, k = 4;
   const font = wmFont(size);
   wmFontReady(font, text);
   mctx.font = font;
   const wPt = mctx.measureText(text).width + size * .2, hPt = size * 1.3;
   const cv = document.createElement('canvas'); cv.width = Math.ceil(wPt * k); cv.height = Math.ceil(hPt * k);
-  const ctx = cv.getContext('2d'); ctx.scale(k, k); ctx.font = font; ctx.fillStyle = $('#wm-color').value;
+  const ctx = cv.getContext('2d'); ctx.scale(k, k); ctx.font = font; ctx.fillStyle = s.color;
   ctx.textBaseline = 'middle'; ctx.textAlign = 'center'; ctx.fillText(text, wPt / 2, hPt / 2);
   return { canvas: cv, wPt, hPt, key: 'text' };
 }
-function wmMark(dispW) {
-  if (wm.type === 'img') {
-    if (!wm.img) return null;
-    const wPt = dispW * (+$('#wm-imgw').value / 100);
-    return { canvas: wm.img.canvas, wPt, hPt: wPt * wm.img.h / wm.img.w, key: 'img' };
+function wmMark(dispW, s) {
+  if (s.type === 'img') {
+    if (!s.img) return null;
+    const wPt = dispW * (s.imgw / 100);
+    return { canvas: s.img.canvas, wPt, hPt: wPt * s.img.h / s.img.w, key: 'img' };
   }
-  return wmTextMark();
+  return wmTextMark(s);
 }
 function wmLayout(dw, dh, w, h, deg, pos) {
   const t = deg * Math.PI / 180, c = Math.abs(Math.cos(t)), s = Math.abs(Math.sin(t));
@@ -112,10 +116,10 @@ function drawWmOverlay() {
   $('#wm-summary').textContent = tg.error ? '' : `會套用到 ${count} 頁` + (tg.set && !tg.set.has(wm.cur) ? '（目前預覽的這頁不套用）' : '');
   setJobButton($('#wm-go'), { disabled: !!tg.error || (wm.type === 'img' && !wm.img) });
   if (tg.error || (tg.set && !tg.set.has(wm.cur))) return;
-  const [dw, dh] = wm.disp, mark = wmMark(dw); if (!mark) return;
-  const k = cv.width / dw, deg = +$('#wm-angle').value;
-  ctx.globalAlpha = +$('#wm-opacity').value / 100;
-  for (const [x, y] of wmLayout(dw, dh, mark.wPt, mark.hPt, deg, $('#wm-pos').value)) {
+  const s = wmSettings(), [dw, dh] = wm.disp, mark = wmMark(dw, s); if (!mark) return;
+  const k = cv.width / dw, deg = s.deg;
+  ctx.globalAlpha = s.opacity;
+  for (const [x, y] of wmLayout(dw, dh, mark.wPt, mark.hPt, deg, s.pos)) {
     ctx.save(); ctx.translate(x * k, y * k); ctx.rotate(-deg * Math.PI / 180);
     ctx.drawImage(mark.canvas, -mark.wPt / 2 * k, -mark.hPt / 2 * k, mark.wPt * k, mark.hPt * k);
     ctx.restore();
@@ -151,9 +155,10 @@ bindInput($('#wm-img-input'), async files => {
 });
 $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async check => {
   const tg = wmTargets(); if (tg.error) { toast(tg.error, 'err'); return; }
-  if (wm.type === 'text') await loadFont(wmFont(64), $('#wm-text').value.trim() || ' ');
+  // Changing a setting while this runs must not reach only some of the pages.
+  const s = wmSettings(), { deg, opacity, pos } = s;
+  if (s.type === 'text') await loadFont(wmFont(64), s.text);
   const out = await PDFDocument.load(await wm.pj.getData());
-  const deg = +$('#wm-angle').value, opacity = +$('#wm-opacity').value / 100, pos = $('#wm-pos').value;
   const cache = new Map();
   const embedMark = async mark => {
     if (cache.has(mark.key)) return cache.get(mark.key);
@@ -168,7 +173,7 @@ $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
     const R = ((page.getRotation().angle % 360) + 360) % 360;
     const view = visibleBox(page);
     const [dw, dh] = dispSize(view, R);
-    const mark = wm.type === 'img' ? wmMark(dw) : textMark || (textMark = wmMark(dw)); if (!mark) break;
+    const mark = s.type === 'img' ? wmMark(dw, s) : textMark || (textMark = wmMark(dw, s)); if (!mark) break;
     const img = await embedMark(mark);
     const phi = (R + deg) * Math.PI / 180, cs = Math.cos(phi), sn = Math.sin(phi);
     const ox = mark.wPt / 2 * cs - mark.hPt / 2 * sn, oy = mark.wPt / 2 * sn + mark.hPt / 2 * cs;

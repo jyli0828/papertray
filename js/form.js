@@ -46,7 +46,8 @@ async function loadForm(files) {
       const r = { l: Math.min(x1, x2) / vp1.width, t: Math.min(y1, y2) / vp1.height, w: Math.abs(x2 - x1) / vp1.width, h: Math.abs(y2 - y1) / vp1.height };
       const fld = { a, page: i, r, wPt: Math.abs(x2 - x1), hPt: Math.abs(y2 - y1) };
       ff.fields.push(fld);
-      if (!ff.vals.has(a.fieldName)) ff.vals.set(a.fieldName, initialValue(a));
+      // A check box group (「□男 □女」: one field, a box per choice) is on when any of its boxes is.
+      if (!ff.vals.has(a.fieldName) || (a.checkBox && initialValue(a))) ff.vals.set(a.fieldName, initialValue(a));
       pageEl.append(fieldInput(fld, vp1.width));
     }
     // Each page becomes a JPEG picture, like the thumbnails: a canvas kept on screen holds every pixel (an A4 page on
@@ -74,8 +75,12 @@ async function loadForm(files) {
   if (unreadable) toast(`「${f.name}」有 ${unreadable} 頁無法讀取，檔案可能已損壞；其他頁面可以照常填寫。`, 'err');
   const first = box.querySelector('.ff-field'); if (first) first.focus({ preventScroll: true });
 }
+/* A check box's value is the name of its "on" state (null when off), not true / false: several boxes can share one
+   field, each with its own on state (「□男 □女」 as boxes named M and F), and ticking one must tick that one only. Boxes
+   with the same on state are copies of one box and go on and off together. */
+const boxOn = a => a.exportValue || 'Yes';
 function initialValue(a) {
-  if (a.checkBox) return a.fieldValue != null && a.fieldValue !== 'Off' && (!a.exportValue || a.fieldValue === a.exportValue);
+  if (a.checkBox) return a.fieldValue != null && a.fieldValue !== 'Off' && (!a.exportValue || a.fieldValue === a.exportValue) ? boxOn(a) : null;
   if (a.radioButton) return a.fieldValue && a.fieldValue !== 'Off' ? a.fieldValue : null;
   if (a.fieldType === 'Ch') {
     const v = Array.isArray(a.fieldValue) ? a.fieldValue[0] : a.fieldValue;
@@ -96,7 +101,7 @@ function fieldInput(fld, pageW) {
   if (a.checkBox || a.radioButton) {
     el = document.createElement('input'); el.type = a.checkBox ? 'checkbox' : 'radio';
     if (a.radioButton) { el.name = 'ff-' + name; el.value = a.buttonValue; el.checked = ff.vals.get(name) === a.buttonValue; }
-    else el.checked = !!ff.vals.get(name);
+    else { el.value = boxOn(a); el.checked = ff.vals.get(name) === el.value; }
   } else if (a.fieldType === 'Ch') {
     el = document.createElement('select');
     if (a.combo) el.append(new Option('', ''));
@@ -122,11 +127,11 @@ function fieldInput(fld, pageW) {
 $('#ff-pages').addEventListener('input', e => {
   const el = e.target.closest('.ff-field'); if (!el) return;
   const name = el.dataset.name;
-  const v = el.type === 'checkbox' ? el.checked : el.type === 'radio' ? (el.checked ? el.value : ff.vals.get(name)) : el.value;
+  const v = el.type === 'checkbox' ? (el.checked ? el.value : null) : el.type === 'radio' ? (el.checked ? el.value : ff.vals.get(name)) : el.value;
   ff.vals.set(name, v);
   document.querySelectorAll('#ff-pages .ff-field').forEach(o => {
     if (o === el || o.dataset.name !== name) return;
-    if (o.type === 'checkbox') o.checked = !!v; else if (o.type === 'radio') o.checked = o.value === v; else o.value = v;
+    if (o.type === 'checkbox' || o.type === 'radio') o.checked = o.value === v; else o.value = v;
   });
 });
 /* A radio button that is already chosen can be clicked again to clear the choice. */
@@ -142,7 +147,7 @@ $('#ff-pages').addEventListener('pointerdown', e => { const el = e.target; if (e
 $('#ff-reset').addEventListener('click', () => {
   for (const fld of ff.fields) {
     const a = fld.a;
-    ff.vals.set(a.fieldName, a.checkBox ? false : a.radioButton ? null : '');
+    ff.vals.set(a.fieldName, a.checkBox || a.radioButton ? null : '');
   }
   document.querySelectorAll('#ff-pages .ff-field').forEach(o => { if (o.type === 'checkbox' || o.type === 'radio') o.checked = false; else o.value = ''; });
   toast('已清除所有欄位');
@@ -240,7 +245,17 @@ $('#ff-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
       if (field instanceof L.PDFTextField) {
         field.setText(v ? v : undefined);
         await writeAppearance(doc, field, helv, v || '');
-      } else if (field instanceof L.PDFCheckBox) { v ? field.check() : field.uncheck(); field.defaultUpdateAppearances(); }
+      } else if (field instanceof L.PDFCheckBox) {
+        // pdf-lib's check() turns on the first box's state only, so the box ticked is set here (see boxOn()).
+        const ws = field.acroField.getWidgets(), onOf = w => { const n = w.getOnValue(); return n ? n.decodeText() : null; };
+        const box = v && ws.find(w => onOf(w) === v);
+        if (box) {
+          const on = box.getOnValue();
+          field.acroField.dict.set(PDFName.of('V'), on);
+          ws.forEach(w => w.setAppearanceState(w.getOnValue() === on ? on : PDFName.of('Off')));
+        } else if (v) field.check(); else field.uncheck();
+        field.defaultUpdateAppearances();
+      }
       else if (field instanceof L.PDFRadioGroup) {
         // With an /Opt list the buttons' state names are indexes into it ("0", "1"…); pdf-lib selects by the list's text.
         const opts = field.getOptions();

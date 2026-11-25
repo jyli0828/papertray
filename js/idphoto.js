@@ -212,7 +212,7 @@ function setJpegDpi(bytes, dpi) {
   return bytes;
 }
 $('#ph-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…', async () => {
-  const L = phSheet(), pxPerMm = 300 / 25.4, name = $('#ph-name').value.trim() || 'id-photo';
+  const L = phSheet(), pxPerMm = 300 / 25.4, name = $('#ph-name').value.trim() || 'id-photo', cut = $('#ph-cut').checked;
   if (!ph.bmp || !L.cells.length) return;
   const tile = phTile(L.s, pxPerMm);
   if ($('#ph-paper').value === 'a4') {
@@ -222,7 +222,7 @@ $('#ph-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
     for (const c of L.cells) {
       const x = c.x * MM_PT, y = (L.H - c.y - L.s.h) * MM_PT, w = L.s.w * MM_PT, h = L.s.h * MM_PT;
       page.drawImage(img, { x, y, width: w, height: h });
-      if ($('#ph-cut').checked) page.drawRectangle({ x, y, width: w, height: h, borderColor: rgb(.6, .6, .6), borderWidth: .3 });
+      if (cut) page.drawRectangle({ x, y, width: w, height: h, borderColor: rgb(.6, .6, .6), borderWidth: .3 });
     }
     out.setTitle(baseName(ensurePdf(name)));
     await deliver(pdfFile(await out.save(), name.replace(/\.(jpe?g)$/i, '')), 'pdf', 'idphoto');
@@ -232,7 +232,7 @@ $('#ph-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
   const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
   for (const c of L.cells) ctx.drawImage(tile, Math.round(c.x * pxPerMm), Math.round(c.y * pxPerMm));
   tile.width = tile.height = 0;
-  if ($('#ph-cut').checked) phCutLines(ctx, L, pxPerMm);
+  if (cut) phCutLines(ctx, L, pxPerMm);
   const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .95)); cv.width = cv.height = 0;
   const bytes = setJpegDpi(new Uint8Array(await blob.arrayBuffer()), 300);
   await deliver(new File([bytes], name.replace(/\.(jpe?g|pdf)$/i, '') + '.jpg', { type: 'image/jpeg' }), 'image', 'idphoto');

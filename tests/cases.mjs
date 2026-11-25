@@ -365,6 +365,36 @@ export default [
       T.eq(val('plan'), radio.value); T.ok(val('newsletter') !== 'Off', '勾選');
     }
   },
+  {
+    name: '填表單：同一個欄位的幾個勾選框（□男 □女）只勾點到的那個',
+    async run() {
+      await needPdfLib();
+      const doc = await PDFDocument.create(), p = doc.addPage([300, 200]), cb = doc.getForm().createCheckBox('sex');
+      for (const x of [20, 120, 220]) cb.addToPage(p, { x, y: 100, width: 14, height: 14 });
+      // Each box its own "on" state, as forms made in Acrobat have them: M, F, and a copy of F
+      cb.acroField.getWidgets().forEach((w, i) => {
+        const ap = w.dict.lookup(PDFName.of('AP'));
+        for (const k of ['N', 'D']) { const d = ap.lookup(PDFName.of(k)), v = d.get(PDFName.of('Yes')); d.delete(PDFName.of('Yes')); d.set(PDFName.of(i ? 'F' : 'M'), v); }
+      });
+      showTab('form'); await loadForm([pdfFile(await doc.save(), 'sex.pdf')]);
+      const boxes = [...document.querySelectorAll('#ff-pages .ff-field[type="checkbox"]')];
+      T.eq(boxes.map(b => b.checked), [false, false, false], '一開始都沒勾');
+      boxes[1].click();
+      T.eq(boxes.map(b => b.checked), [false, true, true], '勾女：女和它的副本勾起來，男不會');
+      const r = await T.result(() => T.click('#ff-go'));
+      const out = await PDFDocument.load(r.file.bytes), f = out.getForm().getCheckBox('sex');
+      T.eq(String(f.acroField.dict.get(PDFName.of('V'))), '/F');
+      T.eq(f.acroField.getWidgets().map(w => String(w.getAppearanceState())), ['/Off', '/F', '/F']);
+      // Opened again, the ticked box shows as ticked
+      await loadForm([r.file]);
+      T.eq([...document.querySelectorAll('#ff-pages .ff-field[type="checkbox"]')].map(b => b.checked), [false, true, true], '重新開啟');
+      const again = [...document.querySelectorAll('#ff-pages .ff-field[type="checkbox"]')];
+      again[0].click();
+      T.eq(again.map(b => b.checked), [true, false, false], '改勾男');
+      again[0].click();
+      T.eq(again.map(b => b.checked), [false, false, false], '再按一次取消');
+    }
+  },
 
   /* ---------- 隱私與安全 ---------- */
   {
@@ -927,7 +957,7 @@ export default [
     }
   },
   {
-    name: '按下匯出、產生之後才改的頁面或設定，不會跑進結果（編輯、填表單）',
+    name: '按下匯出、產生之後才改的頁面或設定，不會跑進結果（編輯、填表單、加浮水印、調整尺寸）',
     async run() {
       showTab('edit');
       await loadEditFiles([await T.labeled(['P1', 'P2', 'P3'], 'three.pdf')]);
@@ -948,6 +978,34 @@ export default [
       $('#ff-reset').click();
       const f = await pending;
       T.eq((await PDFDocument.load(f.file.bytes)).getForm().getTextField('name').getText(), '王小明', '按下產生後才清除，結果還是填好的');
+      showTab('watermark'); await loadWm([await T.labeled(['W1', 'W2', 'W3'], 'w.pdf')]);
+      setWmType('text'); T.set('#wm-pos', 'center'); T.set('#wm-angle', '0'); T.set('#wm-opacity', '30'); T.set('#wm-text', 'AB');
+      const alpha = async file => { // the opacity and the picture's width on each page
+        const pj = await T.pdf(file), out = [];
+        for (let i = 1; i <= pj.numPages; i++) {
+          const ops = await (await pj.getPage(i)).getOperatorList(); let ca = null, w = null;
+          ops.fnArray.forEach((fn, k) => {
+            if (fn === pdfjsLib.OPS.setGState) for (const [key, v] of ops.argsArray[k][0]) if (key === 'ca') ca = v;
+            if (fn === pdfjsLib.OPS.paintImageXObject) { const m = ops.argsArray[k - 1]; w = Math.round(Math.hypot(m[0], m[1])); }
+          });
+          out.push([ca, w]);
+        }
+        return out;
+      };
+      try {
+        const want = await alpha((await T.result(() => T.click('#wm-go'))).file);
+        const pending2 = T.result(() => T.click('#wm-go'));
+        T.set('#wm-opacity', '90'); T.set('#wm-text', 'ABCDEFGH'); T.set('#wm-angle', '45');
+        T.eq(await alpha((await pending2).file), want, '按下後才改的透明度、文字不會跑進結果');
+      } finally { T.set('#wm-text', '機密文件'); T.set('#wm-opacity', '25'); T.set('#wm-angle', '45'); }
+      showTab('resize'); setRsMode('fit'); await loadResize([await T.labeled(['R1', 'R2', 'R3'], 'r.pdf', [612, 792])]);
+      T.set('#rs-size', 'a4');
+      try {
+        const pending3 = T.result(() => T.click('#rs-go'));
+        T.set('#rs-size', 'a3');
+        const pages = await T.pdfPages((await pending3).file);
+        T.eq(pages.map(p => paperName(p.w, p.h)), ['A4', 'A4', 'A4'], '按下後才改成 A3，結果還是 A4');
+      } finally { T.set('#rs-size', 'a4'); }
     }
   },
   {

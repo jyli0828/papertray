@@ -200,7 +200,7 @@ async function drawIdPreview() {
 
 /* ---------- making the PDF ---------- */
 $('#id-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…', async check => {
-  const o = idOpts(), { cards } = idLayout(o);
+  const o = idOpts(), { cards } = idLayout(o), name = ensurePdf($('#id-name').value);
   if (!cards.length) return;
   const out = await PDFDocument.create();
   const page = out.addPage([A4_MM[0] * MM_PT, A4_MM[1] * MM_PT]);
@@ -212,9 +212,9 @@ $('#id-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
     const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
     page.drawImage(img, { x: c.x * MM_PT, y: (A4_MM[1] - c.y - c.h) * MM_PT, width: c.w * MM_PT, height: c.h * MM_PT });
   }
-  out.setTitle(baseName(ensurePdf($('#id-name').value)));
+  out.setTitle(baseName(name));
   const bytes = await out.save({ useObjectStreams: true });
-  await deliver(pdfFile(bytes, ensurePdf($('#id-name').value)), 'pdf', 'idcard');
+  await deliver(pdfFile(bytes, name), 'pdf', 'idcard');
 }).catch(err => toast('產生失敗：' + err.message, 'err')));
 
 /* ---------- wiring ---------- */

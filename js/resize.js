@@ -91,15 +91,15 @@ async function embedPageForm(out, copier, page, cb) {
   const e = Object.assign(Object.create(L.PDFPageEmbedder.prototype), { width: w, height: h, embedIntoContext: async () => ref });
   return L.PDFEmbeddedPage.of(ref, out, e);
 }
-async function resizeFit(check) {
+async function resizeFit(check, o) {
   const src = await PDFDocument.load((await fileBytes(rs.src)).bytes), out = await PDFDocument.create();
   markLayers(src, 'r'); // see relinkLayers() in core.js
-  const orient = $('#rs-orient').value, scaleMode = $('#rs-scale').value, m = +$('#rs-margin').value;
+  const { orient, scaleMode, m } = o;
   const pages = src.getPages(), copier = PDFLib.PDFObjectCopier.for(src.context, out.context);
   for (let i = 0; i < pages.length; i++) {
     check(); rsProgress(i, pages.length);
     const { cb, R, dims: [dw, dh] } = pageDisp(pages[i]), emb = await embedPageForm(out, copier, pages[i], cb);
-    let [TW, TH] = rsTarget();
+    let [TW, TH] = o.target;
     const land = orient === 'landscape' || (orient === 'auto' && dw > dh);
     if (land !== TW > TH) [TW, TH] = [TH, TW];
     let s = Math.min((TW - 2 * m) / dw, (TH - 2 * m) / dh);
@@ -132,13 +132,13 @@ function inkBox(d, W, H) {
   }
   return [x0, y0, x1, y1];
 }
-async function resizeCrop(check) {
+async function resizeCrop(check, o) {
   const { bytes } = await fileBytes(rs.src);
   const opening = openPdfjs(bytes); // both libraries read the file at the same time
   let doc;
   try { doc = await PDFDocument.load(bytes); } catch (e) { opening.then(pj => pj.destroy(), () => {}); throw e; }
   const pj = await opening;
-  const pad = +$('#rs-pad').value, n = pj.numPages;
+  const pad = o.pad, n = pj.numPages;
   let cropped = 0;
   try {
     // Page i+1 is drawn while page i is read (see pagePipeline() in core.js).
@@ -172,13 +172,15 @@ async function resizeCrop(check) {
   return { bytes: await doc.save({ useObjectStreams: true }), cropped };
 }
 $('#rs-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async check => {
+  // The settings as they are now: changing one while this runs must not reach only some of the pages.
+  const o = { mode: rs.mode, target: rsTarget(), orient: $('#rs-orient').value, scaleMode: $('#rs-scale').value,
+    m: +$('#rs-margin').value, pad: +$('#rs-pad').value }, name = ensurePdf($('#rs-name').value);
   let bytes;
-  if (rs.mode === 'fit') bytes = await resizeFit(check);
+  if (o.mode === 'fit') bytes = await resizeFit(check, o);
   else {
-    const r = await resizeCrop(check); bytes = r.bytes;
+    const r = await resizeCrop(check, o); bytes = r.bytes;
     toast(r.cropped ? `裁掉了 ${r.cropped} 頁的白邊` : '沒有找到可以裁掉的白邊');
   }
-  const name = ensurePdf($('#rs-name').value);
   await deliver(pdfFile(bytes, name), 'pdf', 'resize');
 }).catch(err => toast('處理失敗：' + err.message, 'err')));
 bindInput($('#rs-input'), loadResize);

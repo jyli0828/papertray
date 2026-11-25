@@ -137,7 +137,7 @@ async function imageBytesFor(it) {
   return { kind: 'jpg', bytes: new Uint8Array(await blob.arrayBuffer()) };
 }
 $('#img-go').addEventListener('click', e => runJob(e.currentTarget, '轉換中…', async check => {
-  const sizeOpt = $('#img-size').value, orient = $('#img-orient').value, margin = +$('#img-margin').value;
+  const sizeOpt = $('#img-size').value, orient = $('#img-orient').value, margin = +$('#img-margin').value, name = ensurePdf($('#img-name').value);
   const PAPER = { a4: [595.28, 841.89], letter: [612, 792] };
   const out = await PDFDocument.create();
   for (const it of imgs.items.slice()) { // the list as it was when the button was pressed
@@ -158,7 +158,6 @@ $('#img-go').addEventListener('click', e => runJob(e.currentTarget, '轉換中�
     page.drawImage(img, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
   }
   const bytes = await out.save({ useObjectStreams: true });
-  const name = ensurePdf($('#img-name').value);
   await deliver(pdfFile(bytes, name), 'pdf', 'img2pdf');
 }).catch(err => toast('轉換失敗：' + err.message, 'err')));
 registerHolder('img2pdf', () => imgs.items.reduce((n, it) => n + it.size + (it.scan ? it.scan.src.size : 0), 0), () => {

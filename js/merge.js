@@ -196,6 +196,7 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   // The list as it is now: moving or removing a file while this runs must not change which pages go in, or which
   // file each bookmark is named after.
   const items = merge.items.slice(), how = $('#merge-how').value, perFile = $('#merge-bm').checked && how !== 'zip';
+  const name = ensurePdf($('#merge-name').value);
   const picks = items.map(it => mergePicks(it)), bad = picks.findIndex(r => r.error);
   if (bad >= 0) throw new Error(`「${items[bad].name}」${picks[bad].error}`);
   const order = how === 'zip' && items.length === 2 ? mergeZipOrder() : null;
@@ -237,7 +238,6 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
     return first ? [{ title: baseName(it.name), page: first, open: true, kids: own }] : [];
   }));
   const bytes = await out.save({ useObjectStreams: true });
-  const name = ensurePdf($('#merge-name').value);
   await deliver(pdfFile(bytes, name), 'pdf', 'merge');
 }).catch(err => toast('合併失敗：' + err.message, 'err')));
 registerTarget('pdf', 'merge', '合併', f => addMergeFiles(f));
