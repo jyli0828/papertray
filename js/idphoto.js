@@ -47,12 +47,15 @@ async function loadPh(files) {
   // times the pixels it needs.
   let bmp;
   try {
-    bmp = await createImageBitmap(f);
-    const k = PH_MAX_PX / Math.max(bmp.width, bmp.height);
+    // A photo that needs no turning (see directKind() in img2pdf.js) gives its size without being decoded; a turned
+    // one is decoded once to learn its size as shown, then again at the smaller size.
+    const plain = directKind(await f.arrayBuffer()) !== 'other';
+    const full = plain ? null : await createImageBitmap(f), { w: W, h: H } = plain ? await imageSize(f) : { w: full.width, h: full.height };
+    const k = PH_MAX_PX / Math.max(W, H);
     if (k < 1) {
-      const w = Math.round(bmp.width * k), h = Math.round(bmp.height * k); bmp.close();
-      bmp = await createImageBitmap(f, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' });
-    }
+      if (full) full.close();
+      bmp = await createImageBitmap(f, { resizeWidth: Math.round(W * k), resizeHeight: Math.round(H * k), resizeQuality: 'high' });
+    } else bmp = full || await createImageBitmap(f);
   } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); return; }
   if (ph.bmp && ph.bmp.close) ph.bmp.close();
   Object.assign(ph, { file: f, bmp });

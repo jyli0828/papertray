@@ -165,7 +165,10 @@ function umAlgoFactory() {
         const ci = Math.min(C.H - 1, y >> 1) * C.W + Math.min(C.W - 1, x >> 1);
         F.img[i * 3] = C.img[ci * 3]; F.img[i * 3 + 1] = C.img[ci * 3 + 1]; F.img[i * 3 + 2] = C.img[ci * 3 + 2];
       }
-      nnf = solveLevel(F.img, F.hole, F.W, F.H, nnf, C.W, C.H, k === 0 ? 3 : 5, k === 0 ? 3 : 4);
+      // The full-size level only refines what the levels above found, and is the slowest: two rounds there change
+      // pixels by about 2 levels on average, far less than two runs of the fill differ anyway (about 8, the search
+      // being random). Three rounds took a third longer.
+      nnf = solveLevel(F.img, F.hole, F.W, F.H, nnf, C.W, C.H, k === 0 ? 2 : 5, k === 0 ? 2 : 4);
       if (!nnf) diffuseFill(F.img, F.hole, F.W, F.H);
     }
     for (let i = 0; i < N; i++) if (mask[i]) { px[i * 4] = img[i * 3]; px[i * 4 + 1] = img[i * 3 + 1]; px[i * 4 + 2] = img[i * 3 + 2]; }
