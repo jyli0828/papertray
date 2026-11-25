@@ -6,9 +6,9 @@
 const TOOL_WORDS = {
   merge: '合併 結合 接起來 combine merge 雙面 交錯 掃描', split: '拆分 分割 切開 split', resize: '尺寸 a4 裁切 白邊 resize',
   edit: '編輯 排序 旋轉 刪除 刪頁 插入 空白頁 頁碼 頁首 頁尾 標註 螢光筆 rotate', sign: '簽名 簽章 sign 日期',
-  form: '表單 填寫 欄位 form', redact: '遮蔽 個資 塗黑 身分證 隱私 redact', password: '密碼 加密 解密 解鎖 帳單 對帳單 password lock',
+  form: '表單 填寫 欄位 form', password: '密碼 加密 解密 解鎖 帳單 對帳單 password lock',
   watermark: '浮水印 watermark logo 印章', compress: '壓縮 縮小 檔案大小 compress mb', img2pdf: '圖片 照片 轉 pdf jpg png heic 翻拍 校正',
-  pdf2img: '轉圖片 jpg png 抽出文字 txt', ocr: '文字辨識 ocr 掃描 辨識 可搜尋 複製文字', compare: '比較 差異 版本 diff 合約 改了什麼 畫面 圖面 圖片 對照',
+  pdf2img: '轉圖片 jpg png 抽出文字 txt', ocr: '文字辨識 ocr 掃描 辨識 可搜尋 複製文字',
   idcard: '證件 影印 身分證 健保卡 駕照 正反面', idphoto: '證件照 大頭照 1吋 2吋 4x6 相紙 護照 簽證', imgtool: '圖片 壓縮 縮小 格式 webp 尺寸',
   unmark: '去浮水印 消除 修圖 移除 塗抹'
 };
@@ -62,14 +62,14 @@ async function suggestTools(files) {
   if (pdfs.length) {
     const facts = await Promise.all(pdfs.slice(0, 6).map(pdfFacts));
     if (facts.some(f => f.locked)) add('password', '有密碼保護：先解除密碼，才能做其他處理');
-    if (pdfs.length === 2) { add('compare', '兩個版本：找出改了哪些字'); add('merge', '接成一份；正面、反面分開掃描的可以交錯合併'); }
+    if (pdfs.length === 2) add('merge', '接成一份；正面、反面分開掃描的可以交錯合併');
     else if (pdfs.length > 2) add('merge', `${pdfs.length} 份接成一份`);
     if (facts.some(f => f.scanned && !f.locked)) add('ocr', '看起來是掃描檔：辨識文字，變成可以搜尋的 PDF');
     const big = facts.find(f => f.size > 4 * 1048576);
     if (big) add('compress', `檔案有 ${fmtSize(big.size)}：壓縮成比較好寄的大小`);
     if (pdfs.length === 1) {
       add('edit', '排序、旋轉、刪頁、選取空白頁、加頁碼');
-      add('sign', '簽名、加上日期'); add('redact', '遮住身分證號、電話等個資'); add('split', '拆成幾份');
+      add('sign', '簽名、加上日期'); add('split', '拆成幾份');
       add('pdf2img', '每頁存成圖片，或抽出文字');
     }
   }

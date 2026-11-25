@@ -67,7 +67,7 @@ document.addEventListener('keydown', e => {
 
 /* ---------- loading ---------- */
 /* insertAt: position in the page list for the new pages (default: the end). replace: the first file that opens
-   takes the place of whatever the editor held (signing or redacting a new PDF must not carry the last one along);
+   takes the place of whatever the editor held (signing a new PDF must not carry the last one along);
    the old files are only closed once the new one has opened, so a cancelled password prompt loses nothing.
    undoable: adding the pages is one undo step, recorded only once a file has really opened (a file that is not a
    PDF, or a cancelled password prompt, leaves nothing to undo). */
@@ -127,18 +127,14 @@ function insertPos() { let last = -1; edit.pages.forEach((p, i) => { if (p.selec
 /* Cards are kept from one render to the next: a card is built again only when its badges change; its number, size,
    tick, arrows, thumbnail and turn are updated in place. Rebuilding all of them on every click made each click on a
    2000-page document take half a second, and opening it built every card twice (again once its size was read). */
-function editCardLook(p) {
-  const notes = p.annots.filter(a => a.type !== 'redact').length;
-  return [notes, isRedacted(p)].join('|');
-}
+const editCardLook = p => String(p.annots.length);
 function newEditCard(p, size) {
   const card = document.createElement('div');
   card.className = 'page-card'; card.draggable = true; card.dataset.id = p.id;
-  const notes = p.annots.filter(a => a.type !== 'redact').length;
+  const notes = p.annots.length;
   card.innerHTML = `
       <div class="thumb">${p.thumb ? '<img alt="" draggable="false">' : '<span class="thumb-loading"></span>'}
         <label class="sel"><input type="checkbox" data-act="sel"></label>
-        ${isRedacted(p) ? '<span class="badge redact" title="這頁有遮蔽範圍，匯出時會整頁轉成圖片">遮蔽</span>' : ''}
         ${notes ? `<span class="badge" title="已加 ${notes} 個文字、簽名或標註">${ICON.text}${notes}</span>` : ''}
       </div>
       <div class="meta">
@@ -149,7 +145,7 @@ function newEditCard(p, size) {
       <div class="actions">
         <button class="icon-btn" data-act="rotl" title="向左轉" aria-label="向左轉">${ICON.rotl}</button>
         <button class="icon-btn" data-act="rotr" title="向右轉" aria-label="向右轉">${ICON.rotr}</button>
-        <button class="icon-btn" data-act="text" title="加文字、簽名、標註或遮蔽" aria-label="加文字、簽名、標註或遮蔽">${ICON.pen}</button>
+        <button class="icon-btn" data-act="text" title="加文字、簽名或標註" aria-label="加文字、簽名或標註">${ICON.pen}</button>
         <button class="icon-btn" data-act="dup" title="複製這一頁" aria-label="複製這一頁">${ICON.copy}</button>
         <button class="icon-btn danger" data-act="del" title="刪除此頁" aria-label="刪除此頁">${ICON.trash}</button>
       </div>`;
@@ -414,35 +410,6 @@ async function drawLabel(out, page, text, pos, size, font, R, pictures) {
   }
 }
 
-/* ---------- redaction ----------
-   A redacted page is re-made from a picture of itself with the boxes painted black, so nothing under them survives
-   (no text, no image data). Pages without redaction are copied as they are. */
-const isRedacted = p => p.annots.some(a => a.type === 'redact');
-function annotUserBox(a, view) {
-  const [dx, dy] = userToDisplay(view, a.rot, a.ux, a.uy);
-  const [ax, ay] = displayToUser(view, a.rot, dx, dy - a.hPt), [bx, by] = displayToUser(view, a.rot, dx + a.wPt, dy);
-  return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
-}
-async function flattenRedacted(out, p) {
-  const [x0, y0, x1, y1] = p.view, W = x1 - x0, H = y1 - y0;
-  const pg = await edit.docs[p.docId].pj.getPage(p.index + 1);
-  let s = 200 / 72; if (W * H * s * s > 30e6) s = Math.sqrt(30e6 / (W * H));
-  const vp = pg.getViewport({ scale: s, rotation: 0 }); // unrotated: the new page gets the rotation back below
-  const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-  const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-  await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-  ctx.fillStyle = '#000';
-  for (const a of p.annots) if (a.type === 'redact') {
-    const [ax, ay, bx, by] = annotUserBox(a, p.view);
-    ctx.fillRect(Math.floor((ax - x0) * s) - 1, Math.floor((y1 - by) * s) - 1, Math.ceil((bx - ax) * s) + 2, Math.ceil((by - ay) * s) + 2);
-  }
-  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9));
-  pg.cleanup(); cv.width = cv.height = 0;
-  const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
-  const page = out.addPage([W, H]);
-  page.drawImage(img, { x: 0, y: 0, width: W, height: H });
-  return page;
-}
 async function renderShapePng(a) {
   const k = 4, c = document.createElement('canvas');
   c.width = Math.max(1, Math.ceil(a.wPt * k)); c.height = Math.max(1, Math.ceil(a.hPt * k));
@@ -464,9 +431,8 @@ async function exportEdit(onlySel, btn) {
   await runJob(btn, '產生中…', async check => {
     const out = await PDFDocument.create({ updateMetadata: false });
     // Copy pages per source file. A page used twice (duplicated) needs its own copy, so repeats go in later rounds.
-    // Redacted pages are rebuilt from an image instead, so they are not copied.
     const copied = new Map(), byDoc = new Map();
-    pages.filter(p => !isRedacted(p)).forEach(p => { if (!byDoc.has(p.docId)) byDoc.set(p.docId, []); byDoc.get(p.docId).push(p); });
+    pages.forEach(p => { if (!byDoc.has(p.docId)) byDoc.set(p.docId, []); byDoc.get(p.docId).push(p); });
     const libs = {};
     for (const docId of byDoc.keys()) {
       libs[docId] = await PDFDocument.load(await edit.docs[docId].pj.getData());
@@ -492,14 +458,11 @@ async function exportEdit(onlySel, btn) {
     for (let i = 0; i < pages.length; i++) {
       check();
       const p = pages[i], R = (p.baseRot + p.rot) % 360;
-      let page, ox = 0, oy = 0;
-      if (isRedacted(p)) { page = await flattenRedacted(out, p); ox = p.view[0]; oy = p.view[1]; }
-      else { page = copied.get(p); out.addPage(page); }
+      const page = copied.get(p); out.addPage(page);
       if (!placed.has(metaKey(p))) placed.set(metaKey(p), page);
       page.setRotation(degrees(R));
       for (const a of p.annots) {
         let png, extra = {};
-        if (a.type === 'redact') continue; // already burnt into the page image
         // A signature's data: URL is its own key (no other key starts with "data:").
         if (a.type === 'img') png = await pictures(a.src, async () => Uint8Array.from(atob(a.src.split(',')[1]), c => c.charCodeAt(0)));
         else if (a.type === 'shape') {
@@ -509,7 +472,7 @@ async function exportEdit(onlySel, btn) {
           if (!a.text.trim()) continue;
           png = await pictures('text|' + JSON.stringify([a.text, a.size, a.color, a.wPt, a.hPt]), () => renderTextPng(a));
         }
-        page.drawImage(png, { x: a.ux - ox, y: a.uy - oy, width: a.wPt, height: a.hPt, rotate: degrees(a.rot), ...extra });
+        page.drawImage(png, { x: a.ux, y: a.uy, width: a.wPt, height: a.hPt, rotate: degrees(a.rot), ...extra });
       }
       if (st.num && !(st.num.skip && i === 0)) {
         const n = st.num.start + i - (st.num.skip ? 1 : 0);

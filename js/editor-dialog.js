@@ -1,22 +1,21 @@
 'use strict';
-/* ---------- page editor dialog: text, signatures, markup, redaction ----------
+/* ---------- page editor dialog: text, signatures, markup ----------
    Every item on a page is a box: (ux, uy) is its bottom-left corner in PDF user space, wPt × hPt its size in
    points, rot the page rotation it was drawn under. Types:
      text    a.text, a.size, a.color
      img     a.src (signature PNG)
-     shape   a.kind = highlight | rect | arrow | ink, a.color, a.lw, a.pts (arrow/ink: points as fractions of the box)
-     redact  a black box; on export the whole page is flattened to an image so the content underneath is gone */
+     shape   a.kind = highlight | rect | arrow | ink, a.color, a.lw, a.pts (arrow/ink: points as fractions of the box) */
 const te = { page: null, R: 0, scale: 1, sel: null, renderTask: null, mode: 'text', tool: 'highlight' };
 const dlg = $('#te-dialog'), overlay = $('#te-overlay');
-const TE_MODES = ['text', 'sig', 'mark', 'redact'];
-const modeOf = a => a.type === 'img' ? 'sig' : a.type === 'shape' ? 'mark' : a.type === 'redact' ? 'redact' : 'text';
+const TE_MODES = ['text', 'sig', 'mark'];
+const modeOf = a => a.type === 'img' ? 'sig' : a.type === 'shape' ? 'mark' : 'text';
 function setTeMode(m) {
   te.mode = m;
   for (const k of TE_MODES) {
     $('#te-mode-' + k).setAttribute('aria-pressed', m === k);
     $('#te-' + k + '-panel').hidden = m !== k;
   }
-  overlay.classList.toggle('is-draw', m === 'mark' || m === 'redact');
+  overlay.classList.toggle('is-draw', m === 'mark');
   if (m === 'sig') renderSigLists();
 }
 TE_MODES.forEach(k => $('#te-mode-' + k).addEventListener('click', () => setTeMode(k)));
@@ -129,9 +128,9 @@ function syncFields() {
 function localPt(e) { const r = overlay.getBoundingClientRect(); return [(e.clientX - r.left) / te.scale, (e.clientY - r.top) / te.scale]; }
 function uprightKeepAnchor(a) { if (a.rot !== te.R) { const [dx, dy] = userToDisplay(te.page.view, te.R, a.ux, a.uy); setTopLeft(a, dx, dy - a.hPt); } }
 
-/* ---------- drawing a new box, arrow or line (markup and redaction modes) ---------- */
+/* ---------- drawing a new box, arrow or line (markup mode) ---------- */
 function startDraw(e) {
-  const tool = te.mode === 'redact' ? 'redact' : te.tool;
+  const tool = te.tool;
   const start = localPt(e), pts = [start];
   const pv = document.createElement('canvas'), dpr = Math.min(window.devicePixelRatio || 1, 2);
   pv.className = 'draw-preview'; pv.width = overlay.clientWidth * dpr; pv.height = overlay.clientHeight * dpr;
@@ -142,7 +141,6 @@ function startDraw(e) {
   const paint = () => {
     pctx.setTransform(1, 0, 0, 1, 0, 0); pctx.clearRect(0, 0, pv.width, pv.height);
     pctx.setTransform(te.scale * dpr, 0, 0, te.scale * dpr, 0, 0);
-    if (tool === 'redact') { const [x0, y0, x1, y1] = box(); pctx.fillStyle = 'rgba(0,0,0,.8)'; pctx.fillRect(x0, y0, x1 - x0, y1 - y0); return; }
     if (tool === 'highlight' || tool === 'rect') {
       const [x0, y0, x1, y1] = box();
       pctx.save(); pctx.translate(x0, y0); drawShape(pctx, { kind: tool, color: tool === 'highlight' ? color + '73' : color, lw, wPt: x1 - x0, hPt: y1 - y0 }); pctx.restore();
@@ -163,10 +161,10 @@ function startDraw(e) {
     overlay.removeEventListener('pointermove', move); overlay.removeEventListener('pointerup', up); overlay.removeEventListener('pointercancel', up);
     pv.remove();
     let a = null;
-    if (tool === 'redact' || tool === 'highlight' || tool === 'rect') {
+    if (tool === 'highlight' || tool === 'rect') {
       const [x0, y0, x1, y1] = box();
       if (x1 - x0 < 4 || y1 - y0 < 4) { if (pts.length < 2) toast('在頁面上按住拖曳，框出範圍'); return; }
-      a = tool === 'redact' ? { type: 'redact', wPt: x1 - x0, hPt: y1 - y0 } : { type: 'shape', kind: tool, color, lw, wPt: x1 - x0, hPt: y1 - y0 };
+      a = { type: 'shape', kind: tool, color, lw, wPt: x1 - x0, hPt: y1 - y0 };
       a.id = uid(); setTopLeft(a, x0, y0);
     } else {
       const line = tool === 'arrow' ? [pts[0], pts[pts.length - 1]] : pts;
@@ -188,7 +186,7 @@ overlay.addEventListener('pointerdown', async e => {
   const box = e.target.closest('.annot');
   if (!box) {
     e.preventDefault();
-    if (te.mode === 'mark' || te.mode === 'redact') { te.sel = null; renderAnnots(); startDraw(e); return; }
+    if (te.mode === 'mark') { te.sel = null; renderAnnots(); startDraw(e); return; }
     const [x, y] = localPt(e);
     if (te.mode === 'sig') {
       const sg = sigs.list[sigs.sel];
@@ -268,7 +266,6 @@ dlg.addEventListener('keydown', e => { if ((e.key === 'Delete') && te.sel && doc
    (that event is not delivered reliably in every embedded view, so nothing may depend on it alone). */
 function finishEditor() {
   if (!te.page) return;
-  const find = $('#rf-go'); if (find._job) find._job.abort(); // 自動尋找 still running: its boxes would land after this visit
   te.page.annots = te.page.annots.filter(a => a.type !== 'text' || a.text.trim());
   if (te.snap && annotSig() !== te.sig0) pushUndo(te.snap); // the whole visit to the editor is one undo step
   te.snap = null; te.page = null; te.sel = null; renderEdit();

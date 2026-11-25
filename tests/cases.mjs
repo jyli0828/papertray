@@ -15,30 +15,6 @@ export default [
     }
   },
   {
-    name: '比較：diff 演算法和最長共同子序列一致',
-    async run() {
-      const lcs = (a, b) => {
-        const dp = Array.from({ length: a.length + 1 }, () => new Int32Array(b.length + 1));
-        for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--) dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
-        return dp[0][0];
-      };
-      for (let t = 0; t < 2000; t++) {
-        const K = 1 + (t % 4), a = Array.from({ length: t % 13 }, () => Math.floor(Math.random() * K)), b = Array.from({ length: (t * 7) % 11 }, () => Math.floor(Math.random() * K));
-        let i = 0, j = 0, eq = 0;
-        for (const r of myersRuns(a, b, 1000)) {
-          T.ok(r.n > 0, 'run 長度為 0');
-          if (r.type === 'eq') { for (let k = 0; k < r.n; k++) T.ok(a[i + k] === b[j + k], 'eq 段落內容不同'); i += r.n; j += r.n; eq += r.n; }
-          else if (r.type === 'del') i += r.n; else j += r.n;
-        }
-        T.ok(i === a.length && j === b.length, '沒有走完兩個序列');
-        T.eq(eq, lcs(a, b), `不是最短編輯 ${JSON.stringify([a, b])}`);
-      }
-      return '2000 組隨機序列';
-    }
-  },
-
-  /* ---------- 整理頁面 ---------- */
-  {
     name: '合併：首頁範例、雙面掃描交錯',
     async run() {
       showTab('merge');
@@ -228,14 +204,14 @@ export default [
   },
 
   {
-    name: '旋轉過的頁面：頁碼、頁首、浮水印、遮蔽框、調整尺寸都在看到的位置',
+    name: '旋轉過的頁面：頁碼、頁首、標註框、浮水印、調整尺寸都在看到的位置',
     async run() {
       const grey = (r, g, b) => r > 100 && r < 160 && Math.abs(r - g) < 12 && Math.abs(g - b) < 12;
       const near = (a, b, tol, what) => T.ok(a && b && a.every((v, k) => Math.abs(v - b[k]) <= tol), `${what}：得到 ${JSON.stringify(a)}，應接近 ${JSON.stringify(b)}`);
       const src = await T.rotated(), rots = [0, 90, 180, 270];
       const block = []; for (let i = 0; i < 4; i++) block.push(await T.ink(src, i, grey)); // where pdf.js shows the block
 
-      // page numbers bottom right, header centred at the top; a redaction box 40 pt from the top-left corner
+      // page numbers bottom right, header centred at the top; a box drawn 40 pt from the top-left corner
       showTab('edit'); await loadEditFiles([src]);
       await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
       T.set('#edit-numbers', true); T.set('#pn-fmt', 'n'); T.set('#pn-pos', 'br'); T.set('#pn-start', '1');
@@ -250,16 +226,13 @@ export default [
       T.set('#edit-numbers', false); T.set('#hf-head', '');
       for (const p of edit.pages) {
         te.page = p; te.R = (p.baseRot + p.rot) % 360;
-        const a = { id: uid(), type: 'redact', wPt: 150, hPt: 80 }; setTopLeft(a, 40, 40); p.annots.push(a);
+        const a = { id: uid(), type: 'shape', kind: 'rect', color: '#000000', lw: 3, wPt: 150, hPt: 80 }; setTopLeft(a, 40, 40); p.annots.push(a);
       }
       te.page = null;
-      const red = await T.result(() => T.click('#edit-export'));
+      const boxed = await T.result(() => T.click('#edit-export'));
       for (let i = 0; i < 4; i++) {
         const [dw, dh] = rots[i] % 180 ? [841.89, 595.28] : [595.28, 841.89];
-        near(await T.ink(red.file, i, (r, g, b) => r < 30 && g < 30 && b < 30), [40 / dw, 40 / dh, 190 / dw, 120 / dh], .015, `第 ${i + 1} 頁（${rots[i]}°）遮蔽框`);
-        // the page is now a JPEG, which leaves a grey fringe around the black box (top left): compare the block's far edges
-        const g = await T.ink(red.file, i, grey);
-        near(g && g.slice(2), block[i].slice(2), .015, `第 ${i + 1} 頁（${rots[i]}°）遮蔽後內容`);
+        near(await T.ink(boxed.file, i, (r, g, b) => r < 30 && g < 30 && b < 30), [40 / dw, 40 / dh, 190 / dw, 120 / dh], .015, `第 ${i + 1} 頁（${rots[i]}°）標註框`);
       }
 
       // watermark in the top-left corner, level
@@ -321,12 +294,12 @@ export default [
       showTab('edit'); await loadEditFiles([src]);
       await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
       T.eq(edit.pages[0].view, [80, 90, 500, 740], 'pdf.js 的 view 是裁切框');
-      // red text 30 pt from the top-left of page 1 as shown, then copied to every page; a black box at bottom right of page 2
+      // red text 30 pt from the top-left of page 1 as shown, then copied to every page; a black frame at bottom right of page 2
       const p0 = edit.pages[0]; te.page = p0; te.R = 0;
       const a = { id: uid(), type: 'text', text: 'Hi', size: 30, color: '#ff0000' }; measureAnnot(a); setTopLeft(a, 30, 30); p0.annots.push(a);
       te.sel = a; $('#te-apply-to').value = 'all'; $('#te-apply-go').click();
       const p1 = edit.pages[1]; te.page = p1; te.R = 90;
-      const box = { id: uid(), type: 'redact', wPt: 100, hPt: 60 }; setTopLeft(box, 650 - 100 - 20, 420 - 60 - 20); p1.annots.push(box);
+      const box = { id: uid(), type: 'shape', kind: 'rect', color: '#000000', lw: 3, wPt: 100, hPt: 60 }; setTopLeft(box, 650 - 100 - 20, 420 - 60 - 20); p1.annots.push(box);
       te.page = null; te.sel = null;
       T.set('#edit-numbers', true); T.set('#pn-fmt', 'n'); T.set('#pn-pos', 'bc');
       const out = await T.result(() => T.click('#edit-export'));
@@ -339,9 +312,9 @@ export default [
         const [n] = await T.textAt(out.file, i, String(i + 1));
         T.ok(n && Math.abs(n[0] - .5) < .05 && n[1] > .9, `第 ${i + 1} 頁頁碼應在下方置中：${JSON.stringify(n)}`);
       }
-      near(await T.ink(out.file, 1, black), [530 / 650, 340 / 420, 630 / 650, 400 / 420], .015, '第 2 頁的遮蔽框');
+      near(await T.ink(out.file, 1, black), [530 / 650, 340 / 420, 630 / 650, 400 / 420], .015, '第 2 頁的框');
       // What lies outside the crop box (light grey) would show as a band along the page edges. (Light grey also appears
-      // inside: anti-aliased page numbers, and the JPEG fringe round the box on the redacted page.)
+      // inside: anti-aliased page numbers and frame edges.)
       const lightGrey = (r, g, b) => r > 200 && r < 225 && Math.abs(r - g) < 6;
       for (const i of [0, 1]) {
         const g = await T.ink(out.file, i, lightGrey);
@@ -394,50 +367,6 @@ export default [
   },
 
   /* ---------- 隱私與安全 ---------- */
-  {
-    name: '遮蔽個資：自動找出身分證號，匯出後文字真的刪掉',
-    async run() {
-      showTab('redact'); T.click('#redact-sample');
-      await T.until(() => dlg.open && te.page, '遮蔽視窗');
-      document.querySelectorAll('[data-rf]').forEach(c => { c.checked = ['id', 'mobile'].includes(c.dataset.rf); });
-      T.click('#rf-go'); await T.idle('#rf-go');
-      T.eq(edit.pages[0].annots.filter(a => a.type === 'redact').length, 2, '身分證、手機各一');
-      $('#te-done').click();
-      const r = await T.result(() => T.click('#edit-export'));
-      const text = (await T.pdfText(r.file)).join('');
-      T.ok(!text.includes('A123456789') && !text.includes('0912'), '匯出檔仍有個資：' + text);
-    }
-  },
-  {
-    name: '遮蔽個資：自動尋找也找填好的表單欄位，匯出後欄位和內容都不在',
-    async run() {
-      const doc = await PDFDocument.create(), p = doc.addPage([400, 400]), form = doc.getForm();
-      p.drawText('ID / Phone / City', { x: 30, y: 340, size: 12, font: await doc.embedFont(StandardFonts.Helvetica) });
-      const id = form.createTextField('idno'); id.addToPage(p, { x: 80, y: 292, width: 200, height: 24 }); id.setText('A123456789');
-      const ph = form.createTextField('notes'); ph.enableMultiline(); ph.addToPage(p, { x: 80, y: 200, width: 250, height: 60 }); ph.setText('call me\n0912-345-678');
-      const keep = form.createTextField('city'); keep.addToPage(p, { x: 80, y: 120, width: 200, height: 24 }); keep.setText('Taipei');
-      showTab('redact'); await startRedacting([pdfFile(await doc.save(), 'filled.pdf')]);
-      await T.until(() => dlg.open && te.page, '遮蔽視窗');
-      document.querySelectorAll('[data-rf]').forEach(c => { c.checked = ['id', 'mobile'].includes(c.dataset.rf); });
-      T.click('#rf-go'); await T.idle('#rf-go');
-      T.eq(edit.pages[0].annots.filter(a => a.type === 'redact').length, 2, '身分證、手機各一個框：' + $('#rf-result').textContent);
-      $('#te-done').click();
-      const r = await T.result(() => T.click('#edit-export'));
-      const pj = await T.pdf(r.file), fo = await pj.getFieldObjects(); pj.destroy();
-      T.ok(!fo || !Object.keys(fo).length, '匯出檔不留欄位：' + JSON.stringify(fo && Object.keys(fo)));
-      const bytes = (await fileBytes(r.file)).bytes, d = await PDFDocument.load(bytes);
-      T.ok(!d.getForm().getFields().length, '沒有表單欄位');
-    }
-  },
-  {
-    name: '遮蔽個資：市話包括苗栗、台東、金門、馬祖的 5、6 碼號碼，日期和手機不算市話',
-    async run() {
-      const re = RF_PATTERNS.phone.re, hit = s => { re.lastIndex = 0; const m = re.exec(s); return m ? m[0] : null; };
-      for (const s of ['02-2345-6789', '(02)2345-6789', '04 2345 6789', '049-2345678', '037-559999', '(037)559999', '089-326141', '082-318823', '0836-22381', '02-2345-6789 轉 123'])
-        T.eq(hit(`電話：${s}。`), s, '市話');
-      for (const s of ['2026-11-24', '01-02-2024', '0912-345678', '0912345678', '05-11']) T.eq(hit(`見 ${s} 。`), null, `不是市話：${s}`);
-    }
-  },
   {
     name: '密碼：中文密碼加密、解除，就地解除限制',
     async run() {
@@ -602,7 +531,7 @@ export default [
     }
   },
   {
-    name: '轉向的頁面與橫放的文字：抽出文字分得出行與字；遮蔽個資找得到分成幾段的電話',
+    name: '轉向的頁面與橫放的文字：抽出文字分得出行與字',
     async run() {
       const doc = await PDFDocument.create(), font = await doc.embedFont(StandardFonts.Helvetica);
       // page 1: ordinary text on a page turned by /Rotate 90 (a landscape page)
@@ -621,12 +550,6 @@ export default [
       T.set('#p2i-fmt', 'jpg');
       T.ok(/First line here\nSecond line/.test(text), '第 1 頁分行、字之間有空格：' + JSON.stringify(text));
       T.ok(/Tel 0912 345 678\s*\n\s*next/.test(text), '第 2 頁：' + JSON.stringify(text));
-      showTab('redact'); await startRedacting([src]);
-      await T.until(() => dlg.open && te.page, '遮蔽視窗');
-      document.querySelectorAll('[data-rf]').forEach(c => { c.checked = c.dataset.rf === 'mobile'; });
-      $('#rf-scope').value = 'all'; T.click('#rf-go'); await T.idle('#rf-go');
-      T.eq(edit.pages[1].annots.filter(a => a.type === 'redact').length, 1, '橫放的手機號碼：' + $('#rf-result').textContent);
-      $('#te-done').click();
     }
   },
   {
@@ -665,46 +588,6 @@ export default [
   },
 
   /* ---------- 比對 ---------- */
-  {
-    name: '比較：比對文字',
-    async run() {
-      showTab('compare'); T.click('#cmp-sample');
-      await T.until(() => cmp.res, '比較結果');
-      const items = [...document.querySelectorAll('#cmp-list .cmp-item')].map(b => b.textContent);
-      T.ok(items.some(t => t.includes('72,000') && t.includes('86,400')), '金額的修改');
-      T.ok(items.some(t => t.includes('in writing')), '新增的字');
-      T.ok(!items.some(t => t.includes('第 2 → 2 頁')), '簽名是圖，不算文字差異');
-      cmpSelect(0); T.ok($('#cmp-list [data-h="0"]').classList.contains('is-active'), '跳到第一處');
-      return `${cmp.res.hunks.length} 處`;
-    }
-  },
-  {
-    name: '比較：比對畫面',
-    async run() {
-      showTab('compare'); setCmpMode('visual');
-      T.ok($('#cmp-ocr-wrap').hidden && !$('#cmp-sens-wrap').hidden, '畫面模式的選項');
-      await loadCmp('a', [await makeAgreement(false)]); await loadCmp('b', [await makeAgreement(true)]);
-      T.click('#cmp-go'); await T.idle('#cmp-go');
-      const hunks = cmp.res.hunks;
-      T.ok(hunks.some(h => h.pa === 1 && h.kind === 'change'), '第 2 頁的簽名（圖）');
-      T.ok(hunks.filter(h => h.pa === 0).length >= 3, '第 1 頁的修改');
-      T.eq(document.querySelectorAll('#cmp-pages-b .cmp-mark').length, hunks.length, '每處都有標記');
-      T.ok(document.querySelectorAll('.cmp-crops img').length === hunks.length * 2, '清單裡的前後對照圖');
-      await loadCmp('b', [await makeAgreement(false)]);
-      T.click('#cmp-go'); await T.idle('#cmp-go');
-      T.eq(cmp.res.hunks.length, 0, '相同的檔案');
-      // one page more in the new file, and a page that changed size
-      await loadCmp('a', [await T.labeled(['X', 'Y'], 'a.pdf')]);
-      const b = await PDFDocument.create(), f = await b.embedFont(StandardFonts.Helvetica);
-      b.addPage([595.28, 841.89]).drawText('X', { x: 60, y: 751.89, size: 28, font: f }); b.addPage([841.89, 595.28]); b.addPage([595.28, 841.89]);
-      await loadCmp('b', [pdfFile(await b.save(), 'b.pdf')]);
-      T.click('#cmp-go'); await T.idle('#cmp-go');
-      T.eq(cmp.res.hunks.map(h => h.kind), ['size', 'ins']);
-      return `範例找到 ${hunks.length} 處`;
-    }
-  },
-
-  /* ---------- 證件、圖片 ---------- */
   {
     name: '證件影印與證件照',
     async run() {
@@ -762,9 +645,7 @@ export default [
         ['watermark', '#wm-input', n => wm.name === n], ['resize', '#rs-input', n => rs.name === n],
         ['compress', '#comp-input', n => comp.items.some(i => i.name === n)], ['pdf2img', '#p2i-input', n => p2i.name === n],
         ['ocr', '#ocr-input', n => ocrTab.name === n], ['password', '#pw-input', n => pw.name === n],
-        ['compare', '#cmp-input-a', n => cmp.a && cmp.a.name === n],
-        ['sign', '#sign-input', n => dlg.open && Object.values(edit.docs).some(d => d.name === n)],
-        ['redact', '#redact-input', n => dlg.open && Object.values(edit.docs).some(d => d.name === n)]
+        ['sign', '#sign-input', n => dlg.open && Object.values(edit.docs).some(d => d.name === n)]
       ];
       for (const [tab, sel, loaded] of checks) {
         showTab(tab); const name = tab + '.pdf';
@@ -830,16 +711,6 @@ export default [
     }
   },
   {
-    name: '記憶體：每個字的位置存成 Float32Array',
-    async run() {
-      const pj = await T.pdf(await T.labeled(['Hello world']));
-      const c = await pageChars(await pj.getPage(1));
-      T.ok(c.boxes instanceof Float32Array && c.boxes.length === c.text.length * 4, '格式');
-      const bs = spanBoxes(c.text, c.boxes, 0, 5);
-      T.ok(bs.length === 1 && bs[0][2] > bs[0][0], 'Hello 的框：' + JSON.stringify(bs));
-    }
-  },
-  {
     name: '記憶體：預覽結果時只留一份',
     async run() {
       const f = await T.labeled(['Preview'], 'pv.pdf'), size = f.size;
@@ -862,7 +733,7 @@ export default [
       const pj = await T.pdf(await T.labeled(['']));
       await ocrRecognize(await new Promise(r => { const c = document.createElement('canvas'); c.width = c.height = 64; c.toBlob(r); }));
       T.ok(ocrEng.worker, '引擎啟動');
-      showTab('compare'); T.ok(ocrEng.worker, '比較也會用到，留著');
+      showTab('ocr'); T.ok(ocrEng.worker, '文字辨識也會用到，留著');
       showTab('merge'); T.ok(!ocrEng.worker, '離開後關閉');
       pj.destroy();
     }
@@ -905,7 +776,7 @@ export default [
       const many = await T.labeled(Array.from({ length: 12 }, (_, i) => 'P' + (i + 1)), 'many.pdf');
       await loadEditFiles([many]);
       await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
-      for (const p of edit.pages) { te.page = p; te.R = 0; const a = { id: uid(), type: 'redact', wPt: 50, hPt: 20 }; setTopLeft(a, 40, 40); p.annots.push(a); }
+      for (const p of edit.pages) { te.page = p; te.R = 0; const a = { id: uid(), type: 'shape', kind: 'rect', color: '#000000', lw: 2, wPt: 50, hPt: 20 }; setTopLeft(a, 40, 40); p.annots.push(a); }
       te.page = null;
       const n = T.results.length;
       T.click('#edit-export');
@@ -1013,20 +884,6 @@ export default [
       T.eq(um.history.length, 1, '處理中不復原');
       await T.idle('#um-go');
       T.eq(um.history.length, 2, '兩次移除都能復原');
-    }
-  },
-  {
-    name: '比較：比對中切換方式會停下，不會顯示另一種方式的結果',
-    async run() {
-      showTab('compare'); setCmpMode('visual');
-      await loadCmp('a', [await T.labeled(Array.from({ length: 12 }, (_, i) => 'Old ' + i), 'a.pdf')]);
-      await loadCmp('b', [await T.labeled(Array.from({ length: 12 }, (_, i) => (i % 3 ? 'Old ' : 'New ') + i), 'b.pdf')]);
-      T.click('#cmp-go');
-      $('#cmp-m-text').click();
-      await T.idle('#cmp-go');
-      T.ok($('#cmp-result').hidden && !cmp.res, '比對畫面的結果不會出現在比對文字');
-      T.click('#cmp-go'); await T.idle('#cmp-go');
-      T.ok(cmp.res && !cmp.res.vis && cmp.res.hunks.length === 4, '再按一次比對文字：' + $('#cmp-sum').textContent);
     }
   },
   {
@@ -1244,43 +1101,12 @@ export default [
     }
   },
   {
-    name: '遮蔽個資：自動尋找還沒完成就關掉編輯視窗，不會在背後加上遮蔽框',
-    async run() {
-      showTab('edit');
-      await loadEditFiles([await T.labeled(Array.from({ length: 4 }, () => 'ID A123456789'), 'ids.pdf')]);
-      await T.until(() => edit.pages.every(p => p.view), '頁面資訊');
-      // Hold the search on its second page (as a slow OCR page would), then close the editor.
-      let release; const gate = new Promise(r => { release = r; });
-      const real = pageChars; let calls = 0;
-      pageChars = async (...a) => { if (++calls === 2) await gate; return real(...a); };
-      try {
-        await openTextEditor(edit.pages[0], 'redact');
-        $('#rf-scope').value = 'all'; document.querySelectorAll('[data-rf]').forEach(c => { c.checked = c.dataset.rf === 'id'; });
-        T.click('#rf-go');
-        await T.until(() => calls === 2, '尋找到第二頁');
-        $('#te-done').click();
-        release(); await T.idle('#rf-go');
-      } finally { pageChars = real; }
-      T.eq(edit.pages.map(p => p.annots.length), [0, 0, 0, 0], '關掉後沒有遮蔽框');
-      T.ok($('#edit-undo').disabled, '沒有要復原的');
-      await openTextEditor(edit.pages[0], 'redact');
-      T.click('#rf-go'); await T.idle('#rf-go');
-      $('#te-done').click();
-      T.eq(edit.pages.map(p => p.annots.length), [1, 1, 1, 1], '找完再關：每頁一個框');
-      T.eq($('#edit-grid').querySelectorAll('.badge.redact').length, 4, '頁面上看得到');
-      undoEdit();
-      T.eq(edit.pages.map(p => p.annots.length), [0, 0, 0, 0], '一次復原');
-    }
-  },
-
-  /* ---------- 互動 ---------- */
-  {
     name: '釋放記憶體：每個工具都能清空，而且清空後還能再用',
     async run() {
       const loads = [['split', '#split-sample', () => split.pj], ['watermark', '#wm-sample', () => wm.pj], ['pdf2img', '#p2i-sample', () => p2i.pj],
         ['form', '#ff-sample', () => ff.pj], ['resize', '#rs-sample', () => rs.src], ['img2pdf', '#img-sample', () => imgs.items.length],
         ['imgtool', '#it-sample', () => itool.items.length], ['idcard', '#id-sample', () => idc.sides[0]], ['idphoto', '#ph-sample', () => ph.bmp],
-        ['unmark', '#um-sample', () => um.w], ['compare', '#cmp-sample', () => cmp.res]];
+        ['unmark', '#um-sample', () => um.w]];
       for (const [tab, sample, ready] of loads) { showTab(tab); T.click(sample); await T.until(ready, tab + ' 範例'); }
       showTab('edit'); await loadEditFiles([await T.labeled(['E'])]);
       showTab('compress'); await loadCompFile([await T.labeled(['C'])]);
@@ -1738,12 +1564,6 @@ export default [
       T.set('#p2i-dpi', '72');
       const r = await T.result(() => T.click('#p2i-go'));
       T.eq(Object.keys((await T.zip(r.file)).files).length, 15, '取消後再轉一次正常');
-      // 比對畫面
-      showTab('compare'); setCmpMode('visual');
-      await loadCmp('a', [await T.labeled(Array.from({ length: 15 }, (_, i) => 'A' + i))]); await loadCmp('b', [await T.labeled(Array.from({ length: 15 }, (_, i) => 'B' + i))]);
-      await cancelMid('#cmp-go', () => /比對第 [2-9]/.test($('#cmp-plabel').textContent));
-      T.click('#cmp-go'); await T.idle('#cmp-go');
-      T.eq(cmp.res.hunks.length, 15, '取消後再比一次正常');
     }
   },
 
@@ -1759,7 +1579,7 @@ export default [
         '零頁': new File([await empty.save()], 'nopages.pdf', { type: 'application/pdf' })
       };
       const inputs = { merge: '#merge-input', split: '#split-input', edit: '#edit-input', form: '#ff-input', watermark: '#wm-input', resize: '#rs-input',
-        compress: '#comp-input', pdf2img: '#p2i-input', ocr: '#ocr-input', password: '#pw-input', compare: '#cmp-input-a', sign: '#sign-input', redact: '#redact-input' };
+        compress: '#comp-input', pdf2img: '#p2i-input', ocr: '#ocr-input', password: '#pw-input', sign: '#sign-input' };
       const rejections = [];
       const onRej = e => rejections.push(String(e.reason && e.reason.message || e.reason));
       window.addEventListener('unhandledrejection', onRej);
@@ -1854,33 +1674,6 @@ export default [
   },
 
   {
-    name: '掃描檔：遮蔽個資用 OCR 找到電話與 Email；比較用 OCR 比對文字',
-    slow: true, http: true, timeout: 240000,
-    async run() {
-      showTab('ocr'); T.click('#ocr-sample');
-      await T.until(() => ocrTab.pj && ocrTab.hasText.length === 1, '掃描範例');
-      const scan = pdfFile(await ocrTab.pj.getData(), 'scan.pdf');
-      await startRedacting([scan]);
-      await T.until(() => dlg.open && te.page, '遮蔽視窗');
-      document.querySelectorAll('[data-rf]').forEach(c => { c.checked = ['phone', 'email'].includes(c.dataset.rf); });
-      $('#rf-ocr').checked = true;
-      T.click('#rf-go'); await T.idle('#rf-go');
-      const boxes = edit.pages[0].annots.filter(a => a.type === 'redact');
-      T.eq(boxes.length, 2, '電話、Email 各一：' + $('#rf-result').textContent);
-      // each box sits where the words are on the scan: in the lower part of the page, left half
-      const [x0, y0, x1, y1] = edit.pages[0].view;
-      for (const b of boxes) T.ok(b.ux > x0 && b.ux + b.wPt < x0 + (x1 - x0) * .8 && b.uy < y1 - (y1 - y0) * .4, '框的位置：' + JSON.stringify([b.ux, b.uy, b.wPt, b.hPt]));
-      $('#te-done').click();
-      // compare the scan with a version whose amount changed
-      showTab('compare'); setCmpMode('text'); $('#cmp-ocr').checked = true;
-      await loadCmp('a', [scan]); await loadCmp('b', [scan]);
-      T.click('#cmp-go'); await T.idle('#cmp-go');
-      T.eq(cmp.res.hunks.length, 0, '同一份掃描檔');
-      T.ok(cmp.a.chars[0].ocr && cmp.a.chars[0].boxes instanceof Float32Array, '用 OCR 讀出文字和位置');
-    }
-  },
-
-  {
     name: '手機：長按拖曳排序（觸控），點縮圖不會在拖完時誤開預覽；分頁列方向鍵',
     viewport: { width: 375, height: 812 },
     async run() {
@@ -1915,9 +1708,9 @@ export default [
     async run() {
       await homeTakeFiles([await T.labeled(['v1'], 'v1.pdf'), await T.labeled(['v2'], 'v2.pdf')]);
       const picks = [...document.querySelectorAll('#home-picks [data-tab]')].map(b => b.dataset.tab);
-      T.ok(picks.includes('compare') && picks.includes('merge'), picks.join());
-      document.querySelector('#home-picks [data-tab="compare"]').click();
-      await T.until(() => cmp.a && cmp.b, '帶到比較');
+      T.ok(picks.includes('merge') && !picks.includes('compare'), picks.join());
+      document.querySelector('#home-picks [data-tab="merge"]').click();
+      await T.until(() => merge.items.length === 2, '帶到合併');
     }
   },
   {
@@ -2039,7 +1832,7 @@ export default [
       showTab('img2pdf'); dragIn(); await T.sleep(400);
       T.ok(!window.pdfjsLib && !window.PDFLib, '圖片工具不載入 PDF 的函式庫');
       showTab('split'); dragIn();
-      await T.until(() => window.pdfjsLib && window.PDFLib && pdfWorkers[0] !== undefined, '拖進來時載入');
+      await T.until(() => window.pdfjsLib && window.PDFLib && sharedWorker !== undefined, '拖進來時載入');
       // The picker's input is clicked by its button: that starts the loading too (already done here, so nothing new).
       $('#split-input').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       const t = performance.now();
@@ -2067,35 +1860,6 @@ export default [
       T.ok(total < 150, `300 頁畫了 ${total} 張`);
       scrollTo(0, 0);
       return `捲過 300 頁，畫了 ${drawn} 張`;
-    }
-  },
-  {
-    name: '每個字的位置：記住字寬、直接算四角，和逐字量、逐點算的結果一樣',
-    async run() {
-      // The way it was computed before: every character measured, the four corners turned and compared one by one.
-      const before = it => {
-        const [a, b, c, d, e, f] = it.transform, n = Math.hypot(a, b) || 1, fh = Math.hypot(c, d) || n;
-        mctx.font = '10px sans-serif';
-        const ws = [...it.str].map(ch => mctx.measureText(ch).width), total = ws.reduce((s, w) => s + w, 0) || 1;
-        const k = (it.width || total) / total, ux = a / n, uy = b / n, vx = -uy, vy = ux, pad = 1.5, out = [];
-        let t0 = 0;
-        for (let i = 0; i < it.str.length; i++) {
-          const t1 = t0 + ws[i] * k;
-          const pts = [[t0 - pad, -.28 * fh], [t1 + pad, -.28 * fh], [t1 + pad, .98 * fh], [t0 - pad, .98 * fh]].map(([t, s]) => [e + ux * t + vx * s, f + uy * t + vy * s]);
-          const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-          out.push(...[Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].map(Math.fround));
-          t0 = t1;
-        }
-        return out;
-      };
-      const strs = ['身分證 A123456789', 'Tel 0912-345-678', '第 3 頁，共 10 頁', 'a', '  ', 'mail@example.com 王小明'];
-      for (let t = 0; t < 400; t++) {
-        const ang = (t % 8) * Math.PI / 4 + (t % 3) * .1, sz = 6 + t % 20, str = strs[t % strs.length];
-        const it = { str, width: t % 5 ? str.length * sz * .5 : 0,
-          transform: [sz * Math.cos(ang), sz * Math.sin(ang), -sz * Math.sin(ang) * (t % 4 ? 1 : .6), sz * Math.cos(ang), 50 + t, 700 - t] };
-        T.eq([...itemCharBoxes(it)], before(it), `第 ${t} 組`);
-      }
-      return '400 組';
     }
   },
   {
@@ -2372,23 +2136,6 @@ export default [
       T.eq(pics, 1, '共用的圖只放一次');
       T.ok(mine.length < theirs.length * .6, `檔案大小 ${mine.length}，pdf-lib 逐頁嵌入 ${theirs.length}`);
       return `${src.length >> 10} KB → ${mine.length >> 10} KB（pdf-lib 逐頁嵌入 ${theirs.length >> 10} KB）`;
-    }
-  },
-  {
-    name: '比較：新版用自己的 pdf.js 背景程式，清空時關掉，再放入又能比較',
-    http: true,
-    async run() {
-      showTab('compare'); setCmpMode('visual');
-      await loadCmp('a', [await T.labeled(['Same', 'Old'], 'a.pdf')]); await loadCmp('b', [await T.labeled(['Same', 'New'], 'b.pdf')]);
-      T.ok(pdfWorkers[1] && pdfWorkers[1] !== pdfWorkers[0], '新版有自己的背景程式');
-      T.click('#cmp-go'); await T.idle('#cmp-go');
-      T.eq([...new Set(cmp.res.hunks.map(h => h.pa))], [1], '只有第 2 頁不同');
-      clearCmp();
-      T.eq(pdfWorkers[1], undefined, '清空後關掉');
-      await loadCmp('a', [await T.labeled(['X', 'Y'], 'a.pdf')]); await loadCmp('b', [await T.labeled(['X', 'Z'], 'b.pdf')]);
-      setCmpMode('text'); T.click('#cmp-go'); await T.idle('#cmp-go');
-      T.ok(cmp.res.hunks.length >= 1, '再放入又能比較');
-      clearCmp();
     }
   },
   {

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>紙匣</title>
-<meta name="description" content="紙匣：合併、拆分、編輯、簽名、填寫 PDF 表單、壓縮 PDF、文字辨識（OCR）、比較兩份 PDF，圖片與 PDF 互轉。檔案只在你的瀏覽器裡處理。">
+<meta name="description" content="紙匣：合併、拆分、編輯、簽名、填寫 PDF 表單、壓縮 PDF、文字辨識（OCR），圖片與 PDF 互轉。檔案只在你的瀏覽器裡處理。">
 <link rel="icon" type="image/svg+xml" href="icons/icon.svg">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
@@ -64,11 +64,7 @@
         <span>填表單</span>
       </button>
     </div></div>
-    <div class="tab-group" style="--n:3"><span class="tab-group-label" aria-hidden="true">隱私與安全</span><div class="tab-group-items">
-      <button class="tab" role="tab" id="tab-redact" aria-controls="panel-redact" data-tab="redact" title="塗黑並真正刪除個人資料">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h10l4 4v14H5z"/><rect x="7.5" y="9" width="9" height="3.2" rx=".6" fill="currentColor"/><path d="M8 16h8"/></svg>
-        <span>遮蔽個資</span>
-      </button>
+    <div class="tab-group" style="--n:2"><span class="tab-group-label" aria-hidden="true">隱私與安全</span><div class="tab-group-items">
       <button class="tab" role="tab" id="tab-password" aria-controls="panel-password" data-tab="password" title="解除或加上 PDF 密碼">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10.5" width="16" height="10.5" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/><circle cx="12" cy="15.5" r="1.4"/><path d="M12 17v1.5"/></svg>
         <span>密碼</span>
@@ -94,12 +90,6 @@
       <button class="tab" role="tab" id="tab-ocr" aria-controls="panel-ocr" data-tab="ocr" title="辨識掃描檔或照片裡的字，做成可以搜尋的 PDF">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V4a1 1 0 0 1 1-1h3M17 3h3a1 1 0 0 1 1 1v3M21 17v3a1 1 0 0 1-1 1h-3M7 21H4a1 1 0 0 1-1-1v-3"/><path d="M8 8h8M12 8v8M9.5 16h5"/></svg>
         <span>文字辨識</span>
-      </button>
-    </div></div>
-    <div class="tab-group" style="--n:1"><span class="tab-group-label" aria-hidden="true">比對</span><div class="tab-group-items">
-      <button class="tab" role="tab" id="tab-compare" aria-controls="panel-compare" data-tab="compare" title="找出兩份 PDF 的文字或畫面差異">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3" width="8" height="18" rx="1.5"/><rect x="13.5" y="3" width="8" height="18" rx="1.5"/><path d="M5 8h3M5 12h3M16 8h3M16 12h3"/><path d="M15.5 16h4" stroke-width="3" opacity=".55"/><path d="M4.5 16h4" stroke-width="3" opacity=".3"/></svg>
-        <span>比較</span>
       </button>
     </div></div>
     <div class="tab-group" style="--n:2"><span class="tab-group-label" aria-hidden="true">證件</span><div class="tab-group-items">
@@ -786,80 +776,6 @@
     </div>
   </section>
 
-  <!-- COMPARE -->
-  <section class="panel" id="panel-compare" role="tabpanel" aria-labelledby="tab-compare" hidden>
-    <div class="panel-head">
-      <h2>比較兩份 PDF</h2>
-      <p>找出兩個版本之間改了什麼：比對文字，或逐頁比對畫面。適合核對合約、報價單、圖面、規章的改版。</p>
-    </div>
-    <div class="cmp-mode">
-      <div class="seg" role="group" aria-label="比較方式">
-        <button id="cmp-m-text" aria-pressed="true">比對文字</button>
-        <button id="cmp-m-visual" aria-pressed="false">比對畫面</button>
-      </div>
-      <p class="note" id="cmp-mode-note"></p>
-    </div>
-    <div class="cmp-slots">
-      <div class="cmp-slot">
-        <div class="cmp-slot-head"><span class="cmp-tag del">原本</span>舊的版本</div>
-        <label class="drop compact" id="cmp-drop-a">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-          <span><strong>選擇 PDF</strong>　或拖到這裡</span>
-          <input type="file" id="cmp-input-a" accept="application/pdf,.pdf">
-        </label>
-        <div class="doc-card" id="cmp-card-a" hidden>
-          <svg class="doc-ico" viewBox="0 0 40 48" fill="none" aria-hidden="true"><path d="M4 3h22l10 10v32H4z" fill="currentColor" opacity=".14"/><path d="M4 3h22l10 10v32H4z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M26 3v10h10" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
-          <div style="min-width:0"><div class="file-name" id="cmp-name-a"></div><div class="file-meta" id="cmp-meta-a"></div></div>
-          <button class="btn" data-cmp-change="a">換檔</button>
-        </div>
-      </div>
-      <div class="cmp-slot">
-        <div class="cmp-slot-head"><span class="cmp-tag ins">新版</span>新的版本</div>
-        <label class="drop compact" id="cmp-drop-b">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-          <span><strong>選擇 PDF</strong>　或拖到這裡</span>
-          <input type="file" id="cmp-input-b" accept="application/pdf,.pdf">
-        </label>
-        <div class="doc-card" id="cmp-card-b" hidden>
-          <svg class="doc-ico" viewBox="0 0 40 48" fill="none" aria-hidden="true"><path d="M4 3h22l10 10v32H4z" fill="currentColor" opacity=".14"/><path d="M4 3h22l10 10v32H4z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M26 3v10h10" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg>
-          <div style="min-width:0"><div class="file-name" id="cmp-name-b"></div><div class="file-meta" id="cmp-meta-b"></div></div>
-          <button class="btn" data-cmp-change="b">換檔</button>
-        </div>
-      </div>
-    </div>
-    <p class="hint" id="cmp-sample-row">沒有檔案在手邊？<button class="link-btn" id="cmp-sample">用兩份範例合約試試</button>　也可以一次拖入兩份，先放舊的、再放新的。</p>
-    <div class="footer-bar">
-      <label class="check" id="cmp-ocr-wrap"><input type="checkbox" id="cmp-ocr" checked> 沒有文字的頁面（掃描檔）先用 OCR 辨識</label>
-      <label class="cmp-sens" id="cmp-sens-wrap" hidden>靈敏度
-        <select id="cmp-sens">
-          <option value="normal" selected>一般</option>
-          <option value="high">高：淡色的變化也算</option>
-          <option value="low">低：忽略掃描雜點、輕微位移</option>
-        </select>
-      </label>
-      <button class="btn primary" id="cmp-go" disabled>比較</button>
-    </div>
-    <div class="progress" id="cmp-progress" hidden>
-      <div class="progress-track"><div class="progress-fill" id="cmp-bar"></div></div>
-      <span class="progress-label mono" id="cmp-plabel"></span>
-    </div>
-    <div id="cmp-result" class="cmp-result" hidden>
-      <div class="cmp-bar">
-        <span id="cmp-sum"></span>
-        <span class="cmp-nav">
-          <button class="btn" id="cmp-prev" title="上一處（←）">上一處</button>
-          <button class="btn" id="cmp-next" title="下一處（→）">下一處</button>
-        </span>
-      </div>
-      <ol class="cmp-list" id="cmp-list"></ol>
-      <div class="cmp-view">
-        <div class="cmp-col"><div class="cmp-col-head"><span class="cmp-tag del">原本</span><span id="cmp-col-name-a"></span></div><div class="cmp-pages" id="cmp-pages-a"></div></div>
-        <div class="cmp-col"><div class="cmp-col-head"><span class="cmp-tag ins">新版</span><span id="cmp-col-name-b"></span></div><div class="cmp-pages" id="cmp-pages-b"></div></div>
-      </div>
-      <p class="note" id="cmp-note"></p>
-    </div>
-  </section>
-
   <!-- SPLIT -->
   <section class="panel" id="panel-split" role="tabpanel" aria-labelledby="tab-split" hidden>
     <div class="panel-head">
@@ -965,33 +881,6 @@
           <label class="name-field">檔名 <input type="text" id="ff-name" value="已填表單.pdf" spellcheck="false"></label>
           <button class="btn primary" id="ff-go">匯出 PDF</button>
         </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- REDACT -->
-  <section class="panel" id="panel-redact" role="tabpanel" aria-labelledby="tab-redact" hidden>
-    <div class="panel-head">
-      <h2>遮蔽個人資料</h2>
-      <p>框住身分證字號、帳號、地址等內容，匯出時真正刪除，不是只蓋一個黑框。</p>
-    </div>
-    <div class="sign-steps">
-      <div class="sign-step">
-        <h3>怎麼運作</h3>
-        <p class="hint" style="margin:0">PDF 上只蓋一個黑色方塊並不安全，底下的文字還是能被複製出來。這裡匯出時，有遮蔽的頁面會整頁重新畫成圖片，黑框下的內容就不存在了。</p>
-        <p class="hint" style="margin:0">代價是那幾頁的文字會變成無法選取或搜尋；沒有遮蔽的頁面完全不受影響。</p>
-        <p class="hint" style="margin:0">放入檔案後會開啟第 1 頁。要遮其他頁，到「編輯」分頁按該頁的筆形按鈕，選「遮蔽」；同一個位置要遮很多頁時，可以用「把選取的項目也放到」一次套用。最後在「編輯」分頁匯出 PDF。</p>
-        <p class="hint" style="margin:0">右側的「自動尋找」可以一次找出所有頁面上的身分證字號、手機號碼、Email 或你輸入的關鍵字，自動加上遮蔽框。掃描檔沒有文字可以搜尋，要用手動框選。</p>
-      </div>
-      <div class="sign-step">
-        <h3>選擇要處理的 PDF</h3>
-        <label class="drop" id="redact-drop">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
-          <strong>把 PDF 拖到這裡，或點一下選擇</strong>
-          <span>會開啟第 1 頁，拖曳框選要遮住的範圍</span>
-          <input type="file" id="redact-input" accept="application/pdf,.pdf">
-        </label>
-        <p class="hint">沒有檔案在手邊？<button class="link-btn" id="redact-sample">用範例申請表試試</button></p>
       </div>
     </div>
   </section>
@@ -1273,7 +1162,7 @@
   </section>
 </div>
 
-<dialog class="editor" id="te-dialog" aria-label="編輯頁面：文字、簽名、標註、遮蔽">
+<dialog class="editor" id="te-dialog" aria-label="編輯頁面：文字、簽名、標註">
   <div class="ed">
     <div class="ed-stage" id="te-stage">
       <div class="ed-page" id="te-page">
@@ -1283,11 +1172,10 @@
     </div>
     <div class="ed-side">
       <h3 id="te-title">第 1 頁</h3>
-      <div class="seg seg-4" role="group" aria-label="要放的內容">
+      <div class="seg seg-3" role="group" aria-label="要放的內容">
         <button id="te-mode-text" aria-pressed="true">文字</button>
         <button id="te-mode-sig" aria-pressed="false">簽名</button>
         <button id="te-mode-mark" aria-pressed="false">標註</button>
-        <button id="te-mode-redact" aria-pressed="false">遮蔽</button>
       </div>
       <div class="ed-panel" id="te-text-panel">
         <p class="hint">輸入文字後，點頁面上任一處放置。拖曳可移動，點一下文字可修改。</p>
@@ -1345,28 +1233,6 @@
           <button class="swatch" data-mc="#1d4fb8" style="background:#1d4fb8" aria-label="藍色"></button>
           <button class="swatch" data-mc="#111111" style="background:#111111" aria-label="黑色"></button>
         </div>
-      </div>
-      <div class="ed-panel" id="te-redact-panel" hidden>
-        <p class="hint">在頁面上按住拖曳，框住要遮住的內容。框好的範圍可以移動和縮放。</p>
-        <div class="apply-box" id="rf-box">
-          <b style="font-size:14px">自動尋找</b>
-          <div class="rf-checks">
-            <label><input type="checkbox" data-rf="id" checked> 身分證／居留證號</label>
-            <label><input type="checkbox" data-rf="mobile" checked> 手機號碼</label>
-            <label><input type="checkbox" data-rf="phone"> 市話</label>
-            <label><input type="checkbox" data-rf="email" checked> Email</label>
-            <label><input type="checkbox" data-rf="card"> 信用卡號</label>
-            <label><input type="checkbox" data-rf="birth"> 日期（生日等）</label>
-          </div>
-          <label class="field">其他關鍵字（用逗號隔開）<input type="text" id="rf-words" placeholder="例如：王小明, 台北市" spellcheck="false"></label>
-          <label class="optfield">範圍
-            <select id="rf-scope"><option value="all">所有頁面</option><option value="page">只有這一頁</option></select>
-          </label>
-          <label class="rf-ocr"><input type="checkbox" id="rf-ocr" checked> 掃描的頁面用 OCR 辨識文字（每頁約 5–20 秒）</label>
-          <button class="btn" id="rf-go">尋找並加上遮蔽框</button>
-          <p class="hint" id="rf-result" style="margin:0" hidden></p>
-        </div>
-        <p class="note">匯出時，有遮蔽的頁面會整頁轉成圖片：框住的文字和圖片會真正刪除，無法再選取或還原；這一頁其他文字也會變成無法選取。沒有遮蔽的頁面不受影響。</p>
       </div>
       <button class="btn danger" id="te-del" disabled>刪除選取的項目</button>
       <div class="apply-box" id="te-apply" hidden>
@@ -1503,7 +1369,6 @@
 <script src="js/edit.js"></script>
 <script src="js/editor-dialog.js"></script>
 <script src="js/signatures.js"></script>
-<script src="js/redact.js"></script>
 <script src="js/form.js"></script>
 <script src="js/watermark.js"></script>
 <script src="js/resize.js"></script>
@@ -1514,7 +1379,6 @@
 <script src="js/idphoto.js"></script>
 <script src="js/pdf2img.js"></script>
 <script src="js/ocr.js"></script>
-<script src="js/compare.js"></script>
 <script src="js/password.js"></script>
 <script src="js/imgtool.js"></script>
 <script src="js/unmark.js"></script>

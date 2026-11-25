@@ -37,13 +37,12 @@ function showTab(name) {
    simply re-read when needed again. The editor's files stay warm on the tabs that open the editor. */
 function releaseCaches(active) {
   const docs = [];
-  if (!['edit', 'sign', 'redact'].includes(active)) Object.values(edit.docs).forEach(d => docs.push(d.pj));
+  if (!['edit', 'sign'].includes(active)) Object.values(edit.docs).forEach(d => docs.push(d.pj));
   if (active !== 'split' && split.pj) docs.push(split.pj);
   if (active !== 'pdf2img' && p2i.pj) docs.push(p2i.pj);
   if (active !== 'watermark' && wm.pj) docs.push(wm.pj);
   if (active !== 'form' && ff.pj) docs.push(ff.pj);
   if (active !== 'ocr' && ocrTab.pj) docs.push(ocrTab.pj);
-  if (active !== 'compare') for (const d of [cmp.a, cmp.b]) if (d) docs.push(d.pj);
   for (const d of docs) { try { const r = d.cleanup(); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
 }
 document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {

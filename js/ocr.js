@@ -3,7 +3,7 @@
    Reads the words in scanned pages and photos with Tesseract (繁體中文 + English), entirely in the browser.
    The engine (about 4 MB) and the language data (繁中 1.7 MB, English 3 MB) load the first time OCR is used. The
    engine runs in a background worker that holds well over 100 MB, so it is shut down after a minute without work.
-   Used by the 文字辨識 tab (searchable PDF or text), PDF 轉圖片 → 文字 TXT, 遮蔽個資 → 自動尋找, and 比較.
+   Used by the 文字辨識 tab (searchable PDF or text) and PDF 轉圖片 → 文字 TXT.
    tools/build.py points these paths at jsdelivr in the bundled pages. */
 const OCR_LIB = {
   worker: 'lib/tesseract/worker.min.js',
@@ -69,45 +69,44 @@ function ocrRecognize(image, { langs = OCR_LANGS, pdf = false, onProgress } = {}
 }
 /* The engine holds well over 100 MB. It stays up for a minute after its last page only while the user is still on a
    tool that reads text with it; going anywhere else shuts it down at once (starting it again takes a second or two). */
-const OCR_TABS = ['ocr', 'pdf2img', 'compare', 'edit', 'sign', 'redact'];
+const OCR_TABS = ['ocr', 'pdf2img'];
 function ocrLeave(tab) {
   if (!tab) { const open = document.querySelector('.panel:not([hidden])'); tab = open ? open.id.replace(/^panel-/, '') : ''; }
   // A job still running (a long document between two pages, say) keeps it; the one-minute timer stops it later.
   if (ocrEng.worker && !ocrEng.jobs && !OCR_TABS.includes(tab) && !document.querySelector('.is-running')) ocrStop();
 }
 
-/* Text from Tesseract's blocks, with a box for every character. Tesseract puts a space between every "word", which in
+/* Text from Tesseract's blocks. Tesseract puts a space between every "word", which in
    Chinese is wrong, so words are joined without one when both sides are CJK. */
 const isCjk = ch => /[⺀-鿿豈-﫿　-〿＀-￯]/.test(ch || '');
-function ocrText(blocks, toBox) {
-  let text = ''; const boxes = [];
-  const put = (ch, b) => { text += ch; for (let k = 0; k < ch.length; k++) boxes.push(b); };
+function ocrText(blocks) {
+  let text = '';
+  const put = ch => { text += ch; };
   for (const bl of blocks || []) for (const pa of bl.paragraphs || []) {
-    if (text && !text.endsWith('\n\n')) put('\n', null); // a blank line between paragraphs
+    if (text && !text.endsWith('\n\n')) put('\n'); // a blank line between paragraphs
     for (const ln of pa.lines || []) {
       let prev = '', started = false;
       for (const w of ln.words || []) {
         if (!w.text || !w.text.trim() || w.confidence < 10) continue; // specks on the paper come back as junk "words"
-        const syms = w.symbols && w.symbols.length ? w.symbols : [{ text: w.text, bbox: w.bbox }];
+        const syms = w.symbols && w.symbols.length ? w.symbols : [{ text: w.text }];
         const first = [...(syms[0].text || ' ')][0];
-        if (started && !(isCjk(prev) && isCjk(first))) put(' ', null);
+        if (started && !(isCjk(prev) && isCjk(first))) put(' ');
         for (const sy of syms) {
           const chars = [...(sy.text || '')]; if (!chars.length) continue;
-          const b = sy.bbox, step = (b.x1 - b.x0) / chars.length;
-          chars.forEach((ch, k) => put(fixCjk(ch), toBox(b.x0 + step * k, b.y0, b.x0 + step * (k + 1), b.y1)));
+          put(fixCjk(chars.join('')));
           prev = chars[chars.length - 1];
         }
         started = true;
       }
-      if (started) put('\n', null);
+      if (started) put('\n');
     }
   }
-  while (text.endsWith('\n')) { text = text.slice(0, -1); boxes.pop(); }
-  return { text, boxes: packBoxes(boxes), ocr: true };
+  while (text.endsWith('\n')) text = text.slice(0, -1);
+  return { text, ocr: true };
 }
-/* OCR one pdf.js page, drawn upright as it is shown (rotation R) at about 300 dpi. Boxes are in PDF user space. */
+/* OCR one pdf.js page, drawn upright as it is shown (rotation R) at about 300 dpi. */
 async function ocrPage(pg, R, opts = {}) {
-  const view = pg.view, vp1 = pg.getViewport({ scale: 1, rotation: R });
+  const vp1 = pg.getViewport({ scale: 1, rotation: R });
   let s = 300 / 72; if (vp1.width * vp1.height * s * s > 16e6) s = Math.sqrt(16e6 / (vp1.width * vp1.height));
   const vp = pg.getViewport({ scale: s, rotation: R });
   const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
@@ -116,11 +115,7 @@ async function ocrPage(pg, R, opts = {}) {
   const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
   pg.cleanup(); cv.width = cv.height = 0;
   const data = await ocrRecognize(blob, opts);
-  const toBox = (x0, y0, x1, y1) => {
-    const [ax, ay] = displayToUser(view, R, x0 / s, y0 / s), [bx, by] = displayToUser(view, R, x1 / s, y1 / s);
-    return [Math.min(ax, bx), Math.min(ay, by), Math.max(ax, bx), Math.max(ay, by)];
-  };
-  const out = ocrText(data.blocks, toBox);
+  const out = ocrText(data.blocks);
   out.segs = ocrSegments(data.blocks, s);
   if (opts.pdf && data.pdf) out.pdf = data.pdf instanceof Uint8Array ? data.pdf : new Uint8Array(data.pdf);
   return out;
@@ -172,49 +167,6 @@ function addOcrText(page, view, R, segs, fontRef) {
   }
   ops.push(P.endText(), P.popGraphicsState());
   page.pushOperators(...ops);
-}
-/* Character boxes are kept packed, four numbers per character in one Float32Array (NaN where there is none): 比較 and
-   遮蔽個資 keep them for every page, and a small array per character costs about 60 bytes against 16 here. */
-function packBoxes(list) {
-  const a = new Float32Array(list.length * 4).fill(NaN);
-  list.forEach((b, i) => { if (b) a.set(b, i * 4); });
-  return a;
-}
-const boxAt = (B, i) => { const k = i * 4; return Number.isNaN(B[k]) ? null : [B[k], B[k + 1], B[k + 2], B[k + 3]]; };
-/* Text of one page with the box (PDF user space) of every character: { text, boxes, ocr }, boxes packed as above;
-   boxAt(boxes, i) is null for the spaces and line breaks put between runs. Pages without a text layer are read with
-   OCR when opts.ocr is set. */
-async function pageChars(pg, opts = {}) {
-  const { text, map, items } = await pageTextMap(pg, opts.text); // opts.text: its text content, read ahead
-  if (text.trim() || !opts.ocr) {
-    const boxes = new Float32Array(map.length * 4).fill(NaN);
-    let item = -1, cur = null; // map runs through one item at a time, so only that item's boxes are needed
-    map.forEach((at, i) => {
-      if (!at) return;
-      if (at[0] !== item) { item = at[0]; cur = itemCharBoxes(items[item]); }
-      boxes.set(cur.subarray(at[1] * 4, at[1] * 4 + 4), i * 4);
-    });
-    return { text, boxes, ocr: false };
-  }
-  return ocrPage(pg, opts.rotation == null ? normRot(pg.rotate) : opts.rotation, opts);
-}
-/* Boxes covering characters i0..i1-1, one per line: a run of boxes breaks at a line break, or where the next
-   character is not on the same line as the run (text items can jump around the page). */
-function spanBoxes(text, boxes, i0, i1, pad = 0) {
-  const ov = (a0, a1, b0, b1) => Math.min(a1, b1) - Math.max(a0, b0);
-  const sameRow = (p, q) => {
-    const h = Math.min(p[3] - p[1], q[3] - q[1]), w = Math.min(p[2] - p[0], q[2] - q[0]);
-    return (ov(p[1], p[3], q[1], q[3]) > h * .5 && ov(p[0], p[2], q[0], q[2]) > -h * 3)
-      || (ov(p[0], p[2], q[0], q[2]) > w * .5 && ov(p[1], p[3], q[1], q[3]) > -w * 3); // text running up or down the page
-  };
-  const out = []; let cur = null;
-  for (let i = i0; i < i1; i++) {
-    const b = boxAt(boxes, i);
-    if (!b) { if (text[i] === '\n') cur = null; continue; }
-    if (cur && sameRow(cur, b)) { cur[0] = Math.min(cur[0], b[0]); cur[1] = Math.min(cur[1], b[1]); cur[2] = Math.max(cur[2], b[2]); cur[3] = Math.max(cur[3], b[3]); }
-    else { cur = b.slice(); out.push(cur); }
-  }
-  return pad ? out.map(b => [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad]) : out;
 }
 /* Make OCR text read like the page: no spaces between Chinese characters, none before Chinese punctuation. */
 const tidyOcr = s => s.replace(/([⺀-鿿　-〿＀-￯]) +(?=[⺀-鿿　-〿＀-￯])/g, '$1');
