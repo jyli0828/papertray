@@ -61,7 +61,7 @@ async function loadPw(files) {
 }
 function pwError(msg) { const el = $('#pw-err'); el.textContent = msg; el.hidden = !msg; }
 $('#pw-unlock-go').addEventListener('click', e => {
-  const pass = $('#pw-old').value;
+  const pass = $('#pw-old').value, name = $('#pw-name').value;
   if (pw.state === 'locked' && !pass) { pwError('請輸入密碼'); $('#pw-old').focus(); return; }
   runJob(e.currentTarget, '解除中…', async () => {
     pwError('');
@@ -77,7 +77,7 @@ $('#pw-unlock-go').addEventListener('click', e => {
     const args = pw.state === 'locked' ? [`--password=${pass}`, '--decrypt', '/in.pdf', '/out.pdf'] : ['--decrypt', '/in.pdf', '/out.pdf'];
     const { out } = await runQpdf(args, bytes);
     if (!out || !(await pdfjsTry(out)).ok) { pwError('解除失敗：這份檔案的加密方式無法處理。'); return; }
-    await deliver(pdfFile(out, $('#pw-name').value), 'pdf', 'password');
+    await deliver(pdfFile(out, name), 'pdf', 'password');
     toast(pw.state === 'locked' ? '已解除密碼' : '已解除限制');
   }).catch(err => pwError('解除失敗：' + err.message));
 });
@@ -99,7 +99,7 @@ function updatePwLock() {
 ['#pw-new', '#pw-new2', '#pw-owner'].forEach(s => $(s).addEventListener('input', updatePwLock));
 document.querySelectorAll('[data-pw-deny]').forEach(c => c.addEventListener('change', updatePwLock));
 $('#pw-lock-go').addEventListener('click', e => {
-  const user = $('#pw-new').value, deny = [...document.querySelectorAll('[data-pw-deny]:checked')].map(c => c.dataset.pwDeny);
+  const user = $('#pw-new').value, name = $('#pw-lname').value, deny = [...document.querySelectorAll('[data-pw-deny]:checked')].map(c => c.dataset.pwDeny);
   // The owner password lifts the restrictions. Without one given, restrictions get a random one nobody knows
   // (they then stay); with no restrictions it is simply the same as the opening password.
   let owner = $('#pw-owner').value;
@@ -113,7 +113,7 @@ $('#pw-lock-go').addEventListener('click', e => {
     const { out } = await runQpdf(args, await pwBytes());
     // Check the result before handing it over: it must open with the password, and only with it.
     if (!out || !(await pdfjsTry(out, user)).ok || (user && (await pdfjsTry(out)).ok)) throw new Error('產生的檔案驗證不通過');
-    await deliver(pdfFile(out, $('#pw-lname').value), 'locked', 'password');
+    await deliver(pdfFile(out, name), 'locked', 'password');
     toast(user ? '已加上密碼。請記好密碼，忘記了就打不開。' : '已加上限制');
   }).catch(err => toast('加密失敗：' + err.message, 'err'));
 });

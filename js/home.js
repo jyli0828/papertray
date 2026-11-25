@@ -59,11 +59,12 @@ async function pdfFacts(f) {
   } catch (e) { out.broken = true; }
   return out;
 }
-async function suggestTools(files) {
+/* factsOf: pdfFacts() of the first PDFs, by file (see homeTakeFiles()). */
+async function suggestTools(files, factsOf) {
   const pdfs = files.filter(isPdf), imgs = files.filter(f => !isPdf(f) && isImage(f)), picks = [];
   const add = (tab, why) => { if (!picks.some(p => p.tab === tab)) picks.push({ tab, why }); };
   if (pdfs.length) {
-    const facts = await Promise.all(pdfs.slice(0, 6).map(pdfFacts));
+    const facts = pdfs.map(f => factsOf.get(f)).filter(Boolean);
     if (facts.some(f => f.locked)) add('password', '有密碼保護：先解除密碼，才能做其他處理');
     if (pdfs.length === 2) add('merge', '接成一份；正面、反面分開掃描的可以交錯合併');
     else if (pdfs.length > 2) add('merge', `${pdfs.length} 份接成一份`);
@@ -89,11 +90,22 @@ async function suggestTools(files) {
 async function homeTakeFiles(files) {
   files = await prepImages(files.filter(f => isPdf(f) || isImage(f)));
   if (!files.length) { toast('請放入 PDF 或圖片', 'err'); return; }
-  homeFiles = files;
-  $('#home-files').textContent = files.length === 1 ? `「${files[0].name}」可以：` : `${files.length} 個檔案可以：`;
+  const head = () => { $('#home-files').textContent = homeFiles.length === 1 ? `「${homeFiles[0].name}」可以：` : `${homeFiles.length} 個檔案可以：`; };
+  homeFiles = files; head();
   $('#home-picks').innerHTML = '<p class="hint">看看是什麼檔案…</p>';
   $('#home-suggest').hidden = false; $('#home-drop').hidden = true;
-  const list = toolList(), picks = await suggestTools(files);
+  const pdfs = files.filter(isPdf).slice(0, 6), facts = new Map((await Promise.all(pdfs.map(pdfFacts))).map((x, i) => [pdfs[i], x]));
+  const pics = files.filter(f => !isPdf(f)).slice(0, 20), picOk = await Promise.all(pics.map(f => imageSize(f).then(() => true, () => false)));
+  // A file that does not open goes no further: every tool would refuse it.
+  const broken = [...pdfs.filter(f => facts.get(f).broken), ...pics.filter((f, i) => !picOk[i])];
+  if (broken.length) {
+    toast(broken.length === 1 ? (isPdf(broken[0]) ? loadErr(broken[0].name) : `「${broken[0].name}」無法讀取，圖片可能已損壞。`)
+      : `有 ${broken.length} 個檔案無法讀取（${broken.map(f => `「${f.name}」`).join('')}），可能已損壞。`, 'err');
+    homeFiles = homeFiles.filter(f => !broken.includes(f));
+    if (!homeFiles.length) { clearHomeFiles(); return; }
+    head();
+  }
+  const list = toolList(), picks = await suggestTools(homeFiles, facts);
   $('#home-picks').innerHTML = picks.map(p => toolButton(list.find(t => t.tab === p.tab), 'home-pick', p.why)).join('')
     + '<p class="hint">或在下方選其他工具，檔案會一起帶過去。</p>';
 }

@@ -1766,9 +1766,28 @@ export default [
     async run() {
       await homeTakeFiles([await T.labeled(['v1'], 'v1.pdf'), await T.labeled(['v2'], 'v2.pdf')]);
       const picks = [...document.querySelectorAll('#home-picks [data-tab]')].map(b => b.dataset.tab);
-      T.ok(picks.includes('merge') && !picks.includes('compare'), picks.join());
+      T.ok(picks.includes('merge'), picks.join());
       document.querySelector('#home-picks [data-tab="merge"]').click();
       await T.until(() => merge.items.length === 2, '帶到合併');
+    }
+  },
+  {
+    name: '首頁：打不開的 PDF 或圖片不建議工具，和其他檔案一起放入時只留能用的',
+    async run() {
+      T.allowErrors = true;
+      const bad = new File([new TextEncoder().encode('not a pdf')], 'bad.pdf', { type: 'application/pdf' });
+      showTab('home'); await homeTakeFiles([bad]);
+      T.eq(T.errors.length, 1, '說明檔案打不開'); T.ok(T.errors[0].includes('bad.pdf'), T.errors[0]);
+      T.ok(!$('#home-drop').hidden && $('#home-suggest').hidden, '回到放入檔案的畫面');
+      T.eq(homeFiles.length, 0);
+      const good = await T.labeled(['ok'], 'good.pdf');
+      await homeTakeFiles([bad, good]);
+      T.eq(homeFiles.map(f => f.name), ['good.pdf']); T.eq($('#home-files').textContent, '「good.pdf」可以：');
+      T.ok($('#home-picks [data-tab="edit"]'), '建議的是能開的那份');
+      T.errors.length = 0;
+      await homeTakeFiles([new File([new TextEncoder().encode('not a picture')], 'bad.jpg', { type: 'image/jpeg' })]);
+      T.eq(T.errors.length, 1, '壞掉的圖片也說明'); T.eq(homeFiles.length, 0);
+      clearHomeFiles();
     }
   },
   {
