@@ -75,7 +75,10 @@ showTab(location.hash.slice(1));
    this off in the single-file bundles, which have no sw.js next to them. */
 const PWA = true;
 if (PWA && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Not on the load event: that waits for Google Fonts, which may never answer. This script runs last, once the
+  // page's own scripts and styles are in. Once the worker is in charge it keeps the libraries too (sw.js, cacheLibs()).
+  navigator.serviceWorker.register('sw.js')
+    .then(() => navigator.serviceWorker.ready).then(reg => { if (reg.active) reg.active.postMessage('cache-libs'); }).catch(() => {});
 }
 let installPrompt = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; $('#install-app').hidden = false; });

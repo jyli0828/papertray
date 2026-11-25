@@ -156,7 +156,8 @@ papertray/
 - `manifest.webmanifest` 是 App 的名稱、圖示和顏色；`icons/` 裡的 PNG 由 `python tools/make_icons.py` 從 `icons/icon.svg` 的圖形畫出來，改了圖示要重新產生。
 - `sw.js` 是 service worker：
   - 紙匣自己的檔案「先問網路」，所以改版後下次開啟就是新版，沒網路時用快取；第一次造訪時就把 `index.html` 連到的檔案（`js/`、`css/`、圖示）全部存好，新增的 JS 檔不用另外登記；
-  - `lib/` 的函式庫「先用快取」，第一次造訪就先存好 pdf-lib、PDF.js，其他（文字辨識、qpdf、HEIC、字元對應表）第一次用到時才存。
+  - 第一次造訪存自己的檔案時用 `no-cache`：剛載入過的檔案只向伺服器確認沒變（304），不重新下載；
+  - `lib/` 的函式庫「先用快取」。pdf-lib、PDF.js 在 service worker 接手後才存（頁面送 `cache-libs` 訊息，`cacheLibs()` 一次一個，PDF.js 先），頁面同時要同一個檔案時共用同一次下載（`libFile()`）。原本安裝時就一起抓，和使用者第一次開 PDF 搶頻寬、還會重複下載：慢速 4G（1.6 Mbps、延遲 150 ms）下第一次開 PDF 要 5 秒，現在約 2.9 秒。其他（文字辨識、qpdf、HEIC、字元對應表）第一次用到時才存。
 - 只在 http(s) 網址註冊，直接雙擊開啟時不會啟用。
 - 快取的格式改變時，把 `sw.js` 的 `CACHE` 改名，舊快取會在新版啟用時刪掉。
 
