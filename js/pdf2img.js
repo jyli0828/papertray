@@ -222,8 +222,8 @@ bindInput($('#p2i-input'), loadP2i);
 registerTarget('pdf', 'pdf2img', '轉成圖片／文字', loadP2i);
 acceptFiles($('#panel-pdf2img'), $('#p2i-drop'), loadP2i);
 $('#p2i-change').addEventListener('click', () => $('#p2i-input').click());
-$('#p2i-sample').addEventListener('click', async () => {
-  loadP2i([asFile(await makeSample('Quarterly Report', 3, [.04, .48, .42]), 'quarterly-report.pdf')]);
+onSample($('#p2i-sample'), async () => {
+  await loadP2i([asFile(await makeSample('Quarterly Report', 3, [.04, .48, .42]), 'quarterly-report.pdf')]);
 });
 registerHolder('pdf2img', () => p2i.pj ? p2i.size : 0, () => {
   p2i.pj.destroy(); releaseThumbs(p2i.pages);

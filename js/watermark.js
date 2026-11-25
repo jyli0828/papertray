@@ -192,7 +192,7 @@ bindInput($('#wm-input'), loadWm);
 registerTarget('pdf', 'watermark', '加浮水印', loadWm);
 acceptFiles($('#panel-watermark'), $('#wm-drop'), loadWm);
 $('#wm-change').addEventListener('click', () => $('#wm-input').click());
-$('#wm-sample').addEventListener('click', async () => loadWm([asFile(await makeSample('Quarterly Report', 3, [.04, .48, .42]), 'quarterly-report.pdf')]));
+onSample($('#wm-sample'), async () => loadWm([asFile(await makeSample('Quarterly Report', 3, [.04, .48, .42]), 'quarterly-report.pdf')]));
 let wmResizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(wmResizeTimer);

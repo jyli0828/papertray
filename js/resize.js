@@ -187,7 +187,7 @@ bindInput($('#rs-input'), loadResize);
 acceptFiles($('#panel-resize'), $('#rs-drop'), loadResize);
 registerTarget('pdf', 'resize', '調整尺寸', loadResize);
 $('#rs-change').addEventListener('click', () => $('#rs-input').click());
-$('#rs-sample').addEventListener('click', async () => {
+onSample($('#rs-sample'), async () => {
   // Three pages of different sizes with generous margins, so both modes have something to do.
   const doc = await PDFDocument.create(), bold = await doc.embedFont(StandardFonts.HelveticaBold), font = await doc.embedFont(StandardFonts.Helvetica);
   const specs = [['A4 portrait', 595.28, 841.89], ['US Letter', 612, 792], ['A5 landscape', 595.28, 419.53]];
@@ -199,7 +199,7 @@ $('#rs-sample').addEventListener('click', async () => {
     p.drawText(`${Math.round(w * 25.4 / 72)} x ${Math.round(h * 25.4 / 72)} mm`, { x: bx + 16, y: by + bh - 58, size: 11, font, color: rgb(.4, .45, .5) });
     for (let k = 0; k < 5; k++) p.drawRectangle({ x: bx + 16, y: by + bh - 90 - k * 16, width: bw - 32 - (k % 2) * 40, height: 6, color: rgb(.8, .84, .87) });
   }
-  loadResize([pdfFile(await doc.save(), 'mixed-sizes.pdf')]);
+  await loadResize([pdfFile(await doc.save(), 'mixed-sizes.pdf')]);
 });
 registerHolder('resize', () => heldBytes(rs.src), () => {
   Object.assign(rs, { name: '', src: null, size: 0, n: 0 });

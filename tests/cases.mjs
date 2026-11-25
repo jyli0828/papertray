@@ -1772,6 +1772,20 @@ export default [
     }
   },
   {
+    name: '雙擊「用範例試試」只放入一次範例',
+    async run() {
+      const twice = async (tab, sel, count, want) => {
+        showTab(tab); $(sel).click(); $(sel).click();
+        await T.until(() => !$(sel).disabled && count() > 0, tab + ' 範例');
+        T.eq(count(), want, tab);
+      };
+      clearEdit(); await twice('edit', '#edit-sample', () => edit.pages.length, 4);
+      imgs.items = []; await twice('img2pdf', '#img-sample', () => imgs.items.length, 3);
+      itool.items = []; await twice('imgtool', '#it-sample', () => itool.items.length, 2);
+      clearEdit(); imgs.items = []; renderImgs(); itool.items = []; renderImgTool();
+    }
+  },
+  {
     name: '首頁：打不開的 PDF 或圖片不建議工具，和其他檔案一起放入時只留能用的',
     async run() {
       T.allowErrors = true;

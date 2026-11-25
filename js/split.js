@@ -107,7 +107,7 @@ bindInput($('#split-input'), loadSplit);
 acceptFiles($('#panel-split'), $('#split-drop'), loadSplit);
 $('#split-change').addEventListener('click', () => $('#split-input').click());
 registerTarget('pdf', 'split', '拆分', loadSplit);
-$('#split-sample').addEventListener('click', async () => loadSplit([asFile(await makeSample('Quarterly Report', 6, [.04, .48, .42]), 'quarterly-report.pdf')]));
+onSample($('#split-sample'), async () => loadSplit([asFile(await makeSample('Quarterly Report', 6, [.04, .48, .42]), 'quarterly-report.pdf')]));
 registerHolder('split', () => split.pj ? split.size : 0, () => {
   split.pj.destroy(); releaseThumbs(split.pages);
   forgetCards($('#split-grid')); $('#split-grid').innerHTML = '';

@@ -97,7 +97,7 @@ $('#it-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
 bindInput($('#it-input'), addImgTool);
 acceptFiles($('#panel-imgtool'), $('#it-drop'), addImgTool);
 registerTarget('image', 'imgtool', '圖片工具', addImgTool);
-$('#it-sample').addEventListener('click', async () => {
+onSample($('#it-sample'), async () => {
   const files = [];
   for (let i = 0; i < 2; i++) {
     const w = i ? 3000 : 4000, h = i ? 4000 : 3000, cv = document.createElement('canvas'); cv.width = w; cv.height = h;
@@ -110,7 +110,7 @@ $('#it-sample').addEventListener('click', async () => {
     const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .95));
     files.push(new File([blob], `IMG_00${i + 1}.jpg`, { type: 'image/jpeg' }));
   }
-  addImgTool(files);
+  await addImgTool(files);
 });
 registerHolder('imgtool', () => itool.items.reduce((n, it) => n + it.size + (it.out ? it.out.size : 0), 0), () => {
   itool.items.forEach(it => URL.revokeObjectURL(it.url)); itool.items = []; renderImgTool();

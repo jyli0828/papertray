@@ -111,7 +111,7 @@ makeSortable($('#img-list'), '.file-row', () => imgs.items, renderImgs, false);
 bindInput($('#img-input'), addImages);
 registerTarget('image', 'img2pdf', '圖片轉 PDF', addImages);
 acceptFiles($('#panel-img2pdf'), $('#img-drop'), addImages);
-$('#img-sample').addEventListener('click', async () => {
+onSample($('#img-sample'), async () => {
   const files = [];
   const specs = [['#0b7a6b', '#ffd84d', 1600, 1200], ['#1d4fb8', '#f2a65a', 1200, 1600], ['#7a2e4a', '#9fd8cb', 1600, 1000]];
   for (let i = 0; i < specs.length; i++) {
@@ -124,7 +124,7 @@ $('#img-sample').addEventListener('click', async () => {
     const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9));
     files.push(new File([blob], `photo-${i + 1}.jpg`, { type: 'image/jpeg' }));
   }
-  addImages(files);
+  await addImages(files);
 });
 async function imageBytesFor(it) {
   if (it.kind === 'jpg' || it.kind === 'png') return { kind: it.kind, bytes: new Uint8Array(await it.file.arrayBuffer()) };

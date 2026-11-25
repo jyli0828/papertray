@@ -293,7 +293,7 @@ $('#ff-to-edit').addEventListener('click', async () => {
   showTab('edit'); try { history.replaceState(null, '', '#edit'); } catch (e) {}
   loadEditFiles([pdfFile(bytes, ff.name)]);
 });
-$('#ff-sample').addEventListener('click', async () => {
+onSample($('#ff-sample'), async () => {
   // A made-up application form with every kind of field.
   const doc = await PDFDocument.create();
   const bold = await doc.embedFont(StandardFonts.HelveticaBold), font = await doc.embedFont(StandardFonts.Helvetica);
@@ -322,7 +322,7 @@ $('#ff-sample').addEventListener('click', async () => {
   row('Notes', 340);
   const notes = form.createTextField('notes'); notes.enableMultiline(); notes.addToPage(p, { x: 170, y: 290, width: 370, height: 74, ...box }); notes.setFontSize(11);
   p.drawText('Signature: ______________________     Date: ____________', { x: 50, y: 200, size: 12, font, color: soft });
-  loadForm([pdfFile(await doc.save(), 'membership-form.pdf')]);
+  await loadForm([pdfFile(await doc.save(), 'membership-form.pdf')]);
 });
 registerHolder('form', () => ff.pj ? ff.size : 0, () => {
   ff.token++; ff.pj.destroy(); releaseFormPages();

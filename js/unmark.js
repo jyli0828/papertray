@@ -218,7 +218,7 @@ bindInput($('#um-input'), loadUm);
 registerTarget('image', 'unmark', '去浮水印', loadUm);
 acceptFiles($('#panel-unmark'), $('#um-drop'), loadUm);
 $('#um-change').addEventListener('click', () => $('#um-input').click());
-$('#um-sample').addEventListener('click', async () => {
+onSample($('#um-sample'), async () => {
   const W = 1600, H = 1067, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const c = cv.getContext('2d');
   const sky = c.createLinearGradient(0, 0, 0, H * .62); sky.addColorStop(0, '#7fb2d9'); sky.addColorStop(1, '#f1d3a6');
@@ -234,7 +234,7 @@ $('#um-sample').addEventListener('click', async () => {
   c.restore();
   c.font = '600 44px monospace'; c.fillStyle = '#ff8a1e'; c.fillText('2026 11 19', W - 330, H - 50);
   const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .92));
-  loadUm([new File([blob], 'landscape.jpg', { type: 'image/jpeg' })]);
+  await loadUm([new File([blob], 'landscape.jpg', { type: 'image/jpeg' })]);
 });
 registerHolder('unmark', () => um.w ? um.w * um.h * 4 + umMask.width * umMask.height * 4 + umOrig.width * umOrig.height * 4
   + um.history.reduce((n, h) => n + h.data.data.length, 0) : 0, () => {

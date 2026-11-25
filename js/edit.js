@@ -251,8 +251,8 @@ $('#edit-blank').addEventListener('click', async () => {
   await loadEditFiles([pdfFile(await doc.save(), '空白頁.pdf')], null, pos, false, true);
   toast('已插入空白頁');
 });
-$('#edit-sample').addEventListener('click', async () => {
-  loadEditFiles([asFile(await makeSample('Quarterly Report', 4, [.04, .48, .42]), 'quarterly-report.pdf')]);
+onSample($('#edit-sample'), async () => {
+  await loadEditFiles([asFile(await makeSample('Quarterly Report', 4, [.04, .48, .42]), 'quarterly-report.pdf')]);
 });
 $('#edit-selall').addEventListener('click', () => {
   const all = selCount() === edit.pages.length; edit.pages.forEach(p => { p.selected = !all; }); renderEdit();

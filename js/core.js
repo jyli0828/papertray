@@ -805,6 +805,14 @@ function makeSortable(container, sel, getArr, onChange, horizontal, beforeChange
 }
 
 /* ---------- sample documents ---------- */
+/* 「用範例試試」: the button spins and takes no second click until the sample is in the tool. A double click added
+   the sample twice to the tools that collect files (編輯 had 8 pages instead of 4). load() resolves once it is in. */
+function onSample(btn, load) {
+  btn.addEventListener('click', () => {
+    if (btn.disabled) return;
+    busy(btn, btn.textContent.trim(), load).catch(err => toast('範例載入失敗：' + err.message, 'err'));
+  });
+}
 async function makeSample(title, pages, color) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);

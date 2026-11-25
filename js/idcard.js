@@ -252,7 +252,7 @@ registerTarget('image', 'idcard', '證件影印', addIdFiles);
 window.addEventListener('resize', () => { if (!$('#panel-idcard').hidden) drawIdPreview(); });
 
 /* sample: two phone-style photos of a made-up card lying slightly askew on a dark desk */
-$('#id-sample').addEventListener('click', async () => {
+onSample($('#id-sample'), async () => {
   const files = [];
   for (let s = 0; s < 2; s++) {
     const cv = document.createElement('canvas'); cv.width = 1600; cv.height = 1200;

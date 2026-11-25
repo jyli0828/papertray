@@ -250,7 +250,7 @@ registerHolder('idphoto', () => ph.bmp ? ph.bmp.width * ph.bmp.height * 4 + ph.f
   drawPhAll();
 });
 /* sample: a drawn portrait on a pale background, framed a little loosely so there is something to adjust */
-$('#ph-sample').addEventListener('click', async () => {
+onSample($('#ph-sample'), async () => {
   const W = 1200, H = 1600, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
   const bg = ctx.createLinearGradient(0, 0, 0, H); bg.addColorStop(0, '#f1f4f6'); bg.addColorStop(1, '#dfe5ea');
