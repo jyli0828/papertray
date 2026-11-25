@@ -18,8 +18,12 @@ function showTab(name) {
   // The home page lists every tool itself, as a drawer of folders; the tool tabs would only repeat it.
   document.body.classList.toggle('at-home', name === 'home');
   // On a phone the tab bar is one row that scrolls sideways: bring the open tool into view.
+  // Measured on the next frame: measuring now makes the browser lay out the page on the spot, and at start-up that
+  // is a whole extra layout (about 35 ms) before the page is complete.
   const nav = $('.tabs'), tb = $('#tab-' + name);
-  if (nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: Math.max(0, tb.offsetLeft - (nav.clientWidth - tb.offsetWidth) / 2), behavior: 'smooth' });
+  requestAnimationFrame(() => {
+    if (nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: Math.max(0, tb.offsetLeft - (nav.clientWidth - tb.offsetWidth) / 2), behavior: 'smooth' });
+  });
   if (name === 'home') renderHomeGroups();
   releaseCaches(name);
   ocrLeave(name);

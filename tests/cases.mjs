@@ -1947,6 +1947,41 @@ export default [
     }
   },
   {
+    name: '逐頁處理：畫下一頁和處理這一頁重疊，順序不變，取消或失敗時畫好的頁面都會釋放',
+    async run() {
+      const log = [], dropped = [], wait = ms => new Promise(r => setTimeout(r, ms));
+      const make = async i => { log.push('make' + i); await wait(i % 2 ? 1 : 8); return { i, px: i === 3 ? PIPE_PX + 1 : 1 }; };
+      await pagePipeline(5, make, async (r, i) => { T.eq(r.i, i, '依序處理'); log.push('use' + i); await wait(5); }, r => dropped.push(r.i));
+      T.eq(dropped, [0, 1, 2, 3, 4], '每頁都釋放');
+      T.ok(log.indexOf('make1') < log.indexOf('use0'), '處理第 1 頁前已經開始畫第 2 頁');
+      T.ok(log.indexOf('make4') > log.indexOf('use3'), '很大的頁面處理完才畫下一頁');
+      // cancelled while the next page is being drawn: that page is freed too
+      const d2 = []; let n = 0;
+      const err = await pagePipeline(4, make, async () => {}, r => d2.push(r.i), () => { if (n++ === 2) throw new Cancelled(); }).catch(e => e);
+      T.ok(err && err.cancelled, '取消');
+      await wait(30);
+      T.eq(d2.sort(), [0, 1, 2], '取消時，已經畫好、還沒處理的頁面也釋放');
+      const d3 = [];
+      const e3 = await pagePipeline(3, async i => { if (i === 1) throw new Error('壞頁'); return { i }; }, async () => {}, r => d3.push(r.i)).catch(e => e);
+      T.eq(e3.message, '壞頁'); T.eq(d3, [0]);
+    }
+  },
+  {
+    name: '轉灰階：用瀏覽器的濾鏡，顏色變成同亮度的灰',
+    async run() {
+      const cv = document.createElement('canvas'); cv.width = 40; cv.height = 20;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.fillStyle = '#ff0000'; ctx.fillRect(0, 0, 20, 20); ctx.fillStyle = '#ffffff'; ctx.fillRect(20, 0, 20, 20);
+      ctx.translate(5, 5); ctx.scale(2, 2); // a transform in place must not move the picture
+      toGray(ctx, 40, 20);
+      const px = (x, y) => [...ctx.getImageData(x, y, 1, 1).data];
+      const [r, g, b] = px(10, 10);
+      T.ok(r === g && g === b && r > 40 && r < 110, `紅色變成灰（${r},${g},${b}）`);
+      T.eq(px(30, 10).slice(0, 3), [255, 255, 255], '白色還是白色');
+      T.eq(px(0, 0).slice(0, 3), [r, g, b], '畫面沒有移動');
+    }
+  },
+  {
     name: 'ZIP：檢查碼正確、中文檔名、重名加編號、空檔案',
     async run() {
       T.eq(crc32(new TextEncoder().encode('123456789')), 0xCBF43926, 'CRC-32 標準檢查值');

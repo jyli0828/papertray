@@ -154,7 +154,7 @@ function drawIdNote(ctx, W, H, text) {
 async function idCardCanvas(c, pxPerMm, o, preview) {
   const W = Math.max(8, Math.round(c.w * pxPerMm)), H = Math.max(8, Math.round(c.h * pxPerMm)), r = c.r * pxPerMm;
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const ctx = cv.getContext('2d', { willReadFrequently: o.gray });
+  const ctx = cv.getContext('2d');
   ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); // the corners outside the rounded card stay white (JPEG has no transparency)
   ctx.save(); roundRect(ctx, 0, 0, W, H, r); ctx.clip();
   const bmp = await idBitmap(c.it, W, H, preview);
@@ -173,6 +173,10 @@ async function idCardCanvas(c, pxPerMm, o, preview) {
 
 /* ---------- live preview of the A4 page ---------- */
 async function drawIdPreview() {
+  // Hidden, it would only measure an empty panel, and measuring forces the browser to lay out the page: at start-up,
+  // before the rest of the page is even there, that alone took longer than running all of 紙匣's other code.
+  // showTab() draws it when the tab opens.
+  if ($('#panel-idcard').hidden) return;
   const token = ++idc.token, o = idOpts(), { cards, sideFallback, shrunk } = idLayout(o);
   const cv = $('#id-canvas'), dpr = Math.min(window.devicePixelRatio || 1, 2);
   const cssW = Math.min(340, Math.max(200, $('#panel-idcard .wm-preview').clientWidth - 28)), k = cssW / A4_MM[0] * dpr;

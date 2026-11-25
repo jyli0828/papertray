@@ -123,7 +123,16 @@ function progress(i, n, unit = '頁') {
   $('#comp-bar').style.width = ((f.i + (n ? Math.min(i, n) / n : 1)) / Math.max(1, f.n) * 100) + '%';
   $('#comp-plabel').textContent = pre + (i < n ? `處理第 ${i + 1} / ${n} ${unit}` : (n ? `完成 ${n} ${unit}` : '完成'));
 }
+/* The canvas drawn over itself through a grayscale filter: the browser does it where the picture lives (often the
+   graphics card), where reading the pixels out to turn them one by one took a copy of the whole picture and a loop. */
 function toGray(ctx, w, h) {
+  if (typeof ctx.filter === 'string') {
+    ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'copy'; ctx.filter = 'grayscale(1)';
+    ctx.drawImage(ctx.canvas, 0, 0, w, h, 0, 0, w, h);
+    ctx.restore();
+    return;
+  }
   const img = ctx.getImageData(0, 0, w, h), d = img.data;
   for (let k = 0; k < d.length; k += 4) { const y = d[k] * .299 + d[k + 1] * .587 + d[k + 2] * .114; d[k] = d[k + 1] = d[k + 2] = y; }
   ctx.putImageData(img, 0, 0);
@@ -132,28 +141,33 @@ async function compressRaster(bytes, lv, gray, check) {
   const pj = await openPdfjs(bytes);
   const out = await PDFDocument.create();
   try {
-    for (let i = 0; i < pj.numPages; i++) {
-      check();
-      progress(i, pj.numPages);
+    // Page i + 1 is drawn while page i is encoded (see pagePipeline() in core.js).
+    await pagePipeline(pj.numPages, async i => {
       const pg = await pj.getPage(i + 1);
       const vp1 = pg.getViewport({ scale: 1 });
       let scale = lv.dpi / 72;
       const maxPx = 16e6; if (vp1.width * vp1.height * scale * scale > maxPx) scale = Math.sqrt(maxPx / (vp1.width * vp1.height));
       const vp = pg.getViewport({ scale });
       const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-      const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-      await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-      if (gray) toGray(ctx, cv.width, cv.height);
+      const r = { pg, cv, vp1, px: cv.width * cv.height };
+      try {
+        const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+        if (gray) toGray(ctx, cv.width, cv.height);
+      } catch (e) { dropRaster(r); throw e; }
+      return r;
+    }, async ({ cv, vp1 }, i) => {
+      progress(i, pj.numPages);
       const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', lv.q));
       const jpg = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
       const page = out.addPage([vp1.width, vp1.height]);
       page.drawImage(jpg, { x: 0, y: 0, width: vp1.width, height: vp1.height });
-      pg.cleanup(); cv.width = cv.height = 0;
-    }
+    }, dropRaster, check);
     progress(pj.numPages, pj.numPages);
   } finally { pj.destroy(); }
   return { bytes: await out.save({ useObjectStreams: true }) };
 }
+function dropRaster(r) { r.pg.cleanup(); r.cv.width = r.cv.height = 0; }
 
 /* ---------- black and white: one bit per dot, Flate-compressed ----------
    The threshold is chosen per page (Otsu's method) so light scans and dark scans both come out clean. */
@@ -177,9 +191,9 @@ async function compressBW(bytes, dpi, check) {
   const pj = await openPdfjs(bytes);
   const out = await PDFDocument.create();
   try {
-    for (let i = 0; i < pj.numPages; i++) {
-      check();
-      progress(i, pj.numPages);
+    // Page i + 1 is drawn while page i is turned into black and white (see pagePipeline() in core.js); only the
+    // pixels are kept from the drawing.
+    await pagePipeline(pj.numPages, async i => {
       const pg = await pj.getPage(i + 1);
       const vp1 = pg.getViewport({ scale: 1 });
       let scale = dpi / 72;
@@ -187,10 +201,13 @@ async function compressBW(bytes, dpi, check) {
       const vp = pg.getViewport({ scale });
       const W = Math.ceil(vp.width), H = Math.ceil(vp.height);
       const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-      const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
-      await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-      const d = ctx.getImageData(0, 0, W, H).data;
-      pg.cleanup(); cv.width = cv.height = 0;
+      try {
+        const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
+        await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+        return { d: ctx.getImageData(0, 0, W, H).data, W, H, vp1, px: W * H };
+      } finally { pg.cleanup(); cv.width = cv.height = 0; }
+    }, async ({ d, W, H, vp1 }, i) => {
+      progress(i, pj.numPages);
       const lum = new Uint8Array(W * H), hist = new Uint32Array(256);
       for (let k = 0, j = 0; k < lum.length; k++, j += 4) { const y = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8; lum[k] = y; hist[y]++; }
       const t = Math.min(200, Math.max(60, otsu(hist, lum.length)));
@@ -202,7 +219,7 @@ async function compressBW(bytes, dpi, check) {
       const page = out.addPage([vp1.width, vp1.height]);
       const name = page.node.newXObject('Im', img);
       page.pushOperators(PDFLib.pushGraphicsState(), PDFLib.concatTransformationMatrix(vp1.width, 0, 0, vp1.height, 0, 0), PDFLib.drawObject(name), PDFLib.popGraphicsState());
-    }
+    }, () => {}, check);
     progress(pj.numPages, pj.numPages);
   } finally { pj.destroy(); }
   return { bytes: await out.save({ useObjectStreams: true }) };

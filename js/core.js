@@ -283,7 +283,21 @@ function pdfjsOpts(data) {
 /* pdf-lib's copyPages() brings form fields along with the pages (their widgets and field dictionaries) but not the
    document's list of fields, the AcroForm. Without it the copy still looks like a form, but no viewer, and not
    填表單, can fill it in. Call this on a document made by copying pages: it lists the copied fields again, drops the
-   parts of a field that sat on pages not copied, and takes the default font settings (DA, DR) from the sources. */
+   parts of a field that sat on pages not copied, and takes the default font settings (DA, DR) from the sources.
+   sources: the source documents, or what formDefaults() took from each (so a source need not stay open till the end). */
+/* A source's default form settings (DA, DR, Q), copied into out: only from a source whose copied pages (PDFPages of
+   out) carry form fields, since what is copied is written into out whether used or not. null when there is nothing. */
+function formDefaults(out, src, pages) {
+  const sa = src.catalog.getAcroForm(); if (!sa) return null;
+  const N = k => PDFName.of(k), ctx = out.context;
+  if (pages && !pages.some(p => {
+    const annots = p.node.lookupMaybe(N('Annots'), PDFArray);
+    return annots && annots.asArray().some(r => { const d = ctx.lookup(r); return d instanceof PDFDict && d.get(N('Subtype')) === N('Widget'); });
+  })) return null;
+  const copier = window.PDFLib.PDFObjectCopier.for(src.context, ctx), out2 = {};
+  for (const k of ['DA', 'DR', 'Q']) { const v = sa.dict.get(N(k)); if (v) out2[k] = copier.copy(v); }
+  return out2;
+}
 function relinkFormFields(out, sources) {
   const L = window.PDFLib, ctx = out.context, N = k => PDFName.of(k), key = r => r.toString();
   const widgets = new Set(), tops = new Map();
@@ -310,9 +324,12 @@ function relinkFormFields(out, sources) {
   const acro = out.catalog.getOrCreateAcroForm();
   acro.dict.set(N('Fields'), ctx.obj(fields));
   for (const src of sources) {
-    const sa = src.catalog.getAcroForm(); if (!sa) continue;
-    const copier = L.PDFObjectCopier.for(src.context, ctx);
-    for (const k of ['DA', 'DR', 'Q']) { const v = sa.dict.get(N(k)); if (v && !acro.dict.get(N(k))) acro.dict.set(N(k), copier.copy(v)); }
+    if (!src) continue;
+    if (src.catalog) { // an open document: copy only what is still missing
+      const sa = src.catalog.getAcroForm(); if (!sa) continue;
+      const copier = L.PDFObjectCopier.for(src.context, ctx);
+      for (const k of ['DA', 'DR', 'Q']) { const v = sa.dict.get(N(k)); if (v && !acro.dict.get(N(k))) acro.dict.set(N(k), copier.copy(v)); }
+    } else for (const [k, v] of Object.entries(src)) if (!acro.dict.get(N(k))) acro.dict.set(N(k), v);
   }
 }
 
@@ -431,20 +448,26 @@ function markLayers(src, tag) {
   });
 }
 function relinkLayers(out, sources) { // sources: [[tag, source PDFDocument], …]
-  const L = window.PDFLib, ctx = out.context, N = k => PDFName.of(k), copies = new Map(); // "tag:index" → [new refs]
+  writeLayers(out, sources.map(([tag, src]) => layerPart(out, tag, src)));
+}
+/* One source's share of the new layer list, taken while the source is open (merging lets each file go once its pages
+   are copied); writeLayers() puts the shares together. null when the source added no layers. */
+function layerPart(out, tag, src) {
+  const L = window.PDFLib, ctx = out.context, N = k => PDFName.of(k);
+  const { props, ocgs } = layerList(src); if (!ocgs) return null;
+  const copies = new Map(), pre = `${tag}:`; // "tag:index" → [new refs]
   for (const [ref, obj] of ctx.enumerateIndirectObjects()) {
     const m = obj instanceof PDFDict && obj.lookup(N(LAYER_MARK)); if (!m) continue;
+    const k = m.decodeText(); if (!k.startsWith(pre)) continue;
     obj.delete(N(LAYER_MARK));
-    const k = m.decodeText(); if (!copies.has(k)) copies.set(k, []); copies.get(k).push(ref);
+    if (!copies.has(k)) copies.set(k, []); copies.get(k).push(ref);
   }
-  if (!copies.size) return;
+  if (!copies.size) return null;
   const all = [], off = [], order = [], extra = { RBGroups: [], Locked: [], AS: [] };
-  let first = null;
-  for (const [tag, src] of sources) {
-    const { props, ocgs } = layerList(src); if (!ocgs) continue;
+  {
     const mine = new Map(); // a source layer → its copies
     ocgs.asArray().forEach((ref, i) => { const c = copies.get(`${tag}:${i}`); if (c) mine.set(ref.toString(), c); });
-    if (!mine.size) continue;
+    if (!mine.size) return null;
     // A part of the source's settings with its layers swapped for their copies, in the new document; layers that were
     // not copied are left out, and so is a list (or an /AS entry) left without any layer. null when nothing is left.
     const swap = (v, depth = 0) => {
@@ -471,7 +494,6 @@ function relinkLayers(out, sources) { // sources: [[tag, source PDFDocument], �
     };
     for (const c of mine.values()) all.push(...c);
     const D = lookupAs(props, 'D', PDFDict);
-    if (!first) first = D;
     const list = k => { const a = lookupAs(D, k, PDFArray); return a ? a.asArray().map(r => r.toString()) : []; };
     const baseOff = !!D && D.lookup(N('BaseState')) === N('OFF'), on = new Set(list('ON')), offs = new Set(list('OFF'));
     for (const [r, c] of mine) if (baseOff ? !on.has(r) : offs.has(r)) off.push(...c);
@@ -481,10 +503,23 @@ function relinkLayers(out, sources) { // sources: [[tag, source PDFDocument], �
       const a = lookupAs(D, k, PDFArray), s = a && swap(a);
       if (s) extra[k].push(...s.asArray());
     }
+    // The first source's name, intent and list mode head the new list; kept as plain values, not the source's dict.
+    const head = {};
+    for (const k of ['Name', 'Intent', 'ListMode']) { const v = D && D.lookup(N(k)); if (v instanceof PDFName || v instanceof L.PDFString || v instanceof L.PDFHexString) head[k] = v; }
+    return { all, off, order, extra, head };
+  }
+}
+function writeLayers(out, parts) {
+  const ctx = out.context, N = k => PDFName.of(k);
+  parts = parts.filter(Boolean); if (!parts.length) return;
+  const all = [], off = [], order = [], extra = { RBGroups: [], Locked: [], AS: [] };
+  for (const p of parts) {
+    all.push(...p.all); off.push(...p.off); order.push(...p.order);
+    for (const k of Object.keys(extra)) extra[k].push(...p.extra[k]);
   }
   if (!all.length) return;
   const D = ctx.obj({ Order: ctx.obj(order) });
-  for (const k of ['Name', 'Intent', 'ListMode']) { const v = first && first.lookup(N(k)); if (v instanceof PDFName || v instanceof L.PDFString || v instanceof L.PDFHexString) D.set(N(k), v); }
+  for (const [k, v] of Object.entries(parts[0].head)) D.set(N(k), v);
   if (off.length) D.set(N('OFF'), ctx.obj(off));
   for (const [k, list] of Object.entries(extra)) if (list.length) D.set(N(k), ctx.obj(list));
   out.catalog.set(N('OCProperties'), ctx.obj({ OCGs: ctx.obj(all), D }));
@@ -776,6 +811,33 @@ async function makePhotoSample() {
 }
 const asFile = (bytes, name) => pdfFile(bytes, name);
 
+
+/* ---------- page jobs: drawing the next page while finishing this one ----------
+   Turning pages into pictures has two halves: drawing a page (pdf.js prepares it on its own thread, then paints on
+   the page's) and finishing it (encoding a JPEG, which the browser does off the page; deflating; adding it to the
+   file). Done one after the other, each half waits for the other; here page i + 1 is drawn while page i is finished.
+   make(i) draws page i and gives { px (pixels), … }; use(r, i) finishes it; drop(r) frees what make() made, used or
+   not. At most two drawn pages exist at once, and a page over PIPE_PX pixels is finished before the next is drawn,
+   so a very large page never has a second one beside it. */
+const PIPE_PX = 24e6;
+async function pagePipeline(n, make, use, drop0, check) {
+  const drop = r => { try { drop0(r); } catch (e) {} };
+  let next = null;
+  const start = i => { next = make(i); next.catch(() => {}); }; // a failure is reported when awaited, not before
+  try {
+    if (n) start(0);
+    for (let i = 0; i < n; i++) {
+      if (check) check();
+      const r = await next; next = null;
+      const early = i + 1 < n && !(r.px > PIPE_PX);
+      try {
+        if (early) start(i + 1);
+        await use(r, i);
+      } finally { drop(r); }
+      if (!early && i + 1 < n) start(i + 1);
+    }
+  } finally { if (next) next.then(drop, () => {}); } // cancelled or failed: free the page drawn ahead
+}
 
 /* ---------- page thumbnails ---------- */
 

@@ -199,35 +199,41 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   const picks = items.map(it => mergePicks(it)), bad = picks.findIndex(r => r.error);
   if (bad >= 0) throw new Error(`「${items[bad].name}」${picks[bad].error}`);
   const order = how === 'zip' && items.length === 2 ? mergeZipOrder() : null;
-  const out = await PDFDocument.create(), srcs = [];
+  const out = await PDFDocument.create();
+  // A parsed file takes several times its size, so each one is let go as soon as its pages are in: what the steps at
+  // the end need from it (form settings, layers, bookmarks) is taken right after copying. Holding them all until the
+  // end made merging twenty big files take gigabytes.
+  const forms = [], layers = [], outlines = [];
   // Internal links are cut before copying and joined again to the new pages (see unlinkDests() in core.js).
-  const placed = new Map(), copy = async (k, idx) => {
-    markLayers(srcs[k], k); // see relinkLayers() in core.js
-    const undo = unlinkDests(srcs[k], idx, k), pages = await out.copyPages(srcs[k], idx); undo();
+  const placed = new Map(), copy = async (k, src, idx) => {
+    markLayers(src, k); // see relinkLayers() in core.js
+    const undo = unlinkDests(src, idx, k), pages = await out.copyPages(src, idx); undo();
     idx.forEach((i, j) => { if (!placed.has(`${k}:${i}`)) placed.set(`${k}:${i}`, pages[j]); });
+    forms[k] = formDefaults(out, src, pages);
+    layers[k] = layerPart(out, k, src);
+    try { outlines[k] = readOutline(src); } catch (err) { outlines[k] = []; } // a broken outline is left out
     return pages;
   };
+  const load = async it => PDFDocument.load((await fileBytes(it.src)).bytes);
   if (order) {
-    for (const it of items) { check(); srcs.push(await PDFDocument.load((await fileBytes(it.src)).bytes)); }
     const copied = [];
-    for (const k of [0, 1]) copied.push(await copy(k, order.filter(o => o[0] === k).map(o => o[1])));
+    for (const k of [0, 1]) { check(); copied.push(await copy(k, await load(items[k]), order.filter(o => o[0] === k).map(o => o[1]))); }
     const next = [0, 0];
     for (const [k] of order) out.addPage(copied[k][next[k]++]);
   } else for (let k = 0; k < items.length; k++) {
     check();
-    srcs.push(await PDFDocument.load((await fileBytes(items[k].src)).bytes));
-    (await copy(k, picks[k].idx)).forEach(p => out.addPage(p));
+    (await copy(k, await load(items[k]), picks[k].idx)).forEach(p => out.addPage(p));
   }
   check();
   relinkDests(out, (k, i) => placed.get(`${k}:${i}`));
-  relinkFormFields(out, srcs); // keep form fields fillable
-  relinkLayers(out, srcs.map((s, k) => [k, s])); // hidden layers stay hidden
+  relinkFormFields(out, forms); // keep form fields fillable
+  writeLayers(out, layers); // hidden layers stay hidden
   // Bookmarks: each file's own, and (when merging in order) one per file holding them.
-  writeOutline(out, srcs.flatMap((src, k) => {
+  writeOutline(out, items.flatMap((it, k) => {
     let own = [];
-    try { own = placeOutline(readOutline(src), i => placed.get(`${k}:${i}`)); } catch (err) { own = []; } // a broken outline is left out
+    try { own = placeOutline(outlines[k] || [], i => placed.get(`${k}:${i}`)); } catch (err) { own = []; }
     if (!perFile) return own;
-    const it = items[k], first = placed.get(`${k}:${picks[k].idx[0]}`);
+    const first = placed.get(`${k}:${picks[k].idx[0]}`);
     return first ? [{ title: baseName(it.name), page: first, open: true, kids: own }] : [];
   }));
   const bytes = await out.save({ useObjectStreams: true });
