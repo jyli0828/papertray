@@ -102,7 +102,9 @@ papertray/
 
 **放在很多頁上的圖只嵌一次**：編輯匯出時，中文的頁碼、頁首頁尾，加文字、標註、簽名都是畫成圖片放上去的。`pictureCache(out)` 讓內容相同的圖只嵌入一次、每頁引用同一張；頁碼頁首用 `labelPieces()` 拆成「每個數字」和「數字之間的文字」分開畫，各放在整串裡原本的位置，「第 1 頁」到「第 1000 頁」共用十幾張圖，看起來和整串畫的一樣（測試比對過畫出來的點）。由右往左的文字、字母會相連的文字不拆。原本每頁各嵌一張：1000 頁加中文頁首要 8.5 秒，檔案大 8 MB。
 
-**畫布嵌進 PDF**：自己畫的圖要放進 PDF 時用 `embedCanvas(doc, canvas)`，不要先 `toBlob` 存成 PNG 再 `embedPng()`：結果一樣（顏色和透明度遮罩），但省掉瀏覽器編 PNG、pdf-lib 再解回像素的時間。圖大多是空白時用 `embedCanvasInk()`，只嵌有內容的那一塊，再放回原本的位置。填表單的中文欄位這樣做，100 頁 600 個欄位的存檔從 8.7 秒變 2.5 秒。
+**畫布嵌進 PDF**：自己畫的圖要放進 PDF 時用 `embedCanvas(doc, canvas)`，不要先 `toBlob` 存成 PNG 再 `embedPng()`：結果一樣（顏色和透明度遮罩），但省掉瀏覽器編 PNG、pdf-lib 再解回像素的時間。圖大多是空白時用 `embedCanvasInk()`，只嵌有內容的那一塊，再放回原本的位置。填表單的中文欄位這樣做，100 頁 600 個欄位的存檔從 8.7 秒變 2.5 秒。比較大的畫布（浮水印的圖章、範例照片）用 `await embedCanvasImage(doc, canvas)`：一次讀一段、用瀏覽器內建的 zlib 邊讀邊壓縮，得到可以直接 `page.drawImage()` 的圖。
+
+**PNG 嵌進 PDF**：用 `await embedPngFast(doc, bytes)`，不要用 pdf-lib 的 `doc.embedPng()`。pdf-lib 用 JavaScript 解開整張圖再用 pako 壓回去，一張 12 MP 的 PNG 約 3 秒、峰值多佔一兩百 MB。`embedPngFast()` 對 8 位元灰階、RGB 不透明的 PNG 直接放入原本的壓縮資料（PDF 支援 PNG 的列濾波，Predictor 15，什麼都不用解）；有透明度的用瀏覽器的 zlib 一段一段解開、拆成顏色和透明度，再以「Up」濾波壓縮（照片約小一半）。調色盤、16 位元、交錯、tRNS 仍交給 pdf-lib；像素資料壞掉的交給瀏覽器解碼，**不要**交給 pdf-lib，它遇到某些壞檔會卡住整個頁面。測試比對過八種 PNG 和 pdf-lib 畫出來的點完全相同。合併、編輯、文字辨識放入的照片（`imagesToPdf()`）和圖片轉 PDF 一樣，不需要轉向的 JPEG、PNG 原樣放入，不再解碼重編。
 
 **逐頁讀文字**：比較、遮蔽個資的自動尋找用 `readAhead()` 先向 pdf.js 要後面幾頁的文字，邊處理這一頁邊讀下一頁；每個字的位置（`itemCharBoxes()`）用 `charWidth()` 記住的字寬直接算。1000 頁比較兩份從 14.5 秒變 4.9 秒，剩下的大多是 pdf.js 取文字本身（每頁約 2 ms）。
 

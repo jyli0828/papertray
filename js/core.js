@@ -857,8 +857,7 @@ async function makePhotoSample() {
     const img = ctx.getImageData(0, 0, 1400, 1000); const d = img.data;
     for (let p = 0; p < d.length; p += 4) { const n = (Math.random() - .5) * 46; d[p] += n; d[p + 1] += n; d[p + 2] += n; }
     ctx.putImageData(img, 0, 0);
-    const png = await new Promise(r => cv.toBlob(r, 'image/png'));
-    const emb = await doc.embedPng(new Uint8Array(await png.arrayBuffer()));
+    const emb = await embedCanvasImage(doc, cv); cv.width = cv.height = 0;
     const p = doc.addPage([595.28, 841.89]);
     p.drawText(i ? 'Site survey, north field' : 'Site survey, east ridge', { x: 50, y: 780, size: 22, font: bold });
     p.drawText('Photo log, scanned at 300 dpi', { x: 50, y: 756, size: 11, font, color: rgb(.4, .45, .5) });
@@ -1024,18 +1023,33 @@ async function prepImages(files) {
   }
   return out;
 }
-/* One A4 page per picture (10 mm margin, turned to match the picture), for tools that work on PDFs. */
+/* One A4 page per picture (10 mm margin, turned to match the picture), for tools that work on PDFs. A JPEG or PNG that
+   needs no turning goes in as it is (directKind() in img2pdf.js), like in 圖片轉 PDF: decoding a 12 MP photo and
+   encoding it again took about 0.3 s and 48 MB, and lost a little quality each time. Other pictures are drawn as the
+   browser shows them. */
 async function imagesToPdf(files, name) {
   const out = await PDFDocument.create();
   for (const f of files) {
-    const bmp = await createImageBitmap(f); // applies the photo's rotation (EXIF)
-    const w = bmp.width, h = bmp.height;
-    const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); ctx.drawImage(bmp, 0, 0); bmp.close && bmp.close();
-    const png = f.type === 'image/png' || /\.png$/i.test(f.name);
-    const blob = await new Promise(r => cv.toBlob(r, png ? 'image/png' : 'image/jpeg', .92)); cv.width = cv.height = 0;
-    const bytes = new Uint8Array(await blob.arrayBuffer());
-    const img = png ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+    const buf = await f.arrayBuffer(), kind = directKind(buf);
+    if (kind !== 'other') await imageSize(f); // a broken picture is refused here, as when it was decoded
+    let img = null;
+    try {
+      if (kind === 'jpg') img = await out.embedJpg(new Uint8Array(buf));
+      // Only the PNGs embedPngFast() reads itself: pdf-lib can hang on a broken one of the other kinds.
+      else if (kind === 'png') img = await embedPngFast(out, new Uint8Array(buf), false);
+    } catch (e) { img = null; } // pdf-lib cannot read this JPEG's header: the browser decodes it below
+    if (!img) {
+      const bmp = await createImageBitmap(f); // applies the photo's rotation (EXIF)
+      const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
+      const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.drawImage(bmp, 0, 0); bmp.close && bmp.close();
+      if (f.type === 'image/png' || /\.png$/i.test(f.name)) img = await embedCanvasImage(out, cv); // lossless, like the PNG it was
+      else {
+        const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .92));
+        img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
+      }
+      cv.width = cv.height = 0;
+    }
+    const w = img.width, h = img.height;
     let [pw, ph] = [595.28, 841.89]; if (w > h) [pw, ph] = [ph, pw];
     const m = 28.35, s = Math.min((pw - m * 2) / w, (ph - m * 2) / h);
     out.addPage([pw, ph]).drawImage(img, { x: (pw - w * s) / 2, y: (ph - h * s) / 2, width: w * s, height: h * s });
@@ -1184,6 +1198,180 @@ function embedPixels(doc, px, W, x0, y0, x1, y1) {
   const img = { Type: 'XObject', Subtype: 'Image', BitsPerComponent: 8, Width: w, Height: h, ColorSpace: 'DeviceRGB' };
   if (see) img.SMask = ctx.register(ctx.flateStream(alpha, { Type: 'XObject', Subtype: 'Image', Height: h, Width: w, BitsPerComponent: 8, ColorSpace: 'DeviceGray', Decode: [0, 1] }));
   return ctx.register(ctx.flateStream(rgb, img));
+}
+/* zlib streams by the browser's own code. pdf-lib's (pako, in JavaScript) took about 3 s for one 12 MP picture. */
+const zstream = (bytes, ts) => new Blob([bytes]).stream().pipeThrough(ts);
+async function deflate(bytes) { return new Uint8Array(await new Response(zstream(bytes, new CompressionStream('deflate'))).arrayBuffer()); }
+async function inflate(bytes) { return new Uint8Array(await new Response(zstream(bytes, new DecompressionStream('deflate'))).arrayBuffer()); }
+/* How many bytes a zlib stream inflates to, without keeping them; throws when the stream is broken. */
+async function inflatedSize(bytes) {
+  const r = zstream(bytes, new DecompressionStream('deflate')).getReader(); let n = 0;
+  for (;;) { const { done, value } = await r.read(); if (done) return n; n += value.length; }
+}
+/* A pdf-lib PDFImage (what page.drawImage() takes) for an image already in doc under ref. */
+function pdfImageAt(doc, ref, width, height) {
+  const L = window.PDFLib, e = Object.create(L.PngEmbedder.prototype); // PDFImage accepts only pdf-lib's own embedders
+  Object.assign(e, { width, height, embedIntoContext: async () => ref });
+  const img = L.PDFImage.of(ref, doc, e); doc.images.push(img);
+  return img;
+}
+/* One plane of an image (colour, or alpha) deflated row by row as the rows come, so the whole plane never sits in
+   memory. Each row goes in with PNG's "Up" filter (the row minus the one above), which PDF undoes (Predictor 15):
+   a photo deflates to about half the size, and faster, than its plain pixels. add(row) copies the row; now and then,
+   when a batch of rows goes to the compressor, it gives a promise that must settle before the next add(): the
+   batch's buffer is used again, and the compressor has taken its bytes once its write is done. */
+function planeWriter(rowLen) {
+  const cs = new CompressionStream('deflate'), out = new Response(cs.readable).arrayBuffer(), wr = cs.writable.getWriter();
+  out.catch(() => {}); // a failure reaches done()
+  const per = rowLen + 1, batch = Math.max(1, Math.floor((1 << 20) / per)), prev = new Uint8Array(rowLen);
+  const buf = new Uint8Array(batch * per); let n = 0;
+  const flush = () => { const chunk = buf.subarray(0, n * per); n = 0; return wr.write(chunk); };
+  return {
+    add(row) {
+      const o = n * per; buf[o] = 2;
+      for (let i = 0; i < rowLen; i++) buf[o + 1 + i] = row[i] - prev[i];
+      prev.set(row);
+      if (++n === batch) return flush();
+    },
+    async done() { if (n) await flush(); await wr.close(); return new Uint8Array(await out); },
+    abort() { wr.abort().catch(() => {}); }
+  };
+}
+/* Rows of pixels with an alpha channel (grey+alpha when comps is 1, RGBA when 3) split into a colour plane and an
+   alpha plane, each deflated as it comes (planeWriter). finish(doc) puts the picture into doc, with the alpha as a
+   soft mask only when some pixel is not opaque, as pdf-lib's embedPng() does, and gives its PDFImage. */
+function planeSplitter(w, h, comps) {
+  const cz = planeWriter(w * comps), az = planeWriter(w), crow = new Uint8Array(w * comps), arow = new Uint8Array(w);
+  let see = false;
+  return {
+    row(px, at) { // px[at …]: one row, comps + 1 bytes a pixel
+      if (comps === 3) for (let x = 0, j = at, o = 0; x < w; x++, j += 4, o += 3) {
+        crow[o] = px[j]; crow[o + 1] = px[j + 1]; crow[o + 2] = px[j + 2]; if ((arow[x] = px[j + 3]) < 255) see = true;
+      } else for (let x = 0, j = at; x < w; x++, j += 2) { crow[x] = px[j]; if ((arow[x] = px[j + 1]) < 255) see = true; }
+      const p = cz.add(crow), q = az.add(arow);
+      return p || q ? Promise.all([p, q]) : null;
+    },
+    async finish(doc) {
+      const [c, a] = await Promise.all([cz.done(), az.done()]), ctx = doc.context, ref = ctx.nextRef();
+      const pred = cols => ({ Predictor: 15, Colors: cols, BitsPerComponent: 8, Columns: w });
+      const img = { Type: 'XObject', Subtype: 'Image', BitsPerComponent: 8, Width: w, Height: h, ColorSpace: comps === 1 ? 'DeviceGray' : 'DeviceRGB',
+        Filter: 'FlateDecode', DecodeParms: pred(comps) };
+      if (see) img.SMask = ctx.register(ctx.stream(a, { Type: 'XObject', Subtype: 'Image', Height: h, Width: w, BitsPerComponent: 8,
+        ColorSpace: 'DeviceGray', Decode: [0, 1], Filter: 'FlateDecode', DecodeParms: pred(1) }));
+      ctx.assign(ref, ctx.stream(c, img));
+      return pdfImageAt(doc, ref, w, h);
+    },
+    abort() { cz.abort(); az.abort(); }
+  };
+}
+/* A canvas as a picture in doc (a PDFImage), lossless, like embedPng() of a PNG of it but without encoding that PNG
+   and having pdf-lib decode it again. Colours of half-transparent pixels can differ from the PNG's by 1 (rounding). */
+async function embedCanvasImage(doc, cv) {
+  const W = cv.width, H = cv.height, sp = planeSplitter(W, H, 3), ctx = cv.getContext('2d');
+  try {
+    // A band of rows at a time: the whole picture read out at once would be a second copy of it.
+    for (let y0 = 0, band = Math.max(1, Math.floor(4e6 / (W * 4))); y0 < H; y0 += band) {
+      const n = Math.min(band, H - y0), px = ctx.getImageData(0, y0, W, n).data;
+      for (let y = 0; y < n; y++) { const p = sp.row(px, y * W * 4); if (p) await p; }
+    }
+    return await sp.finish(doc);
+  } catch (e) { sp.abort(); throw e; }
+}
+/* PNG filters undone on one row (cur gets the pixels; prev is the row above, zeros for the first). */
+function unfilterRow(ft, raw, at, cur, prev, stride, bpp) {
+  let i = 0;
+  switch (ft) {
+    case 0: cur.set(raw.subarray(at, at + stride)); return true;
+    case 1: for (; i < bpp; i++) cur[i] = raw[at + i]; for (; i < stride; i++) cur[i] = raw[at + i] + cur[i - bpp]; return true;
+    case 2: for (; i < stride; i++) cur[i] = raw[at + i] + prev[i]; return true;
+    case 3: for (; i < bpp; i++) cur[i] = raw[at + i] + (prev[i] >> 1); for (; i < stride; i++) cur[i] = raw[at + i] + ((cur[i - bpp] + prev[i]) >> 1); return true;
+    case 4:
+      for (; i < bpp; i++) cur[i] = raw[at + i] + prev[i];
+      for (; i < stride; i++) {
+        const a = cur[i - bpp], b = prev[i], c = prev[i - bpp], p = a + b - c;
+        const pa = p > a ? p - a : a - p, pb = p > b ? p - b : b - p, pc = p > c ? p - c : c - p;
+        cur[i] = raw[at + i] + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      }
+      return true;
+  }
+  return false;
+}
+/* A PNG put into doc with the same pixels as doc.embedPng(), only faster and smaller. pdf-lib decodes the whole
+   picture in JavaScript and deflates it again with pako: about 3 s for a 12 MP photo, 0.2 s for a screenshot.
+   - 8-bit grey or RGB without transparency: the PNG's own compressed data goes in as it is. PDF decodes it with the
+     same row filters (the PNG predictors), so nothing is decoded or compressed at all; it is only checked to inflate
+     to the right size.
+   - 8-bit grey or RGB with an alpha channel: inflated by the browser's zlib a piece at a time, each row unfiltered
+     and split into colour and alpha (planeSplitter).
+   Any other kind of PNG (palette, 16-bit, fewer bits, interlaced, a tRNS colour key) goes to pdf-lib as before. Pixel
+   data that turns out broken goes to the browser's decoder, which draws what it can: pdf-lib's never returns on some
+   broken files (the page hangs). */
+async function embedPngFast(doc, bytes, viaPdfLib = true) { // viaPdfLib false: null for those other kinds
+  const p = pngLayout(bytes);
+  if (!p) return viaPdfLib ? doc.embedPng(bytes) : null;
+  try {
+    const { w, h, ct, idat } = p, comps = ct === 0 || ct === 4 ? 1 : 3;
+    if (ct === 0 || ct === 2) {
+      if (await inflatedSize(idat) !== (w * comps + 1) * h) throw new Error('size');
+      const ctx = doc.context, ref = ctx.nextRef();
+      ctx.assign(ref, ctx.stream(idat, { Type: 'XObject', Subtype: 'Image', BitsPerComponent: 8, Width: w, Height: h,
+        ColorSpace: comps === 1 ? 'DeviceGray' : 'DeviceRGB', Filter: 'FlateDecode',
+        DecodeParms: { Predictor: 15, Colors: comps, BitsPerComponent: 8, Columns: w } }));
+      return pdfImageAt(doc, ref, w, h);
+    }
+    return await embedPngRows(doc, p);
+  } catch (e) {
+    const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }), { colorSpaceConversion: 'none' });
+    const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
+    cv.getContext('2d').drawImage(bmp, 0, 0); bmp.close && bmp.close();
+    try { return await embedCanvasImage(doc, cv); } finally { cv.width = cv.height = 0; }
+  }
+}
+async function embedPngRows(doc, { w, h, ct, idat }) {
+  const comps = ct === 4 ? 1 : 3, bpp = comps + 1, stride = w * bpp, per = stride + 1;
+  const sp = planeSplitter(w, h, comps), r = zstream(idat, new DecompressionStream('deflate')).getReader();
+  let cur = new Uint8Array(stride), prev = new Uint8Array(stride), fill = 0, y = 0;
+  const row = new Uint8Array(per);
+  try {
+    for (;;) {
+      const { done, value } = await r.read(); if (done) break;
+      for (let i = 0; i < value.length;) {
+        const k = Math.min(per - fill, value.length - i);
+        row.set(value.subarray(i, i + k), fill); fill += k; i += k;
+        if (fill < per) break;
+        fill = 0;
+        if (y >= h || !unfilterRow(row[0], row, 1, cur, prev, stride, bpp)) throw new Error('png');
+        const wait = sp.row(cur, 0); if (wait) await wait;
+        [cur, prev] = [prev, cur]; y++;
+      }
+    }
+    if (y !== h || fill) throw new Error('size');
+    return await sp.finish(doc);
+  } catch (e) { sp.abort(); r.cancel().catch(() => {}); throw e; }
+}
+/* The parts of a PNG that embedPngFast() can use: { w, h, ct (colour type 0, 2, 4 or 6), idat (the compressed
+   pixels) }, or null for any other kind of PNG. */
+function pngLayout(b) {
+  if (!(b instanceof Uint8Array) || b.length < 45 || b[0] !== 0x89 || b[1] !== 0x50 || b[2] !== 0x4E || b[3] !== 0x47) return null;
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength), parts = [];
+  let w = 0, h = 0, ct = 0, ok = false, total = 0;
+  for (let o = 8; o + 12 <= b.length;) {
+    const len = v.getUint32(o), type = v.getUint32(o + 4), at = o + 8;
+    if (at + len + 4 > b.length) return null;
+    if (type === 0x49484452) { // IHDR: 8 bits, grey / RGB / grey+alpha / RGBA, standard compression and filters, not interlaced
+      w = v.getUint32(at); h = v.getUint32(at + 4); ct = b[at + 9];
+      ok = b[at + 8] === 8 && [0, 2, 4, 6].includes(ct) && !b[at + 10] && !b[at + 11] && !b[at + 12];
+      if (!ok) return null;
+    } else if (type === 0x74524E53) return null; // tRNS: a colour that stands for transparent
+    else if (type === 0x49444154) { parts.push(b.subarray(at, at + len)); total += len; }
+    else if (type === 0x49454E44) break; // IEND
+    o = at + len + 4;
+  }
+  if (!ok || !w || !h || !parts.length || w * h > 1e8) return null;
+  // A copy: the stream must not share the caller's buffer (which may be handed on or let go).
+  const idat = new Uint8Array(total); let o = 0;
+  for (const p of parts) { idat.set(p, o); o += p.length; }
+  return { w, h, ct, idat };
 }
 async function renderTextPng(a) {
   await ensureFont(a.text, a.size);

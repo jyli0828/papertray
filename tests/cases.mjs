@@ -2233,5 +2233,120 @@ export default [
       T.eq([...document.querySelectorAll('#p2i-grid .thumb img')], imgs, '縮圖還是原來那些');
       T.ok($('#p2i-summary').textContent.startsWith('3 張'), $('#p2i-summary').textContent);
     }
+  },
+  {
+    name: 'PNG 快速嵌入：灰階、RGB、含透明度，每種列濾波都和 pdf-lib 畫出來一樣；調色盤、16 位元、tRNS 交給 pdf-lib，像素壞掉的不會卡住',
+    async run() {
+      await needPdfLib();
+      const N = k => PDFName.of(k), be = n => [n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255];
+      const chunk = (type, data) => { const td = new Uint8Array([...type].map(c => c.charCodeAt(0)).concat([...data])); return [...be(data.length), ...td, ...be(crc32(td))]; };
+      // A PNG written here, every row with the next of the five filters, the pixels split over two IDAT chunks.
+      const makePng = async (w, h, ct, depth, px, extra = []) => {
+        const ch = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[ct], bpp = Math.max(1, ch * depth / 8), stride = Math.ceil(w * ch * depth / 8);
+        const raw = new Uint8Array((stride + 1) * h);
+        for (let y = 0; y < h; y++) {
+          const ft = y % 5, cur = px.subarray(y * stride, (y + 1) * stride), prev = y ? px.subarray((y - 1) * stride, y * stride) : new Uint8Array(stride);
+          raw[y * (stride + 1)] = ft;
+          for (let i = 0; i < stride; i++) {
+            const a = i >= bpp ? cur[i - bpp] : 0, b = prev[i], c = i >= bpp ? prev[i - bpp] : 0;
+            let pr = 0;
+            if (ft === 1) pr = a; else if (ft === 2) pr = b; else if (ft === 3) pr = (a + b) >> 1;
+            else if (ft === 4) { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); pr = pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
+            raw[y * (stride + 1) + 1 + i] = (cur[i] - pr) & 255;
+          }
+        }
+        const z = await deflate(raw), half = z.length >> 1;
+        return new Uint8Array([0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10, ...chunk('IHDR', [...be(w), ...be(h), depth, ct, 0, 0, 0]), ...extra.flat(),
+          ...chunk('IDAT', z.subarray(0, half)), ...chunk('IDAT', z.subarray(half)), ...chunk('IEND', [])]);
+      };
+      const W = 37, H = 23;
+      const samples = (n, alpha) => Uint8Array.from({ length: W * H * n }, (_, i) => {
+        const p = Math.floor(i / n), c = i % n, x = p % W, y = Math.floor(p / W);
+        if (alpha && c === n - 1) return alpha === 'opaque' ? 255 : (x * 7 + y * 11) % 256;
+        return (x * 9 + y * 5 + c * 70 + ((x * y * 31) % 17)) & 255;
+      });
+      const cases = [
+        ['灰階', 0, 8, samples(1), [], true], ['RGB', 2, 8, samples(3), [], true],
+        ['灰階＋透明', 4, 8, samples(2, true), [], true], ['RGBA', 6, 8, samples(4, true), [], true], ['RGBA 全不透明', 6, 8, samples(4, 'opaque'), [], true],
+        ['調色盤', 3, 8, samples(1).map(v => v & 15), [chunk('PLTE', Array.from({ length: 48 }, (_, i) => (i * 37) & 255))], false],
+        ['16 位元', 2, 16, Uint8Array.from({ length: W * H * 6 }, (_, i) => (i * 13) & 255), [], false],
+        ['tRNS', 2, 8, samples(3), [chunk('tRNS', [0, 9, 0, 5, 0, 70])], false]
+      ];
+      const shot = async (bytes, i) => {
+        const pj = await openPdfjs(bytes), pg = await pj.getPage(i), vp = pg.getViewport({ scale: 2 }), cv = document.createElement('canvas');
+        cv.width = vp.width; cv.height = vp.height;
+        const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+        await pg.render({ canvasContext: ctx, viewport: vp }).promise; pj.destroy();
+        return ctx.getImageData(0, 0, cv.width, cv.height).data;
+      };
+      for (const [label, ct, depth, px, extra, fast] of cases) {
+        const png = await makePng(W, H, ct, depth, px, extra), doc = await PDFDocument.create();
+        const theirs = await doc.embedPng(png), mine = await embedPngFast(doc, png);
+        doc.addPage([W, H]).drawImage(theirs, { x: 0, y: 0, width: W, height: H });
+        doc.addPage([W, H]).drawImage(mine, { x: 0, y: 0, width: W, height: H });
+        T.eq([mine.width, mine.height], [W, H], label + '：大小');
+        const bytes = await doc.save(), d = doc.context.lookup(mine.ref).dict;
+        T.eq(!!d.get(N('DecodeParms')), fast, label + (fast ? '：自己嵌入' : '：交給 pdf-lib'));
+        if (fast) T.eq(!!d.get(N('SMask')), ct >= 4 && label !== 'RGBA 全不透明', label + '：有沒有透明度遮罩');
+        const a = await shot(bytes, 1), b = await shot(bytes, 2);
+        let off = 0; for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) off++;
+        T.eq(off, 0, label + '：畫出來不同的點');
+      }
+      // Broken pixel data does not go to pdf-lib, whose decoder never returns on this file (the page would hang): the
+      // browser's decoder draws what it can, or the picture is refused.
+      for (const ct of [2, 6]) {
+        const cut = await makePng(W, H, ct, 8, samples(ct === 6 ? 4 : 3, true));
+        const at = cut.findIndex((v, i) => v === 0x49 && cut[i + 1] === 0x44 && cut[i + 2] === 0x41 && cut[i + 3] === 0x54);
+        cut.fill(0x55, at + 10, at + 40);
+        const doc = await PDFDocument.create();
+        const r = await Promise.race([embedPngFast(doc, cut).then(m => 'ok ' + m.width + 'x' + m.height, () => 'refused'), T.sleep(5000).then(() => 'hang')]);
+        T.ok(r !== 'hang', `壞掉的 PNG（色彩類型 ${ct}）：${r}`);
+      }
+      // A canvas put in by embedCanvasImage() looks like the PNG of it put in by pdf-lib (colours within 1 or 2).
+      const cv = document.createElement('canvas'); cv.width = 120; cv.height = 50;
+      const c = cv.getContext('2d'); c.fillStyle = '#123'; c.font = fontStr(22); c.fillText('王小明 0912', 4, 32);
+      c.fillStyle = 'rgba(200, 30, 30, .5)'; c.fillRect(80, 5, 30, 40);
+      const d2 = await PDFDocument.create();
+      const p1 = await d2.embedPng(new Uint8Array(await (await new Promise(r => cv.toBlob(r, 'image/png'))).arrayBuffer())), p2 = await embedCanvasImage(d2, cv);
+      d2.addPage([120, 50]).drawImage(p1, { x: 0, y: 0, width: 120, height: 50 }); d2.addPage([120, 50]).drawImage(p2, { x: 0, y: 0, width: 120, height: 50 });
+      const bytes = await d2.save(), a = await shot(bytes, 1), b = await shot(bytes, 2);
+      let worst = 0; for (let k = 0; k < a.length; k++) worst = Math.max(worst, Math.abs(a[k] - b[k]));
+      T.ok(worst <= 2, `畫布：顏色最多差 ${worst}`);
+      return cases.length + ' 種 PNG';
+    }
+  },
+  {
+    name: '合併、編輯放入的照片：JPEG、PNG 原樣放進 PDF，WebP 等其他格式由瀏覽器畫成 JPEG，壞掉的圖片不收',
+    async run() {
+      await needPdfLib();
+      const N = k => PDFName.of(k);
+      const cv = document.createElement('canvas'); cv.width = 300; cv.height = 200;
+      const c = cv.getContext('2d'); c.fillStyle = '#f00'; c.fillRect(0, 0, 150, 200); c.fillStyle = '#00f'; c.fillRect(150, 0, 150, 200);
+      const blob = t => new Promise(r => cv.toBlob(r, t, .9));
+      const jpg = new Uint8Array(await (await blob('image/jpeg')).arrayBuffer());
+      const images = async f => {
+        const doc = await PDFDocument.load((await fileBytes(f)).bytes), out = [];
+        for (const [, o] of doc.context.enumerateIndirectObjects()) if (o instanceof PDFRawStream && o.dict.get(N('Subtype')) === N('Image')) out.push(o);
+        return out;
+      };
+      const a = await imagesToPdf([new File([jpg], 'a.jpg', { type: 'image/jpeg' })]);
+      const [ja] = await images(a);
+      T.eq(ja.dict.get(N('Filter')), N('DCTDecode'), 'JPEG'); T.eq(ja.contents.length, jpg.length, 'JPEG 原封不動');
+      T.eq((await T.pdfPages(a))[0], { w: 842, h: 595, rotate: 0 }, '橫的照片放在橫的 A4');
+      const red = await T.ink(a, 0, (R, G, B) => R > 200 && G < 60 && B < 60), blue = await T.ink(a, 0, (R, G, B) => B > 200 && R < 60 && G < 60);
+      T.ok(red && blue && red[2] <= blue[0] + .01, `紅色在左、藍色在右：${JSON.stringify({ red, blue })}`);
+      const b = await imagesToPdf([new File([await blob('image/png')], 'b.png', { type: 'image/png' })]);
+      T.eq((await images(b)).length, 1, 'PNG 一張圖（不透明，沒有遮罩）');
+      const w = await imagesToPdf([new File([await blob('image/webp')], 'c.webp', { type: 'image/webp' })]);
+      T.eq((await images(w))[0].dict.get(N('Filter')), N('DCTDecode'), 'WebP 轉成 JPEG');
+      const broken = jpg.slice(0, 600); broken.fill(0, 300);
+      const r = await imagesToPdf([new File([broken], 'broken.jpg', { type: 'image/jpeg' })]).then(() => 'ok', () => 'err');
+      T.eq(r, 'err', '壞掉的圖片');
+      showTab('merge'); merge.items = [];
+      await addMergeFiles([new File([jpg], 'photo.jpg', { type: 'image/jpeg' }), await T.labeled(['X'], 'x.pdf')]);
+      T.eq(merge.items.map(i => [i.pages, i.fromImage]), [[1, true], [1, false]], '合併清單');
+      const res = await T.result(() => T.click('#merge-go'));
+      T.eq((await T.pdfPages(res.file)).map(p => p.w + 'x' + p.h), ['842x595', '595x842'], '合併結果');
+    }
   }
 ];

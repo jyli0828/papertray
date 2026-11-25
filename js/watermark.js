@@ -157,8 +157,7 @@ $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
   const cache = new Map();
   const embedMark = async mark => {
     if (cache.has(mark.key)) return cache.get(mark.key);
-    const blob = await new Promise(r => mark.canvas.toBlob(r, 'image/png'));
-    const img = await out.embedPng(new Uint8Array(await blob.arrayBuffer()));
+    const img = await embedCanvasImage(out, mark.canvas); // see core.js: no PNG made and decoded again
     cache.set(mark.key, img); return img;
   };
   let done = 0, textMark = null; // a text mark is the same on every page: drawn once, not on a canvas per page

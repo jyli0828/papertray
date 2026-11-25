@@ -374,7 +374,7 @@ function stampOptions() {
 function pictureCache(out) {
   const done = new Map();
   return (key, make) => {
-    if (!done.has(key)) done.set(key, (async () => out.embedPng(await make()))());
+    if (!done.has(key)) done.set(key, (async () => embedPngFast(out, await make()))());
     return done.get(key);
   };
 }

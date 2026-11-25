@@ -143,7 +143,7 @@ $('#img-go').addEventListener('click', e => runJob(e.currentTarget, '轉換中�
   for (const it of imgs.items.slice()) { // the list as it was when the button was pressed
     check();
     const { kind, bytes } = await imageBytesFor(it);
-    const img = kind === 'png' ? await out.embedPng(bytes) : await out.embedJpg(bytes);
+    const img = kind === 'png' ? await embedPngFast(out, bytes) : await out.embedJpg(bytes);
     let pw, ph;
     if (sizeOpt === 'fit') { pw = it.w * .75 + margin * 2; ph = it.h * .75 + margin * 2; }
     else {
