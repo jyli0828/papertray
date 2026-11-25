@@ -316,9 +316,12 @@ function editBusy() {
 }
 $('#edit-clear').addEventListener('click', e => {
   if (editBusy()) return;
-  const b = e.currentTarget;
-  if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = '再按一次確認清空'; setTimeout(() => { b.dataset.armed = ''; b.textContent = '清空重來'; }, 3000); return; }
-  b.dataset.armed = ''; b.textContent = '清空重來';
+  const b = e.currentTarget, disarm = () => { clearTimeout(b._disarm); b._armedAt = 0; b.textContent = '清空重來'; };
+  if (!b._armedAt) { b._armedAt = Date.now(); b.textContent = '再按一次確認清空'; b._disarm = setTimeout(disarm, 3000); return; }
+  // The second click of a double-click lands a moment after the first: that is not a confirmation (clearing cannot
+  // be undone).
+  if (Date.now() - b._armedAt < 500) return;
+  disarm();
   clearEdit();
 });
 function clearEdit() {

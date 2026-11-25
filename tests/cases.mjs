@@ -816,8 +816,13 @@ export default [
       await startSigning([await T.labeled(['New'], 'new.pdf')]); // replaces the editor's files mid-export
       if (dlg.open) $('#te-done').click();
       await T.idle('#edit-export');
-      const clear = $('#edit-clear'); clear.click(); clear.click(); // 清空重來 (asks twice)
       T.ok(T.results.length > n || T.errors.length === 0, '匯出失敗：' + T.errors.join('；'));
+      // 清空重來 asks twice; a double click is not the second time
+      const clear = $('#edit-clear'), pages = edit.pages.length;
+      clear.click(); clear.click();
+      T.eq(edit.pages.length, pages, '雙擊不會清空'); T.eq(clear.textContent, '再按一次確認清空');
+      await T.sleep(600); clear.click();
+      T.eq(edit.pages.length, 0, '再按一次才清空'); T.eq(clear.textContent, '清空重來');
     }
   },
 
