@@ -1908,6 +1908,42 @@ export default [
     }
   },
   {
+    name: '逐頁處理，多條通道：同時畫幾頁、依序處理；掃描檔多開 pdf.js，文字檔不開；結果和一條通道一樣',
+    async run() {
+      const wait = ms => new Promise(r => setTimeout(r, ms)), lanesOf = [], used = [], dropped = [];
+      let drawing = 0, most = 0;
+      await pagePipeline(9, async (i, lane) => { lanesOf[i] = lane; drawing++; most = Math.max(most, drawing); await wait(9 - i); drawing--; return { i, px: 1 }; },
+        async (r, i) => { T.eq(r.i, i, '依序處理'); used.push(i); await wait(2); }, r => dropped.push(r.i), null, 3);
+      T.eq(used, [0, 1, 2, 3, 4, 5, 6, 7, 8]); T.eq(dropped.sort(), used); T.eq(most, 3, '同時畫三頁');
+      T.eq(lanesOf, [0, 1, 2, 0, 1, 2, 0, 1, 2], '第 i 頁在第 i % 3 條');
+      // mapLimit: in order, at most `limit` at once, a failure kept with its item
+      let busyNow = 0, peak = 0;
+      const res = await mapLimit([5, 1, 4, 2, 3], 2, async x => { busyNow++; peak = Math.max(peak, busyNow); await wait(x * 3); busyNow--; if (x === 4) throw new Error('四'); return x * 10; });
+      T.eq(res.map(r => r.error ? r.error.message : r.value), [50, 10, '四', 20, 30]); T.eq(peak, 2);
+      // pdf.js lanes: a scan gets more workers, a text file of the same length does not
+      await needPdfLib(); await needPdfjs();
+      const scanDoc = await PDFDocument.create(), cv = document.createElement('canvas'); cv.width = 1200; cv.height = 1600;
+      const ctx = cv.getContext('2d'), img = ctx.createImageData(1200, 1600);
+      for (let k = 0; k < img.data.length; k++) img.data[k] = (k * 2654435761) >>> 24; ctx.putImageData(img, 0, 0);
+      const jpg = await scanDoc.embedJpg(new Uint8Array(await (await new Promise(r => cv.toBlob(r, 'image/jpeg', .7))).arrayBuffer()));
+      for (let k = 0; k < 9; k++) scanDoc.addPage([595, 842]).drawImage(jpg, { x: 0, y: 0, width: 595, height: 842 });
+      const scan = await scanDoc.save(), pj = await openPdfjs(scan), lanes = await pdfLanes(pj, 9, scan, 110 / 72);
+      try {
+        if (location.protocol !== 'file:' && LANES_MAX > 1) T.ok(lanes.docs.length > 1, '掃描檔多開 ' + lanes.docs.length);
+        // every lane draws the very same pixels
+        const px = async d => { const pg = await d.getPage(5), vp = pg.getViewport({ scale: 110 / 72 }), c = document.createElement('canvas');
+          c.width = Math.ceil(vp.width); c.height = Math.ceil(vp.height); await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+          const d2 = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let h = 0; for (let k = 0; k < d2.length; k += 7) h = (h * 31 + d2[k]) | 0; return h; };
+        const sums = await Promise.all(lanes.docs.map(px));
+        T.ok(sums.every(s => s === sums[0]), '每條通道畫出一樣的頁面');
+      } finally { lanes.close(); pj.destroy(); }
+      const text = await T.labeled(['1', '2', '3', '4', '5', '6', '7', '8', '9'], 'text.pdf'), pt = await openPdfjs(text.bytes), lt = await pdfLanes(pt, 9, text.bytes);
+      T.eq(lt.docs.length, 1, '文字檔只用一條'); lt.close(); pt.destroy();
+      const r = await compressRaster(scan, LEVELS.medium, false, () => {});
+      T.eq((await T.pdfPages(pdfFile(r.bytes, 'x.pdf'))).length, 9, '整頁轉圖片 9 頁');
+    }
+  },
+  {
     name: '轉灰階：用瀏覽器的濾鏡，顏色變成同亮度的灰',
     async run() {
       const cv = document.createElement('canvas'); cv.width = 40; cv.height = 20;

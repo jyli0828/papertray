@@ -138,12 +138,12 @@ function toGray(ctx, w, h) {
   ctx.putImageData(img, 0, 0);
 }
 async function compressRaster(bytes, lv, gray, check) {
-  const pj = await openPdfjs(bytes);
+  const pj = await openPdfjs(bytes), lanes = await pdfLanes(pj, pj.numPages, bytes, lv.dpi / 72);
   const out = await PDFDocument.create();
   try {
-    // Page i + 1 is drawn while page i is encoded (see pagePipeline() in core.js).
-    await pagePipeline(pj.numPages, async i => {
-      const pg = await pj.getPage(i + 1);
+    // The next pages are drawn while page i is encoded (see pagePipeline() and pdfLanes() in core.js).
+    await pagePipeline(pj.numPages, async (i, k) => {
+      const pg = await lanes.docs[k].getPage(i + 1);
       const vp1 = pg.getViewport({ scale: 1 });
       let scale = lv.dpi / 72;
       const maxPx = 16e6; if (vp1.width * vp1.height * scale * scale > maxPx) scale = Math.sqrt(maxPx / (vp1.width * vp1.height));
@@ -162,9 +162,9 @@ async function compressRaster(bytes, lv, gray, check) {
       const jpg = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
       const page = out.addPage([vp1.width, vp1.height]);
       page.drawImage(jpg, { x: 0, y: 0, width: vp1.width, height: vp1.height });
-    }, dropRaster, check);
+    }, dropRaster, check, lanes.docs.length);
     progress(pj.numPages, pj.numPages);
-  } finally { pj.destroy(); }
+  } finally { lanes.close(); pj.destroy(); }
   return { bytes: await out.save({ useObjectStreams: true }) };
 }
 function dropRaster(r) { r.pg.cleanup(); r.cv.width = r.cv.height = 0; }
@@ -184,13 +184,13 @@ function otsu(hist, total) {
   return t;
 }
 async function compressBW(bytes, dpi, check) {
-  const pj = await openPdfjs(bytes);
+  const pj = await openPdfjs(bytes), lanes = await pdfLanes(pj, pj.numPages, bytes, dpi / 72);
   const out = await PDFDocument.create();
   try {
-    // Page i + 1 is drawn while page i is turned into black and white (see pagePipeline() in core.js); only the
-    // pixels are kept from the drawing.
-    await pagePipeline(pj.numPages, async i => {
-      const pg = await pj.getPage(i + 1);
+    // The next pages are drawn while page i is turned into black and white (see pagePipeline() and pdfLanes() in
+    // core.js); only the pixels are kept from the drawing.
+    await pagePipeline(pj.numPages, async (i, k) => {
+      const pg = await lanes.docs[k].getPage(i + 1);
       const vp1 = pg.getViewport({ scale: 1 });
       let scale = dpi / 72;
       const maxPx = 30e6; if (vp1.width * vp1.height * scale * scale > maxPx) scale = Math.sqrt(maxPx / (vp1.width * vp1.height));
@@ -225,9 +225,9 @@ async function compressBW(bytes, dpi, check) {
       const page = out.addPage([vp1.width, vp1.height]);
       const name = page.node.newXObject('Im', img);
       page.pushOperators(PDFLib.pushGraphicsState(), PDFLib.concatTransformationMatrix(vp1.width, 0, 0, vp1.height, 0, 0), PDFLib.drawObject(name), PDFLib.popGraphicsState());
-    }, () => {}, check);
+    }, () => {}, check, lanes.docs.length);
     progress(pj.numPages, pj.numPages);
-  } finally { pj.destroy(); }
+  } finally { lanes.close(); pj.destroy(); }
   return { bytes: await out.save({ useObjectStreams: true }) };
 }
 
@@ -331,6 +331,22 @@ async function decodeToCanvas(info, stream) {
    The function below is self-contained (apart from jpegAsStored(), which is put next to it): it is turned into the
    workers' source code. */
 function photoWorkerMain() {
+  /* A JPEG's width and height from its frame header (SOF), or null. */
+  function jpegSize(b) {
+    if (b[0] !== 0xFF || b[1] !== 0xD8) return null;
+    for (let o = 2; o + 9 < b.length;) {
+      if (b[o] !== 0xFF) return null;
+      const m = b[o + 1];
+      if (m === 0xFF) { o++; continue; }
+      if (m >= 0xC0 && m <= 0xCF && m !== 0xC4 && m !== 0xC8 && m !== 0xCC) {
+        const h = b[o + 5] << 8 | b[o + 6], w = b[o + 7] << 8 | b[o + 8];
+        return w && h ? { w, h } : null;
+      }
+      if (m === 0xD9 || m === 0xDA) return null;
+      o += 2 + (b[o + 2] << 8 | b[o + 3]);
+    }
+    return null;
+  }
   async function inflate(bytes) {
     const ds = new DecompressionStream('deflate');
     return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer());
@@ -358,7 +374,14 @@ function photoWorkerMain() {
     const { info } = t;
     let src, w, h;
     if (info.kind === 'jpeg') {
-      src = await createImageBitmap(new Blob([jpegAsStored(t.contents)], { type: 'image/jpeg' })); w = src.width; h = src.height;
+      // Decoded straight to the size it ends up (the browser's JPEG decoder scales as it decodes): a 12 MP photo was
+      // first decoded whole, 48 MB in each worker. The size comes from the JPEG itself (its SOF), not the PDF's word.
+      const blob = new Blob([jpegAsStored(t.contents)], { type: 'image/jpeg' }), sof = jpegSize(t.contents);
+      const k0 = sof ? Math.min(1, t.px / Math.max(sof.w, sof.h)) : 1;
+      if (k0 < 1) {
+        src = await createImageBitmap(blob, { resizeWidth: Math.max(1, Math.round(sof.w * k0)), resizeHeight: Math.max(1, Math.round(sof.h * k0)), resizeQuality: 'high' });
+        w = sof.w; h = sof.h;
+      } else { src = await createImageBitmap(blob); w = src.width; h = src.height; }
     } else {
       let px = await inflate(t.contents);
       if (info.predictor >= 10) px = pngUnfilter(px, info.w, info.h, info.comps);

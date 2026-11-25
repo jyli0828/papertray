@@ -86,8 +86,8 @@ function updateP2iSummary() {
 }
 ['#p2i-fmt', '#p2i-dpi', '#p2i-q'].forEach(s => $(s).addEventListener('change', updateP2iSummary));
 /* A page drawn for saving: { cv, pg, px }; give it back with dropP2iPage(). */
-async function drawP2iPage(index, o) {
-  const pg = await p2i.pj.getPage(index + 1);
+async function drawP2iPage(index, o, pj = p2i.pj) {
+  const pg = await pj.getPage(index + 1);
   const vp1 = pg.getViewport({ scale: 1 });
   let scale = o.dpi / 72;
   const maxPx = 40e6; if (vp1.width * vp1.height * scale * scale > maxPx) scale = Math.sqrt(maxPx / (vp1.width * vp1.height));
@@ -162,11 +162,13 @@ async function exportP2i(pages, btn) {
       else await deliver(file, 'image', 'pdf2img');
       return;
     }
-    const zip = zipWriter();
-    await pagePipeline(pages.length, i => drawP2iPage(pages[i].index, o), async (r, i) => {
-      p2iProgress(i, pages.length);
-      await zip.add(p2iFileName(pages[i].index, o), await p2iBlob(r, o));
-    }, dropP2iPage, check);
+    const zip = zipWriter(), lanes = await pdfLanes(p2i.pj, pages.length, null, o.dpi / 72); // see pdfLanes() in core.js
+    try {
+      await pagePipeline(pages.length, (i, k) => drawP2iPage(pages[i].index, o, lanes.docs[k]), async (r, i) => {
+        p2iProgress(i, pages.length);
+        await zip.add(p2iFileName(pages[i].index, o), await p2iBlob(r, o));
+      }, dropP2iPage, check, lanes.docs.length);
+    } finally { lanes.close(); }
     p2iProgress(pages.length, pages.length);
     const blob = zip.blob();
     await deliver(new File([blob], `${baseName(p2i.name)}-${o.fmt}.zip`, { type: 'application/zip' }), 'zip', 'pdf2img');

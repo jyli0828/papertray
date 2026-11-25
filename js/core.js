@@ -867,27 +867,65 @@ const asFile = (bytes, name) => pdfFile(bytes, name);
    Turning pages into pictures has two halves: drawing a page (pdf.js prepares it on its own thread, then paints on
    the page's) and finishing it (encoding a JPEG, which the browser does off the page; deflating; adding it to the
    file). Done one after the other, each half waits for the other; here page i + 1 is drawn while page i is finished.
-   make(i) draws page i and gives { px (pixels), … }; use(r, i) finishes it; drop(r) frees what make() made, used or
-   not. At most two drawn pages exist at once, and a page over PIPE_PX pixels is finished before the next is drawn,
-   so a very large page never has a second one beside it. */
+   make(i, lane) draws page i and gives { px (pixels), … }; use(r, i) finishes it, in page order; drop(r) frees what
+   make() made, used or not. With lanes > 1 (see pdfLanes()) that many pages are drawn at the same time, page i on
+   lane i % lanes, while page i is finished; with one lane at most two drawn pages exist at once. A page over PIPE_PX
+   pixels is finished before more are drawn. */
 const PIPE_PX = 24e6;
-async function pagePipeline(n, make, use, drop0, check) {
+async function pagePipeline(n, make, use, drop0, check, lanes = 1) {
   const drop = r => { try { drop0(r); } catch (e) {} };
-  let next = null;
-  const start = i => { next = make(i); next.catch(() => {}); }; // a failure is reported when awaited, not before
+  const ahead = new Map(); let started = 0; // page index → the promise of its drawing
+  const startUpTo = last => { // a failure is reported when awaited, not before
+    for (; started < n && started <= last; started++) { const p = make(started, started % lanes); p.catch(() => {}); ahead.set(started, p); }
+  };
   try {
-    if (n) start(0);
+    startUpTo(lanes - 1);
     for (let i = 0; i < n; i++) {
       if (check) check();
-      const r = await next; next = null;
-      const early = i + 1 < n && !(r.px > PIPE_PX);
+      const r = await ahead.get(i); ahead.delete(i);
+      const early = !(r.px > PIPE_PX);
       try {
-        if (early) start(i + 1);
+        if (early) startUpTo(i + lanes);
         await use(r, i);
       } finally { drop(r); }
-      if (!early && i + 1 < n) start(i + 1);
+      if (!early) startUpTo(i + lanes);
     }
-  } finally { if (next) next.then(drop, () => {}); } // cancelled or failed: free the page drawn ahead
+  } finally { for (const p of ahead.values()) p.then(drop, () => {}); } // cancelled or failed: free the pages drawn ahead
+}
+/* Scanned pages are pictures, which pdf.js decodes in JavaScript on its worker thread: with one worker, a page job on
+   a scan waits for that thread (20 scanned pages: 1.4 s for the decoding alone). pdfLanes() opens the same file on more
+   workers, so pagePipeline() draws several pages at once (two workers 0.95 s, three 0.67 s). lanes.docs[k] is the
+   pdf.js document of lane k, docs[0] the one given; close() ends the others. Only for jobs of several pages, with
+   workers (not from disk), and fewer on a machine with few cores or little memory: each lane holds its own copy.
+   scale: how large the pages are drawn (pixels per point): lanes × the pixels of a page drawn stay under LANES_PX, so
+   at 300 dpi two pages are drawn at once, not three (a black-and-white 300 dpi job took 740 MB with three). A file
+   of mostly text (under LANES_BYTES a page) gets one lane: its pages are painted on the page's own thread, and more
+   workers only cost the time to open them (40 text pages: 705 → 760 ms). */
+const LANES_MAX = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1, (navigator.deviceMemory || 4) >= 4 ? 3 : 2));
+const LANES_PX = 20e6, LANES_BYTES = 20000;
+async function pdfLanes(pj, n, bytes, scale = 1) {
+  let want = location.protocol === 'file:' ? 1 : Math.min(LANES_MAX, Math.ceil(n / 3));
+  if (want > 1) {
+    try {
+      const size = bytes ? bytes.length : (await pj.getDownloadInfo()).length;
+      if (size < LANES_BYTES * pj.numPages) want = 1;
+      const v = (await pj.getPage(1)).getViewport({ scale }); want = Math.max(1, Math.min(want, Math.floor(LANES_PX / (v.width * v.height))));
+    }
+    catch (e) { want = 1; }
+  }
+  const extra = [];
+  const lanes = { docs: [pj], close() { for (const x of extra) { try { x.pj.destroy(); } catch (e) {} x.w.terminate(); URL.revokeObjectURL(x.url); } extra.length = 0; } };
+  if (want < 2) return lanes;
+  const data = bytes || await pj.getData();
+  try {
+    await Promise.all(Array.from({ length: want - 1 }, async () => {
+      const url = URL.createObjectURL(new Blob([`importScripts('${WORKER_URL}');`], { type: 'text/javascript' }));
+      const x = { url, w: new Worker(url), pj: null }; extra.push(x);
+      x.pj = await pdfjsLib.getDocument({ ...pdfjsOpts(data.slice()), worker: new pdfjsLib.PDFWorker({ port: x.w }) }).promise;
+    }));
+  } catch (e) { lanes.close(); return lanes; } // no extra workers: one lane, as before
+  lanes.docs.push(...extra.map(x => x.pj));
+  return lanes;
 }
 
 /* ---------- page thumbnails ---------- */
@@ -978,6 +1016,19 @@ function imageSize(f) {
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('無法讀取圖片')); };
     img.src = url;
   });
+}
+/* fn(item) for every item, at most `limit` at a time, results in the items' order: { value } or { error } each.
+   Decoding pictures for a list one by one left the browser's decoder threads idle: 10 photos 0.53 s, 4 at a time 0.24. */
+/* Pictures read at once for a file list: a turned photo is decoded whole (48 MB for 12 MP), so not too many. */
+const LIST_DECODES = 3;
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length); let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (let i; (i = next++) < items.length;) {
+      try { out[i] = { value: await fn(items[i], i) }; } catch (error) { out[i] = { error }; }
+    }
+  }));
+  return out;
 }
 /* A small picture for a file-list row (44 px, 2× for sharp screens), as a Blob URL. Showing the photo itself there
    would keep it decoded at full size, about 48 MB for each 12 MP photo in the list. pic: an ImageBitmap or canvas. */

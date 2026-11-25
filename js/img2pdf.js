@@ -63,13 +63,14 @@ async function listPicture(f, px = 96) {
 }
 async function addImages(files) {
   files = await prepImages(files);
-  for (const f of files) {
-    if (!isImage(f)) { toast(`「${f.name}」不是支援的圖片格式`, 'err'); continue; }
-    try {
-      const { url, w, h, kind } = await listPicture(f);
-      imgs.items.push({ id: uid(), name: f.name, size: f.size, file: f, url, w, h, kind });
-    } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); }
-  }
+  // Several pictures are read at once (see mapLimit() in core.js), and listed in the order given.
+  const pics = await mapLimit(files, LIST_DECODES, f => isImage(f) ? listPicture(f) : null);
+  files.forEach((f, i) => {
+    const { value: p, error } = pics[i];
+    if (error) toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err');
+    else if (!p) toast(`「${f.name}」不是支援的圖片格式`, 'err');
+    else imgs.items.push({ id: uid(), name: f.name, size: f.size, file: f, url: p.url, w: p.w, h: p.h, kind: p.kind });
+  });
   if (imgs.items.length && $('#img-name').value === '圖片.pdf') $('#img-name').value = baseName(imgs.items[0].name.replace(/\.[^.]+$/, '')) + '.pdf';
   renderImgs();
 }

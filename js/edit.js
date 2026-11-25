@@ -288,13 +288,25 @@ $('#edit-find-blank').addEventListener('click', e => {
   const btn = e.currentTarget;
   if (!edit.pages.every(fillMeta)) { toast('頁面還在載入，請稍候'); return; }
   runJob(btn, '檢查中…', async check => {
-    const keys = [...new Set(edit.pages.map(metaKey))];
-    for (let i = 0; i < keys.length; i++) {
+    // The pages not checked before, per file; each file's pages are looked at several at a time (see pdfLanes() in
+    // core.js: a scanned page waits for pdf.js to decode its picture).
+    const keys = [...new Set(edit.pages.map(metaKey))].filter(k => edit.meta[k].blank === undefined), byDoc = new Map();
+    for (const k of keys) { const docId = k.slice(0, k.lastIndexOf(':')); if (!byDoc.has(docId)) byDoc.set(docId, []); byDoc.get(docId).push(k); }
+    let done = 0;
+    for (const [docId, list] of byDoc) {
       check();
-      const m = edit.meta[keys[i]]; if (m.blank !== undefined) continue;
-      $('#edit-stat').textContent = `檢查第 ${i + 1} / ${keys.length} 頁`;
-      const cut = keys[i].lastIndexOf(':'), d = edit.docs[keys[i].slice(0, cut)];
-      try { m.blank = await pageLooksBlank(await d.pj.getPage(+keys[i].slice(cut + 1) + 1)); } catch (err) { m.blank = false; }
+      const lanes = await pdfLanes(edit.docs[docId].pj, list.length, null, 1.2); // drawn about 1000 px tall
+      let next = 0;
+      try {
+        await Promise.all(lanes.docs.map(async pj => {
+          for (let i; (i = next++) < list.length;) {
+            check();
+            $('#edit-stat').textContent = `檢查第 ${++done} / ${keys.length} 頁`;
+            const m = edit.meta[list[i]], at = +list[i].slice(list[i].lastIndexOf(':') + 1);
+            try { m.blank = await pageLooksBlank(await pj.getPage(at + 1)); } catch (err) { m.blank = false; }
+          }
+        }));
+      } finally { lanes.close(); }
     }
     // Something added on the page (a signature, text, a box) makes it not blank any more.
     const blank = edit.pages.filter(p => edit.meta[metaKey(p)].blank && !p.annots.length);

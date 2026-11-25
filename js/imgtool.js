@@ -4,13 +4,13 @@ const itool = { items: [] };
 const IT_EXT = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 async function addImgTool(files) {
   files = await prepImages(files);
-  for (const f of files) {
-    if (!isImage(f)) { toast(`「${f.name}」不是支援的圖片格式`, 'err'); continue; }
-    try {
-      const { url, w, h } = await listPicture(f); // see img2pdf.js
-      itool.items.push({ id: uid(), name: f.name, file: f, size: f.size, w, h, url, out: null });
-    } catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); }
-  }
+  const pics = await mapLimit(files, LIST_DECODES, f => isImage(f) ? listPicture(f) : null); // see img2pdf.js
+  files.forEach((f, i) => {
+    const { value: p, error } = pics[i];
+    if (error) toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err');
+    else if (!p) toast(`「${f.name}」不是支援的圖片格式`, 'err');
+    else itool.items.push({ id: uid(), name: f.name, file: f, size: f.size, w: p.w, h: p.h, url: p.url, out: null });
+  });
   renderImgTool();
 }
 /* The settings, read once per run so every picture of a batch gets the same ones. */
@@ -81,8 +81,15 @@ async function processImage(it, o) {
   return { blob, w, h, size: blob.size, name: it.name.replace(/\.[^.]+$/, '') + '.' + ext };
 }
 $('#it-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async check => {
-  const outs = [], o = itOpts();
-  for (const it of itool.items.slice()) { check(); it.out = await processImage(it, o); outs.push(it.out); renderImgTool(); } // the list as it was when the button was pressed
+  const o = itOpts();
+  // The list as it was when the button was pressed, a few pictures at a time: decoding, scaling and encoding happen
+  // off the page, so one picture at a time left most of the machine idle.
+  const res = await mapLimit(itool.items.slice(), LIST_DECODES, async it => {
+    check(); const out = await processImage(it, o);
+    check(); it.out = out; renderImgTool(); return out; // a setting changed meanwhile: the result no longer matches it
+  });
+  const failed = res.find(r => r.error); if (failed) throw failed.error;
+  const outs = res.map(r => r.value);
   check(); // a setting changed during the last picture
   if (o.fmt === 'webp' && outs.some(x => !/\.webp$/.test(x.name))) toast('這個瀏覽器不支援輸出 WebP，已改存成 PNG');
   if (outs.length === 1) {

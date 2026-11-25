@@ -137,13 +137,13 @@ async function resizeCrop(check, o) {
   const opening = openPdfjs(bytes); // both libraries read the file at the same time
   let doc;
   try { doc = await PDFDocument.load(bytes); } catch (e) { opening.then(pj => pj.destroy(), () => {}); throw e; }
-  const pj = await opening;
+  const pj = await opening, lanes = await pdfLanes(pj, pj.numPages, bytes, 1); // drawn at most 700 px
   const pad = o.pad, n = pj.numPages;
   let cropped = 0;
   try {
-    // Page i+1 is drawn while page i is read (see pagePipeline() in core.js).
-    await pagePipeline(n, async i => {
-      const pg = await pj.getPage(i + 1), vp1 = pg.getViewport({ scale: 1 });
+    // The next pages are drawn while page i is read (see pagePipeline() and pdfLanes() in core.js).
+    await pagePipeline(n, async (i, lane) => {
+      const pg = await lanes.docs[lane].getPage(i + 1), vp1 = pg.getViewport({ scale: 1 });
       const k = Math.min(2, 700 / Math.max(vp1.width, vp1.height)), vp = pg.getViewport({ scale: k });
       const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
       const r = { pg, cv, k, px: cv.width * cv.height };
@@ -166,9 +166,9 @@ async function resizeCrop(check, o) {
       const [ax, ay] = displayToUser(view, R, L, T), [bx, by] = displayToUser(view, R, Rt, B);
       page.setCropBox(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay));
       cropped++;
-    }, ({ pg, cv }) => { pg.cleanup(); cv.width = cv.height = 0; }, check);
+    }, ({ pg, cv }) => { pg.cleanup(); cv.width = cv.height = 0; }, check, lanes.docs.length);
     rsProgress(n, n);
-  } finally { pj.destroy(); }
+  } finally { lanes.close(); pj.destroy(); }
   return { bytes: await doc.save({ useObjectStreams: true }), cropped };
 }
 $('#rs-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async check => {
