@@ -2,7 +2,7 @@
 /* 紙匣的自動化測試：不需要安裝任何套件。
    在專案資料夾執行：
      node tests/run.mjs             跑全部
-     node tests/run.mjs 比較 merge   只跑名稱含有這些字的測試
+     node tests/run.mjs 合併 拆分    只跑名稱含有這些字的測試
      node tests/run.mjs --headed    開著視窗跑，看得到過程
      node tests/run.mjs --skip-slow 略過文字辨識之類很慢的測試
      node tests/run.mjs --file      改成直接開啟 index.html（file://），也就是使用者雙擊開啟的情況
@@ -10,40 +10,24 @@
    需要 Node 22 以上（內建 WebSocket）和 Chrome 或 Edge；找不到瀏覽器時，用環境變數 CHROME 指定執行檔路徑。
    只能在 http 下運作的測試（離線快取、文字辨識）標成 http: true，在 --file、--bundle 時略過。
 
-   How it works: a small static server serves the project folder, a headless Chrome or Edge is driven over the
+   How it works: tools/serve.mjs serves the project folder, a headless Chrome or Edge is driven over the
    DevTools protocol, and each test runs in a fresh browser profile (its own storage and service worker). A test is a
    function in tests/cases.mjs that runs inside the page, where every name from js/ is in scope, together with the
    helpers in tests/helpers.js (window.T). A test fails when it throws, times out, logs an error to the console, throws
    an uncaught exception, or shows an error toast it did not expect. */
-import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import cases from './cases.mjs';
+import { ROOT, serve } from '../tools/serve.mjs';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const headed = args.includes('--headed'), skipSlow = args.includes('--skip-slow');
 const mode = args.includes('--bundle') ? 'bundle' : args.includes('--file') ? 'file' : 'http';
 const filters = args.filter(a => !a.startsWith('--')).map(s => s.toLowerCase());
 if (typeof WebSocket === 'undefined') { console.error('需要 Node 22 以上（內建 WebSocket）。'); process.exit(2); }
-
-/* ---------- static server: the project folder, never cached ---------- */
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json',
-  '.webmanifest': 'application/manifest+json', '.wasm': 'application/wasm', '.gz': 'application/gzip', '.md': 'text/markdown; charset=utf-8' };
-function serve() {
-  const server = http.createServer((req, res) => {
-    const rel = decodeURIComponent(new URL(req.url, 'http://x').pathname).replace(/^\/+/, '') || 'index.html';
-    const file = path.resolve(ROOT, rel);
-    if (!file.startsWith(ROOT + path.sep) || !fs.existsSync(file) || !fs.statSync(file).isFile()) { res.writeHead(404); res.end(); return; }
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream', 'Cache-Control': 'no-store' });
-    fs.createReadStream(file).pipe(res);
-  });
-  return new Promise(resolve => server.listen(0, '127.0.0.1', () => resolve(server)));
-}
 
 /* ---------- browser ---------- */
 function findBrowser() {

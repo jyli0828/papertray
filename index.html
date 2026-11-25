@@ -200,7 +200,7 @@
       <p class="hint" style="margin-top:10px">沒有檔案在手邊？<button class="link-btn" id="edit-sample">用範例檔試試</button></p>
     </div>
     <div id="edit-work" hidden>
-      <div class="toolbar" id="edit-toolbar">
+      <div class="toolbar">
         <button class="btn" id="edit-undo" disabled title="復原（Ctrl+Z）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>復原</button>
         <button class="btn" id="edit-redo" disabled title="重做（Ctrl+Y）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/></svg>重做</button>
         <span class="sep"></span>
@@ -214,7 +214,7 @@
         <button class="btn danger" id="edit-del-sel" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>刪除選取</button>
         <span class="stat mono" id="edit-stat"></span>
       </div>
-      <p class="hint keys" id="edit-keys"><kbd>Delete</kbd> 刪除　<kbd>R</kbd> 旋轉（<kbd>Shift</kbd>+<kbd>R</kbd> 反向）　<kbd>D</kbd> 複製　<kbd>←</kbd><kbd>→</kbd> 移動　<kbd>Ctrl</kbd>+<kbd>A</kbd> 全選　<kbd>Esc</kbd> 取消選取　<kbd>Ctrl</kbd>+<kbd>Z</kbd> 復原</p>
+      <p class="hint keys"><kbd>Delete</kbd> 刪除　<kbd>R</kbd> 旋轉（<kbd>Shift</kbd>+<kbd>R</kbd> 反向）　<kbd>D</kbd> 複製　<kbd>←</kbd><kbd>→</kbd> 移動　<kbd>Ctrl</kbd>+<kbd>A</kbd> 全選　<kbd>Esc</kbd> 取消選取　<kbd>Ctrl</kbd>+<kbd>Z</kbd> 復原</p>
       <div class="page-grid" id="edit-grid" style="margin-top:12px"></div>
       <details class="opts-box" id="edit-opts">
         <summary>頁碼、頁首頁尾、文件資訊<span class="opts-sum" id="edit-opts-sum"></span></summary>
@@ -301,7 +301,7 @@
       <p class="hint" style="margin-top:10px">沒有檔案在手邊？<button class="link-btn" id="comp-sample">用含照片的範例檔試試</button></p>
     </div>
     <div id="comp-work" hidden style="display:flex;flex-direction:column;gap:18px">
-      <label class="drop compact" id="comp-drop-more">
+      <label class="drop compact">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4m0 0-4 4m4-4 4 4M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
         <span><strong>加入更多 PDF</strong>　拖到這裡或點一下選擇</span>
         <input type="file" id="comp-input-more" accept="application/pdf,.pdf" multiple>
@@ -869,7 +869,7 @@
           <div class="file-name" id="ff-fname"></div>
           <div class="file-meta" id="ff-fmeta"></div>
         </div>
-        <label class="btn add-label" id="ff-change">換一個檔案<input type="file" id="ff-input-2" accept="application/pdf,.pdf"></label>
+        <label class="btn add-label">換一個檔案<input type="file" id="ff-input-2" accept="application/pdf,.pdf"></label>
       </div>
       <p class="note" id="ff-none" hidden><span id="ff-none-text"></span> <button class="link-btn" id="ff-to-edit">送到「編輯」</button></p>
       <p class="hint">淡藍色的框是可以填寫的欄位，按 Tab 可以跳到下一格。中文也可以填。</p>
@@ -1098,7 +1098,7 @@
         <input type="number" id="it-size-v" min="1" value="1920">
       </label>
     </div>
-    <p class="hint" id="it-hint">只會縮小，不會把小圖放大。PNG 是無損格式，品質設定對它沒有作用。</p>
+    <p class="hint">只會縮小，不會把小圖放大。PNG 是無損格式，品質設定對它沒有作用。</p>
     <div class="footer-bar">
       <span class="summary mono" id="it-summary"></span>
       <div class="go">
@@ -1347,7 +1347,7 @@
       <label class="check"><input type="checkbox" id="pwask-show"> 顯示密碼</label>
       <!-- type="button": only 解除並繼續 submits, so Enter in the field unlocks -->
       <button type="button" class="btn" id="pwask-cancel">取消</button>
-      <button class="btn primary" value="ok" id="pwask-ok">解除並繼續</button>
+      <button class="btn primary" value="ok">解除並繼續</button>
     </div>
   </form>
 </dialog>

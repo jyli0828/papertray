@@ -5,10 +5,10 @@
 ## 執行
 
 ```powershell
-python -m http.server 8000
+node tools/serve.mjs
 ```
 
-打開 http://localhost:8000。直接雙擊 `index.html` 也能用，但瀏覽器不允許從硬碟開啟的網頁啟動背景程式：pdf.js 改在頁面上解析（較慢），文字辨識無法使用。改程式時請用本機伺服器，兩種情況都要能動。
+打開 http://localhost:8000。`tools/serve.mjs` 不讓瀏覽器快取，也是自動化測試用的伺服器；沒有 Node 時 `python -m http.server 8000` 也可以，但要記得 Ctrl+F5。直接雙擊 `index.html` 也能用，但瀏覽器不允許從硬碟開啟的網頁啟動背景程式：pdf.js 改在頁面上解析（較慢），文字辨識無法使用。改程式時請用本機伺服器，兩種情況都要能動。
 
 瀏覽器會快取 JS，改完沒生效時按 Ctrl+F5 強制重新載入。
 
@@ -29,6 +29,7 @@ papertray/
 │  ├─ qpdf/             qpdf.js 與 qpdf.wasm.js（.wasm 的 base64 版）
 │  └─ tesseract/        Tesseract.js、辨識核心、lang/ 繁中與英文的辨識資料
 ├─ tools/
+│  ├─ serve.mjs         本機伺服器（不快取），tests/run.mjs 也用它
 │  ├─ build.py          打包成單一檔案（dist/）
 │  ├─ make_icons.py     從 icons/icon.svg 的圖形畫出 icons/ 裡的 PNG
 │  └─ wasm_to_js.py     更新 qpdf 時，把 qpdf.wasm 轉成 lib/qpdf/qpdf.wasm.js

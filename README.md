@@ -11,7 +11,7 @@
 | 方式 | 怎麼做 | 適合 |
 |---|---|---|
 | **線上版** | 打開 https://jyli0828.github.io/papertray/ ；網址列或頁首的「安裝」可以裝成 App | 大部分人；裝好後離線也能用，檔案一樣不會上傳 |
-| 本機伺服器（建議） | 在專案資料夾執行 `python -m http.server 8000`，用 Chrome 或 Edge 打開 http://localhost:8000 | 日常使用，全部功能、速度最快、不需要網路 |
+| 本機伺服器（建議） | 在專案資料夾執行 `node tools/serve.mjs`（或 `python -m http.server 8000`），用 Chrome 或 Edge 打開 http://localhost:8000 | 日常使用，全部功能、速度最快、不需要網路 |
 | 直接開啟 | 雙擊 `index.html` | 臨時用；大檔案較慢，**文字辨識無法使用**（瀏覽器不允許從硬碟開啟的網頁啟動背景程式） |
 | 單一檔案版 | 執行 `python tools/build.py`，把 `dist/紙匣.html` 寄給別人 | 分享給不想下載整個專案的人；函式庫改從 CDN 載入，需要網路 |
 
@@ -58,10 +58,10 @@
 
 ## 開發
 
-沒有建置步驟、沒有套件要安裝：改完存檔、重新整理瀏覽器就看得到。
+沒有建置步驟、沒有套件要安裝（只需要 Node 22 以上；打包和產生圖示用 Python 3）：改完存檔、重新整理瀏覽器就看得到。
 
 ```powershell
-python -m http.server 8000     # 本機執行，打開 http://localhost:8000
+node tools/serve.mjs           # 本機執行，打開 http://localhost:8000（不快取）
 node tests/run.mjs             # 自動化測試（Node 22 以上、Chrome 或 Edge），約三分鐘
 python tools/build.py          # 打包成單一檔案 dist/紙匣.html
 ```
@@ -76,7 +76,7 @@ lib/            第三方函式庫的本機副本（PDF、OCR、密碼、HEIC）
 icons/          網站與 App 圖示
 sw.js           離線使用；manifest.webmanifest 讓它能安裝成 App
 tests/          瀏覽器自動化測試
-tools/          打包、產生圖示等腳本
+tools/          本機伺服器、打包、產生圖示等腳本
 docs/           說明文件
 ```
 
