@@ -25,9 +25,12 @@ function toolMatches(t, q) {
 function openTool(tab) { showTab(tab); try { history.replaceState(null, '', '#' + tab); } catch (e) {} }
 const toolButton = (t, cls, note) => `<button class="${cls}" data-tab="${t.tab}">${t.icon}<span><b>${t.name}</b><small>${note || t.desc}</small></span></button>`;
 
-/* ---------- all tools, by category ---------- */
+/* ---------- all tools, by category ----------
+   Two folders side by side, the ones with the most tools first: folders of the same size then share a row and end
+   level, with no gaps (the order among equal sizes is the tab bar's). */
 function renderHomeGroups() {
-  const q = $('#home-q').value, list = toolList(), groups = [...new Set(list.map(t => t.group))];
+  const q = $('#home-q').value, list = toolList(), size = g => list.filter(t => t.group === g).length;
+  const groups = [...new Set(list.map(t => t.group))].sort((a, b) => size(b) - size(a));
   $('#home-groups').innerHTML = groups.map(g => {
     const ts = list.filter(t => t.group === g && toolMatches(t, q));
     return ts.length ? `<div class="home-group"><h3>${g}</h3><div class="home-sheet">${ts.map(t => toolButton(t, 'home-tool')).join('')}</div></div>` : '';
