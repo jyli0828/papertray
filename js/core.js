@@ -906,24 +906,37 @@ async function renderThumb(pg) {
 function releaseThumbs(items) { for (const it of items) if (it && typeof it.thumb === 'string' && it.thumb.startsWith('blob:')) { URL.revokeObjectURL(it.thumb); it.thumb = null; } }
 /* ---------- lazy thumbnails ----------
    A long document would otherwise render every page before anything else can happen. Each card asks for its
-   thumbnail when it comes near the screen; at most two render at once. */
-const thumbJobs = []; let thumbBusy = 0;
+   thumbnail when it comes near the screen; at most two render at once. A card that leaves the screen before its
+   turn goes back to waiting: queued for good, every card scrolled past in a 1000-page file had to be drawn before the
+   ones on screen, about 16 s after scrolling to the end. */
+const thumbJobs = []; let thumbBusy = 0; // the cards waiting their turn
+/* Cards on the screen itself go first, the ones within 600 px of it after: in file order, scrolling up drew the cards
+   above the screen before the ones being looked at. Made before thumbIO, so its news of a card arrives first. */
+const onScreenIO = new IntersectionObserver(entries => {
+  for (const en of entries) en.target._onScreen = en.isIntersecting;
+});
 const thumbIO = new IntersectionObserver(entries => {
-  for (const en of entries) {
-    if (!en.isIntersecting) continue;
-    thumbIO.unobserve(en.target);
-    const job = en.target._thumbJob; en.target._thumbJob = null;
-    if (job) { thumbJobs.push(job); pumpThumbs(); }
+  for (const { target: el, isIntersecting } of entries) {
+    if (isIntersecting) { if (el._thumbJob && !el._queued) { el._queued = true; thumbJobs.push(el); } }
+    else if (el._queued) { el._queued = false; thumbJobs.splice(thumbJobs.indexOf(el), 1); }
   }
+  pumpThumbs();
 }, { rootMargin: '600px 0px' });
 function pumpThumbs() {
   while (thumbBusy < 2 && thumbJobs.length) {
-    const job = thumbJobs.shift(); thumbBusy++;
+    const at = thumbJobs.findIndex(el => el._onScreen), el = thumbJobs[at < 0 ? 0 : at], job = el._thumbJob;
+    stopThumb(el);
+    thumbBusy++;
     Promise.resolve().then(job).catch(() => {}).finally(() => { thumbBusy--; pumpThumbs(); });
   }
 }
-function whenVisible(el, job) { el._thumbJob = job; thumbIO.observe(el); }
-function forgetCards(container) { container.querySelectorAll('.page-card').forEach(c => { c._thumbJob = null; thumbIO.unobserve(c); }); }
+function whenVisible(el, job) { el._thumbJob = job; onScreenIO.observe(el); thumbIO.observe(el); }
+/* A card no longer waits for its thumbnail (drawn now, or the card is going away). */
+function stopThumb(el) {
+  el._thumbJob = null; thumbIO.unobserve(el); onScreenIO.unobserve(el);
+  if (el._queued) { el._queued = false; thumbJobs.splice(thumbJobs.indexOf(el), 1); }
+}
+function forgetCards(container) { container.querySelectorAll('.page-card').forEach(stopThumb); }
 function setCardThumb(card, src, tw, th, rot) {
   const box = card && card.querySelector('.thumb'); if (!box || !src) return;
   let img = box.querySelector('img');

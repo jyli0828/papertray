@@ -46,7 +46,7 @@ function clearCmpResult() {
 }
 /* Page pictures are drawn when they scroll near the screen (whenVisible, as for thumbnails) and kept as Blob URLs. */
 function forgetCmpPages(box) {
-  box.querySelectorAll('.cmp-page').forEach(el => { el._thumbJob = null; thumbIO.unobserve(el); if (el._img) releaseThumbs([el._img]); });
+  box.querySelectorAll('.cmp-page').forEach(el => { stopThumb(el); if (el._img) releaseThumbs([el._img]); });
 }
 function clearCmp() {
   clearCmpResult();

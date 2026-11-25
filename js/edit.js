@@ -163,7 +163,7 @@ function newEditCard(p, size) {
   card._left = card.querySelector('[data-act="left"]'); card._right = card.querySelector('[data-act="right"]');
   return card;
 }
-const dropCard = c => { c._thumbJob = null; thumbIO.unobserve(c); c.remove(); };
+const dropCard = c => { stopThumb(c); c.remove(); };
 function renderEdit() {
   // Keep the workspace (and its 復原 button) after every page was deleted, as long as that can be undone.
   const has = edit.pages.length > 0 || editHist.undo.length > 0;
@@ -178,7 +178,7 @@ function renderEdit() {
     let size = '';
     if (p.view) { const W = p.view[2] - p.view[0], H = p.view[3] - p.view[1]; size = paperName(R % 180 ? H : W, R % 180 ? W : H); }
     let card = old.get(p.id); old.delete(p.id);
-    if (card && card._look !== editCardLook(p)) { const fresh = newEditCard(p, size); card.replaceWith(fresh); thumbIO.unobserve(card); card._thumbJob = null; card = fresh; }
+    if (card && card._look !== editCardLook(p)) { const fresh = newEditCard(p, size); card.replaceWith(fresh); stopThumb(card); card = fresh; }
     else if (!card) card = newEditCard(p, size);
     // The size arrives after the card is first shown (a long file lists its pages first): filled in, not rebuilt.
     if (card._size !== size) { card._size = size; card._psize.textContent = size; }

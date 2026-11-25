@@ -2047,6 +2047,27 @@ export default [
     }
   },
   {
+    name: '長檔案快速捲到底：只畫畫面附近的縮圖，捲過的不用等',
+    async run() {
+      showTab('split');
+      await loadSplit([await T.labeled(Array.from({ length: 300 }, (_, i) => 'P' + (i + 1)), 'long.pdf')]);
+      const cards = () => [...document.querySelectorAll('#split-grid .page-card')];
+      const onScreen = () => cards().filter(c => { const r = c.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+      const shown = () => { const v = onScreen(); return v.length && v.every(c => c.querySelector('.thumb img')); };
+      await T.until(shown, '第一屏的縮圖');
+      let drawn = 0; const real = window.renderThumb; window.renderThumb = pg => { drawn++; return real(pg); };
+      try {
+        for (let k = 0; k < 30; k++) { scrollBy(0, 1500); await T.sleep(30); }
+        await T.until(shown, '捲到底後畫面上的縮圖');
+      } finally { window.renderThumb = real; }
+      const total = cards().filter(c => c.querySelector('.thumb img')).length;
+      T.ok(drawn < 90, `捲到底才畫了 ${drawn} 張（畫面上 ${onScreen().length} 張）`);
+      T.ok(total < 150, `300 頁畫了 ${total} 張`);
+      scrollTo(0, 0);
+      return `捲過 300 頁，畫了 ${drawn} 張`;
+    }
+  },
+  {
     name: '裁白邊找內容範圍：只讀四周也和逐點檢查一樣',
     async run() {
       const brute = (d, W, H) => {
