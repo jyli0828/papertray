@@ -185,14 +185,14 @@ const boxAt = (B, i) => { const k = i * 4; return Number.isNaN(B[k]) ? null : [B
    boxAt(boxes, i) is null for the spaces and line breaks put between runs. Pages without a text layer are read with
    OCR when opts.ocr is set. */
 async function pageChars(pg, opts = {}) {
-  const { text, map, items } = await pageTextMap(pg);
+  const { text, map, items } = await pageTextMap(pg, opts.text); // opts.text: its text content, read ahead
   if (text.trim() || !opts.ocr) {
     const boxes = new Float32Array(map.length * 4).fill(NaN);
     let item = -1, cur = null; // map runs through one item at a time, so only that item's boxes are needed
     map.forEach((at, i) => {
       if (!at) return;
       if (at[0] !== item) { item = at[0]; cur = itemCharBoxes(items[item]); }
-      if (cur[at[1]]) boxes.set(cur[at[1]], i * 4);
+      boxes.set(cur.subarray(at[1] * 4, at[1] * 4 + 4), i * 4);
     });
     return { text, boxes, ocr: false };
   }
@@ -244,12 +244,15 @@ async function loadOcr(files) {
   $('#ocr-name').value = baseName(f.name) + '-可搜尋.pdf';
   $('#ocr-empty').hidden = true; $('#ocr-work').hidden = false; $('#ocr-progress').hidden = true;
   updateOcrSummary();
-  for (let i = 0; i < pj.numPages; i++) {
+  // 50 pages asked for at a time (see eachPage() in core.js): one by one, a 1000-page file took 2 s to check.
+  for (let i = 0; i < pj.numPages; i += 50) {
     if (ocrTab.pj !== pj) return;
-    try {
-      const pg = await pj.getPage(i + 1), tc = await pg.getTextContent();
-      ocrTab.hasText[i] = tc.items.some(it => it.str && it.str.trim());
-    } catch (e) { ocrTab.hasText[i] = false; }
+    const has = await Promise.all(Array.from({ length: Math.min(50, pj.numPages - i) }, async (_, k) => {
+      try { return (await (await pj.getPage(i + k + 1)).getTextContent()).items.some(it => it.str && it.str.trim()); }
+      catch (e) { return false; }
+    }));
+    if (ocrTab.pj !== pj) return;
+    has.forEach((v, k) => { ocrTab.hasText[i + k] = v; });
   }
   const scans = ocrTab.hasText.filter(t => !t).length;
   $('#ocr-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)} · ` +

@@ -44,8 +44,8 @@ const RF_PATTERNS = {
 };
 /* Page text as one string, plus where each character came from (item, position in it). Items on different lines
    are joined by a line break and items with a gap between them by a space, so patterns do not run together. */
-async function pageTextMap(pg) {
-  const tc = await pg.getTextContent();
+async function pageTextMap(pg, read) { // read: the page's text content, when already asked for
+  const tc = await (read || pg.getTextContent());
   let text = ''; const map = []; let prev = null;
   tc.items.forEach((it, k) => {
     if (typeof it.str !== 'string' || !it.str) { if (it.hasEOL && prev) { text += '\n'; map.push(null); prev = null; } return; }
@@ -62,20 +62,33 @@ async function pageTextMap(pg) {
   });
   return { text, map, items: tc.items };
 }
-/* Box (PDF user space) around each character of one text item, indexed like it.str. Character widths are
-   estimated with a generic font and scaled to the item's real width, so a wide Chinese character gets more room
-   than a digit. */
+/* A character's width in a generic 10px font, measured once: every page repeats the same few hundred characters,
+   and measuring each one again made reading a 1000-page file for 比較 or 自動尋找 take seconds. */
+const charWidths = new Map();
+function charWidth(ch) {
+  let w = charWidths.get(ch);
+  if (w === undefined) { mctx.font = '10px sans-serif'; charWidths.set(ch, w = mctx.measureText(ch).width); }
+  return w;
+}
+/* Box (PDF user space) around each character of one text item, as [x0, y0, x1, y1] at 4 × i in a Float32Array,
+   indexed like it.str. Character widths are estimated with a generic font and scaled to the item's real width, so a
+   wide Chinese character gets more room than a digit. */
 function itemCharBoxes(it) {
   const [a, b, c, d, e, f] = it.transform, n = Math.hypot(a, b) || 1, fh = Math.hypot(c, d) || n;
-  mctx.font = '10px sans-serif';
-  const ws = Array.from(it.str, (_, i) => mctx.measureText(it.str[i]).width), total = ws.reduce((s, w) => s + w, 0) || 1;
+  const s = it.str, len = s.length, ws = new Float64Array(len);
+  let total = 0;
+  for (let i = 0; i < len; i++) total += ws[i] = charWidth(s[i]);
+  total = total || 1;
   const k = (it.width || total) / total, ux = a / n, uy = b / n, vx = -uy, vy = ux, pad = 1.5;
-  const out = []; let t0 = 0;
-  for (let i = 0; i < it.str.length; i++) {
-    const t1 = t0 + ws[i] * k;
-    const pts = [[t0 - pad, -.28 * fh], [t1 + pad, -.28 * fh], [t1 + pad, .98 * fh], [t0 - pad, .98 * fh]].map(([t, s]) => [e + ux * t + vx * s, f + uy * t + vy * s]);
-    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-    out.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+  // The corners are every pairing of two places along the text (t) and two across it (lo, hi): x and y each add a
+  // term of one and a term of the other, so their smallest and largest come from the smaller and larger of each.
+  const lo = -.28 * fh, hi = .98 * fh;
+  const sx0 = Math.min(vx * lo, vx * hi), sx1 = Math.max(vx * lo, vx * hi), sy0 = Math.min(vy * lo, vy * hi), sy1 = Math.max(vy * lo, vy * hi);
+  const out = new Float32Array(len * 4); let t0 = 0;
+  for (let i = 0; i < len; i++) {
+    const t1 = t0 + ws[i] * k, ta = t0 - pad, tb = t1 + pad;
+    out[i * 4] = e + Math.min(ux * ta, ux * tb) + sx0; out[i * 4 + 1] = f + Math.min(uy * ta, uy * tb) + sy0;
+    out[i * 4 + 2] = e + Math.max(ux * ta, ux * tb) + sx1; out[i * 4 + 3] = f + Math.max(uy * ta, uy * tb) + sy1;
     t0 = t1;
   }
   return out;
@@ -120,13 +133,16 @@ $('#rf-go').addEventListener('click', e => {
     // Boxes are put on the pages only once every page has been searched: closing the editor cancels the search
     // (finishEditor), and a search cut short must not leave boxes behind outside the editor's undo step.
     const counts = {}, adds = []; let hits = 0, anyText = false, ocrPages = 0;
+    const pageOf = p => edit.docs[p.docId].pj.getPage(p.index + 1), rotOf = p => (p.baseRot + p.rot) % 360;
+    // Kept with the page: reading a scanned page again would take as long as the first time.
+    const toRead = p => { const c = edit.meta[metaKey(p)].chars; return !c || (useOcr && !c.ocr && !c.text.trim()) || (c.ocr && c.R !== rotOf(p)); };
+    const ahead = readAhead(targets.length, n => toRead(targets[n]) ? pageOf(targets[n]).then(pg => pg.getTextContent()) : null); // see core.js
     for (let n = 0; n < targets.length; n++) {
       check();
-      const p = targets[n], m = edit.meta[metaKey(p)], R = (p.baseRot + p.rot) % 360;
-      const page = () => edit.docs[p.docId].pj.getPage(p.index + 1);
-      // Kept with the page: reading a scanned page again would take as long as the first time.
-      if (!m.chars || (useOcr && !m.chars.ocr && !m.chars.text.trim()) || (m.chars.ocr && m.chars.R !== R)) {
-        m.chars = await pageChars(await page(), { ocr: useOcr, rotation: R, onProgress: msg => {
+      const p = targets[n], m = edit.meta[metaKey(p)], R = rotOf(p);
+      const page = () => pageOf(p);
+      if (toRead(p)) {
+        m.chars = await pageChars(await page(), { ocr: useOcr, rotation: R, text: ahead(n), onProgress: msg => {
           out.hidden = false; out.textContent = `第 ${n + 1} / ${targets.length} 頁是掃描的圖片，正在辨識文字（OCR）：${ocrProgressText(msg)}`;
         } });
         m.chars.R = R;

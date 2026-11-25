@@ -149,8 +149,8 @@ $('#ff-reset').addEventListener('click', () => {
 });
 
 /* ---------- export ---------- */
-/* A picture of the text that fits the field box (w × h points), wrapped onto lines for multi-line fields. */
-async function renderFieldPng(text, w, h, size, multi, align) {
+/* A picture (canvas) of the text that fits the field box (w × h points), wrapped onto lines for multi-line fields. */
+async function renderFieldPicture(text, w, h, size, multi, align) {
   await ensureFont(text, size);
   const k = 4, c = document.createElement('canvas');
   c.width = Math.max(1, Math.ceil(w * k)); c.height = Math.max(1, Math.ceil(h * k));
@@ -173,8 +173,7 @@ async function renderFieldPng(text, w, h, size, multi, align) {
   ctx.textAlign = ['left', 'center', 'right'][align] || 'left';
   const x = align === 1 ? w / 2 : align === 2 ? w - pad : pad;
   lines.forEach((ln, i) => ctx.fillText(ln, x, multi ? pad + (i + .5) * s * LH : h / 2));
-  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
-  return new Uint8Array(await blob.arrayBuffer());
+  return c;
 }
 /* Draw the field's new value. "Auto" font size (0) is first replaced by a fixed one: pdf-lib's automatic size
    blows short text in a tall box up to 40 pt or more. Text the standard font cannot show gets a picture instead. */
@@ -201,7 +200,9 @@ async function pictureAppearance(doc, field, text) {
   for (const w of field.acroField.getWidgets()) {
     const r = w.getRectangle(); if (r.width < 1 || r.height < 1) continue;
     const size = daSize > 0 ? Math.min(daSize, r.height * .8) : multi ? 10 : Math.max(6, Math.min(12, r.height * .6));
-    const img = await doc.embedPng(await renderFieldPng(text, r.width, r.height, size, multi, align));
+    const cv = await renderFieldPicture(text, r.width, r.height, size, multi, align), ink = embedCanvasInk(doc, cv); // see core.js
+    const sx = r.width / cv.width, sy = r.height / cv.height; // points per canvas pixel
+    cv.width = cv.height = 0;
     const ops = [];
     try { // keep the field's border, which the standard appearance would have drawn
       const mk = w.getAppearanceCharacteristics(), bc = mk && mk.getBorderColor();
@@ -209,8 +210,10 @@ async function pictureAppearance(doc, field, text) {
       if (bc && bc.length === 3 && bw > 0) ops.push(L.pushGraphicsState(), L.setStrokingRgbColor(...bc), L.setLineWidth(bw),
         L.rectangle(bw / 2, bw / 2, r.width - bw, r.height - bw), L.stroke(), L.popGraphicsState());
     } catch (e) {}
-    ops.push(...L.drawImage('Im0', { x: 0, y: 0, width: r.width, height: r.height, rotate: L.degrees(0), xSkew: L.degrees(0), ySkew: L.degrees(0) }));
-    const stream = doc.context.formXObject(ops, { BBox: [0, 0, r.width, r.height], Resources: { XObject: { Im0: img.ref } } });
+    // Only the part with text is a picture, put where it was in the whole box (canvas rows run top down).
+    if (ink) ops.push(...L.drawImage('Im0', { x: ink.x0 * sx, y: r.height - ink.y1 * sy, width: (ink.x1 - ink.x0) * sx, height: (ink.y1 - ink.y0) * sy,
+      rotate: L.degrees(0), xSkew: L.degrees(0), ySkew: L.degrees(0) }));
+    const stream = doc.context.formXObject(ops, { BBox: [0, 0, r.width, r.height], Resources: ink ? { XObject: { Im0: ink.ref } } : {} });
     w.setNormalAppearance(doc.context.register(stream));
   }
 }

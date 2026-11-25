@@ -2068,6 +2068,83 @@ export default [
     }
   },
   {
+    name: '每個字的位置：記住字寬、直接算四角，和逐字量、逐點算的結果一樣',
+    async run() {
+      // The way it was computed before: every character measured, the four corners turned and compared one by one.
+      const before = it => {
+        const [a, b, c, d, e, f] = it.transform, n = Math.hypot(a, b) || 1, fh = Math.hypot(c, d) || n;
+        mctx.font = '10px sans-serif';
+        const ws = [...it.str].map(ch => mctx.measureText(ch).width), total = ws.reduce((s, w) => s + w, 0) || 1;
+        const k = (it.width || total) / total, ux = a / n, uy = b / n, vx = -uy, vy = ux, pad = 1.5, out = [];
+        let t0 = 0;
+        for (let i = 0; i < it.str.length; i++) {
+          const t1 = t0 + ws[i] * k;
+          const pts = [[t0 - pad, -.28 * fh], [t1 + pad, -.28 * fh], [t1 + pad, .98 * fh], [t0 - pad, .98 * fh]].map(([t, s]) => [e + ux * t + vx * s, f + uy * t + vy * s]);
+          const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+          out.push(...[Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)].map(Math.fround));
+          t0 = t1;
+        }
+        return out;
+      };
+      const strs = ['身分證 A123456789', 'Tel 0912-345-678', '第 3 頁，共 10 頁', 'a', '  ', 'mail@example.com 王小明'];
+      for (let t = 0; t < 400; t++) {
+        const ang = (t % 8) * Math.PI / 4 + (t % 3) * .1, sz = 6 + t % 20, str = strs[t % strs.length];
+        const it = { str, width: t % 5 ? str.length * sz * .5 : 0,
+          transform: [sz * Math.cos(ang), sz * Math.sin(ang), -sz * Math.sin(ang) * (t % 4 ? 1 : .6), sz * Math.cos(ang), 50 + t, 700 - t] };
+        T.eq([...itemCharBoxes(it)], before(it), `第 ${t} 組`);
+      }
+      return '400 組';
+    }
+  },
+  {
+    name: '畫布直接嵌進 PDF：和先存成 PNG 再嵌入的一樣（透明度相同，顏色最多差 1）',
+    async run() {
+      await needPdfLib();
+      const L = window.PDFLib, N = k => PDFName.of(k);
+      const cv = document.createElement('canvas'); cv.width = 180; cv.height = 40;
+      const c = cv.getContext('2d'); c.font = fontStr(20); c.fillStyle = '#123'; c.textBaseline = 'middle'; c.fillText('王小明 0912', 4, 20);
+      c.fillStyle = 'rgba(200, 30, 30, .5)'; c.fillRect(120, 5, 50, 30);
+      const solid = document.createElement('canvas'); solid.width = 8; solid.height = 6; solid.getContext('2d').fillRect(0, 0, 8, 6);
+      for (const [label, pic] of [['文字', cv], ['不透明', solid]]) {
+        const doc = await PDFDocument.create();
+        const png = await doc.embedPng(new Uint8Array(await (await new Promise(r => pic.toBlob(r, 'image/png'))).arrayBuffer()));
+        await png.embed();
+        const mine = embedCanvas(doc, pic);
+        const pick = ref => {
+          const s = doc.context.lookup(ref), d = s.dict, m = d.get(N('SMask'));
+          return { dict: [...d.entries()].filter(([k]) => !['/SMask', '/Length'].includes(k.asString())).map(([k, v]) => k.asString() + '=' + v.toString()).sort(),
+            data: [...L.decodePDFRawStream(s).decode()], mask: m ? [...L.decodePDFRawStream(doc.context.lookup(m)).decode()] : null };
+        };
+        // The colour of half-covered pixels may differ by 1: the browser rounds the same pixels a little differently when
+        // it writes a PNG than when it hands them to the page.
+        const x = pick(mine), y = pick(png.ref);
+        T.eq(x.dict, y.dict, label + '：圖片設定'); T.eq(x.mask, y.mask, label + '：透明度');
+        T.ok(x.data.length === y.data.length && x.data.every((v, i) => Math.abs(v - y.data[i]) <= 1), label + '：顏色');
+      }
+      // Only the part with ink, put back at its place, looks the same as the whole canvas.
+      const doc = await PDFDocument.create(), W = cv.width / 4, H = cv.height / 4;
+      const whole = embedCanvas(doc, cv), ink = embedCanvasInk(doc, cv), s = 1 / 4;
+      T.ok(ink && ink.x1 - ink.x0 < cv.width && ink.y1 - ink.y0 <= cv.height, '只取有字的部分');
+      const draw = (page, name, ref, x, y, w, h) => {
+        page.node.setXObject(PDFName.of(name), ref);
+        page.pushOperators(L.pushGraphicsState(), L.concatTransformationMatrix(w, 0, 0, h, x, y), L.drawObject(name), L.popGraphicsState());
+      };
+      draw(doc.addPage([W, H]), 'A', whole, 0, 0, W, H);
+      draw(doc.addPage([W, H]), 'B', ink.ref, ink.x0 * s, H - ink.y1 * s, (ink.x1 - ink.x0) * s, (ink.y1 - ink.y0) * s);
+      T.eq(embedCanvasInk(doc, solid.getContext('2d').clearRect(0, 0, 8, 6) || solid), null, '空白的畫布');
+      const pj = await openPdfjs(await doc.save()), shot = async i => {
+        const pg = await pj.getPage(i), vp = pg.getViewport({ scale: 4 }), c2 = document.createElement('canvas');
+        c2.width = Math.ceil(vp.width); c2.height = Math.ceil(vp.height);
+        const x2 = c2.getContext('2d'); x2.fillStyle = '#fff'; x2.fillRect(0, 0, c2.width, c2.height);
+        await pg.render({ canvasContext: x2, viewport: vp }).promise; return x2.getImageData(0, 0, c2.width, c2.height).data;
+      };
+      const a = await shot(1), b = await shot(2);
+      let off = 0; for (let k = 0; k < a.length; k++) if (Math.abs(a[k] - b[k]) > 8) off++;
+      pj.destroy();
+      T.ok(off < a.length * .002, `整張和只取有字部分畫出來不同的點：${off}`);
+    }
+  },
+  {
     name: '裁白邊找內容範圍：只讀四周也和逐點檢查一樣',
     async run() {
       const brute = (d, W, H) => {

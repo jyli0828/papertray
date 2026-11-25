@@ -67,13 +67,14 @@ registerHolder('compare', () => (cmp.a ? cmp.a.size : 0) + (cmp.b ? cmp.b.size :
 /* ---------- text of each page ---------- */
 async function cmpReadDoc(d, label, useOcr, check, progress) {
   const n = d.pj.numPages;
+  const done = i => { const c = d.chars[i]; return c && (c.ocr || c.text.trim() || !useOcr); }; // a scan read without OCR is read again with it
+  const ahead = readAhead(n, i => done(i) ? null : d.pj.getPage(i + 1).then(pg => pg.getTextContent())); // see core.js
   for (let i = 0; i < n; i++) {
     check();
-    const c = d.chars[i];
-    if (c && (c.ocr || c.text.trim() || !useOcr)) continue; // already read (a scan read without OCR is read again with it)
+    if (done(i)) continue; // already read
     progress(`讀取${label}第 ${i + 1} / ${n} 頁`);
     const pg = await d.pj.getPage(i + 1), R = normRot(pg.rotate);
-    const r = await pageChars(pg, { ocr: useOcr, rotation: R, onProgress: m => progress(`${label}第 ${i + 1} / ${n} 頁是掃描的圖片 · ${ocrProgressText(m)}`) });
+    const r = await pageChars(pg, { ocr: useOcr, rotation: R, text: ahead(i), onProgress: m => progress(`${label}第 ${i + 1} / ${n} 頁是掃描的圖片 · ${ocrProgressText(m)}`) });
     d.chars[i] = { ...r, view: pg.view.slice(), R };
     pg.cleanup();
   }

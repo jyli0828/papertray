@@ -293,6 +293,20 @@ async function openPdfjs(bytes, owned) {
   await needPdfjs();
   return await pdfjsLib.getDocument(pdfjsOpts(owned ? bytes : bytes.slice())).promise;
 }
+/* Work on items 0..n-1 read a few ahead: ahead(i) gives what make(i) started (a promise, or null when make(i) gave
+   null: nothing to read), and starts the next ones. Reading one page's text at a time, the page waited for pdf.js's
+   worker and the worker for the page: comparing two 1000-page files spent half its time doing nothing. */
+function readAhead(n, make, count = 8) {
+  const got = new Map();
+  return i => {
+    for (let k = i; k < Math.min(n, i + count + 1); k++) {
+      if (got.has(k)) continue;
+      const p = make(k); if (p) p.catch(() => {}); // a failure reaches whoever asks for it
+      got.set(k, p || null);
+    }
+    const p = got.get(i); got.delete(i); return p;
+  };
+}
 /* Goes through the pages of a pdf.js document: page(pg, i) gets each page (pg is null for a page that cannot be
    read), batch() runs after each batch. Pages are asked for 50 at a time: asked one by one, each request waited
    behind the thumbnails being drawn meanwhile, and only listing the page sizes of a 1000-page file took a second.
@@ -1143,6 +1157,33 @@ function measureAnnot(a) {
   const lines = a.text.split('\n');
   const w = Math.max(...lines.map(l => mctx.measureText(l).width));
   a.wPt = Math.max(w, a.size * .5) + 2; a.hPt = lines.length * a.size * LH;
+}
+/* A canvas put into doc as a picture, the same objects embedPng() makes of a PNG of it (colour, and the transparency
+   as a soft mask), without first encoding that PNG and having pdf-lib decode it again: a form with 600 filled
+   fields, each its own picture, spent most of its export doing that. Gives the picture's reference. */
+function embedCanvas(doc, cv) {
+  return embedPixels(doc, cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, cv.width, 0, 0, cv.width, cv.height);
+}
+/* Only the part of a canvas with something on it: { ref, x0, y0, x1, y1 } (that part, in canvas pixels), or null for
+   a blank canvas. A filled form field's picture is mostly empty box, and that emptiness cost as much as the text. */
+function embedCanvasInk(doc, cv) {
+  const W = cv.width, H = cv.height, px = cv.getContext('2d').getImageData(0, 0, W, H).data;
+  let x0 = W, y0 = H, x1 = 0, y1 = 0;
+  for (let y = 0; y < H; y++) for (let x = 0, j = y * W * 4 + 3; x < W; x++, j += 4) {
+    if (px[j]) { if (x < x0) x0 = x; if (x >= x1) x1 = x + 1; if (y < y0) y0 = y; y1 = y + 1; }
+  }
+  return x1 > x0 ? { ref: embedPixels(doc, px, W, x0, y0, x1, y1), x0, y0, x1, y1 } : null;
+}
+function embedPixels(doc, px, W, x0, y0, x1, y1) {
+  const ctx = doc.context, w = x1 - x0, h = y1 - y0, rgb = new Uint8Array(w * h * 3), alpha = new Uint8Array(w * h);
+  let see = false;
+  for (let y = y0, i = 0, o = 0; y < y1; y++) for (let j = (y * W + x0) * 4, end = j + w * 4; j < end; j += 4, i++, o += 3) {
+    rgb[o] = px[j]; rgb[o + 1] = px[j + 1]; rgb[o + 2] = px[j + 2];
+    if ((alpha[i] = px[j + 3]) < 255) see = true;
+  }
+  const img = { Type: 'XObject', Subtype: 'Image', BitsPerComponent: 8, Width: w, Height: h, ColorSpace: 'DeviceRGB' };
+  if (see) img.SMask = ctx.register(ctx.flateStream(alpha, { Type: 'XObject', Subtype: 'Image', Height: h, Width: w, BitsPerComponent: 8, ColorSpace: 'DeviceGray', Decode: [0, 1] }));
+  return ctx.register(ctx.flateStream(rgb, img));
 }
 async function renderTextPng(a) {
   await ensureFont(a.text, a.size);
