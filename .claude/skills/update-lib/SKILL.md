@@ -39,9 +39,8 @@ Every update also changes:
   notes under the table that name a version (`pdfjs-dist@…`).
 - **`sw.js`: `const CACHE = 'papertray-vN'` goes up by one.** The service worker serves `lib/` from its cache first
   ("Libraries never change under the same name"), so without a new cache name everyone who opened 紙匣 before keeps
-  the old library, now next to new `js/` code. The new name makes the next visit drop the old cache.
-  The two offline tests in `tests/cases.mjs` open that cache by name (`caches.open('papertray-v1')`): change them to
-  the new name too (`grep -n "papertray-v" sw.js tests/cases.mjs`), or they fail with 等不到：快取完成.
+  the old library, now next to new `js/` code. The new name makes the next visit drop the old cache. (The offline
+  tests look in every cache, `T.cachedPaths()`, so they need no change.)
 
 ## Steps
 
@@ -64,23 +63,22 @@ Every update also changes:
    CMaps, take every `.bcmap` the package lists
    (`https://data.jsdelivr.com/v1/packages/npm/pdfjs-dist@<v>?structure=flat`).
 
-4. **Put the files into lib/ with `cp` in Bash.** The `protect-lib-dist` hook blocks Edit and Write under `lib/` on
+4. **Put the files into lib/ with `cp` in Bash.** The `guard-edits` hook blocks Edit and Write under `lib/` on
    purpose; copying files downloaded unchanged is what this skill is for. Never edit a library's code. For CMaps,
    replace the folder's `.bcmap` files as a set (delete maps the new version no longer has) and keep `LICENSE`. For
-   qpdf, run `python tools/wasm_to_js.py <downloaded qpdf.wasm> <v>`. Don't do this while tests run (the
-   `block-while-testing` hook stops edits then too).
+   qpdf, run `$PY tools/wasm_to_js.py <downloaded qpdf.wasm> <v>` (`$PY`: the Python `/full-test` picks). Don't do
+   this while tests run (the same hook stops edits then too).
 
 5. **Update the other places** from the table above: `tools/build.py`, `js/core.js` (`LIB_FALLBACK`) if listed,
-   `docs/third-party.md`, `sw.js` `CACHE` and the cache name in `tests/cases.mjs`. Updating several libraries at
-   once: `CACHE` goes up once.
+   `docs/third-party.md` and `sw.js` `CACHE`. Updating several libraries at once: `CACHE` goes up once.
 
 6. **Verify.**
    - `node .claude/skills/update-lib/check-libs.mjs` exits 0 (new files = CDN files, versions agree).
-   - `python tools/build.py`, then `/full-test`'s three runs (server, `--file`, `--bundle`). The offline tests check
+   - `/full-test`: it builds the bundle, then runs all three ways (server, `--file`, `--bundle`). The offline tests check
      the service worker caching the new files.
    - PDF.js or pdf-lib: suggest the user run `/bench` against `HEAD`, since rendering and saving speed can change
      between versions (this skill cannot start `/bench` itself).
 
 7. **Report**: old → new version per library, files replaced, the size change, test results, and anything from the
-   release notes the user should know. Do not commit unless the user asks; when they do, one commit for the update (`lib/`, the places above and the
-   cache name together, so no commit has new files under the old cache name).
+   release notes the user should know. Do not commit unless the user asks; when they do, one commit for the update (`lib/`, the
+   places above and the new cache name together, so no commit has new files under the old cache name).

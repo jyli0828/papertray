@@ -902,7 +902,7 @@ async function pagePipeline(n, make, use, drop0, check, lanes = 1) {
    of mostly text (under LANES_BYTES a page) drawn large (over LANES_TEXT_SCALE) gets one lane: its pages are painted
    on the page's own thread, and more workers only cost the time to open them (40 text pages: 705 → 760 ms). Drawn
    small, the page's thread finishes a page faster than one worker prepares the next, so it waited a third of the
-   time: more lanes made 裁白邊 10–30% faster (1000 text pages 17.3 → 12.1 s) and 選取空白頁 twice as fast (300
+   time: more lanes made 裁白邊 10–30% faster (1000 text pages 17.6 → 13.7 s) and 選取空白頁 twice as fast (300
    empty pages 5.1 → 2.1 s), while 150 dpi pictures of text pages gained nothing. */
 const LANES_MAX = Math.max(1, Math.min(3, (navigator.hardwareConcurrency || 2) - 1, (navigator.deviceMemory || 4) >= 4 ? 3 : 2));
 const LANES_PX = 20e6, LANES_BYTES = 20000, LANES_TEXT_SCALE = 1.5;

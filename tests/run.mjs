@@ -152,12 +152,12 @@ async function runCase(cdp, base, tc) {
 }
 
 /* While the tests run, tests/.running-<pid> exists: a page that loads a half-saved file fails for no real reason, so an
-   editor or an assistant can check for it before changing the files the pages load (the Claude Code hook in
-   .claude/hooks/ does). It goes when the run ends, also on Ctrl+C; one left by a run that was killed names a process
-   that no longer exists. */
+   editor or an assistant can check for it before changing the files the pages load (the Claude Code hook
+   .claude/hooks/guard-edits.js does). It goes when the run ends, also on Ctrl+C; one left by a run that was killed
+   names a process that no longer exists. */
 function markRunning() {
   const mark = path.join(ROOT, 'tests', `.running-${process.pid}`);
-  try { fs.writeFileSync(mark, new Date().toISOString()); } catch (e) { return; }
+  try { fs.writeFileSync(mark, ''); } catch (e) { return; } // only its name is read
   process.on('exit', () => { try { fs.rmSync(mark, { force: true }); } catch (e) {} });
   for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(130));
 }

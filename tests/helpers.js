@@ -43,6 +43,11 @@
       return pdfFile(await doc.save(), name);
     },
     async pdf(file) { const { bytes } = await fileBytes(file); return openPdfjs(bytes); },
+    /* The paths the service worker has kept, in whatever cache sw.js names (its CACHE goes up when lib/ changes). */
+    async cachedPaths() {
+      const lists = await Promise.all((await caches.keys()).map(async n => (await (await caches.open(n)).keys()).map(r => new URL(r.url).pathname)));
+      return lists.flat();
+    },
     /* Text of every page. */
     async pdfText(file) {
       const pj = await T.pdf(file), out = [];

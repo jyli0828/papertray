@@ -35,7 +35,7 @@ rep("    } else if (m.method === 'Runtime.consoleAPICalled' && m.params.type ===
       const [, name, what] = m.params.args[0].value.split(' ');
       (globalThis.__marks = globalThis.__marks || []).push([name, what, Date.now()]);
     } else if (m.method === 'Runtime.consoleAPICalled' && m.params.type === 'error') {`, 'console listener');
-rep('    const secs = ((Date.now() - t) / 1000).toFixed(1);', `    await sleep(300);
+rep('    const secs = ((Date.now() - t) / 1000).toFixed(1);', `    if (globalThis.__mem.length) await sleep(300); // the last samples of the case (Windows only)
     const marks = globalThis.__marks || []; globalThis.__marks = [];
     const rises = [];
     for (let i = 0; i < marks.length; i++) {

@@ -1825,10 +1825,7 @@ export default [
       const own = [...document.querySelectorAll('script[src], link[href]')].map(e => new URL(e.src || e.href, location.href))
         .filter(u => u.origin === location.origin).map(u => u.pathname);
       const need = [...new Set([...own, '/', '/index.html', '/lib/pdf.min.js', '/lib/pdf-lib.min.js', '/lib/pdf.worker.min.js'])];
-      await T.until(async () => {
-        const keys = (await (await caches.open('papertray-v1')).keys()).map(r => new URL(r.url).pathname);
-        return need.every(p => keys.includes(p));
-      }, '快取完成', 20000);
+      await T.until(async () => { const kept = await T.cachedPaths(); return need.every(p => kept.includes(p)); }, '快取完成', 20000);
       return `${need.length} 個檔案`;
     }
   },
@@ -1839,7 +1836,7 @@ export default [
       await navigator.serviceWorker.ready;
       // The page's own files are kept first, the libraries right after (sw.js): wait for both.
       const need = ['/js/app.js', '/lib/pdf-lib.min.js', '/lib/pdf.min.js', '/lib/pdf.worker.min.js'];
-      await T.until(async () => { const keys = (await (await caches.open('papertray-v1')).keys()).map(r => new URL(r.url).pathname); return need.every(p => keys.includes(p)); }, '快取完成', 20000);
+      await T.until(async () => { const kept = await T.cachedPaths(); return need.every(p => kept.includes(p)); }, '快取完成', 20000);
     },
     async after() {
       T.ok(getComputedStyle(document.body).backgroundColor !== 'rgba(0, 0, 0, 0)', 'CSS 有載入');

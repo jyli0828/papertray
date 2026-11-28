@@ -22,6 +22,7 @@ async function get(url) {
   if (!r.ok) throw new Error(`${r.status} ${url}`);
   return Buffer.from(await r.arrayBuffer());
 }
+const getJson = async url => JSON.parse((await get(url)).toString('utf8'));
 async function mapLimit(items, n, fn) {
   const out = []; let i = 0;
   await Promise.all(Array.from({ length: n }, async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k]); } }));
@@ -38,14 +39,12 @@ function pkgOf(url) {
 }
 async function latest(p) {
   try {
-    if (p.cdn === 'cdnjs') return (await (await fetch(`https://api.cdnjs.com/libraries/${p.name}?fields=version`)).json()).version;
-    return (await (await fetch(`https://data.jsdelivr.com/v1/packages/npm/${p.name}/resolved?specifier=latest`)).json()).version;
+    if (p.cdn === 'cdnjs') return (await getJson(`https://api.cdnjs.com/libraries/${p.name}?fields=version`)).version;
+    return (await getJson(`https://data.jsdelivr.com/v1/packages/npm/${p.name}/resolved?specifier=latest`)).version;
   } catch (e) { return '?'; }
 }
 
-const newer = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
-  return false; };
+const newer = (a, b) => a.localeCompare(b, undefined, { numeric: true }) > 0; // dotted numbers: 1.10 > 1.9
 
 const build = fs.readFileSync(path.join(ROOT, 'tools', 'build.py'), 'utf8');
 const table = [...build.matchAll(/'(lib\/[^']*)':\s*'([^']+)'/g)].map(m => ({ local: m[1], url: m[2] }));
@@ -59,22 +58,21 @@ for (const { local, url } of table) {
     const names = new Set(fs.readdirSync(abs).filter(f => f.endsWith('.bcmap'))), p = pkgOf(url);
     const dir = url.replace(/^.*?@[^/]+/, ''); // e.g. /cmaps/
     try {
-      const flat = await (await fetch(`https://data.jsdelivr.com/v1/packages/npm/${p.name}@${p.version}?structure=flat`)).json();
+      const flat = await getJson(`https://data.jsdelivr.com/v1/packages/npm/${p.name}@${p.version}?structure=flat`);
       for (const f of flat.files || []) if (f.name.startsWith(dir) && f.name.endsWith('.bcmap')) names.add(f.name.slice(dir.length));
     } catch (e) { console.log(`（拿不到 ${p.name}@${p.version} 的檔案清單，只比對本機有的對應表）`); }
     for (const f of [...names].sort()) checks.push({ file: local + f, url: url + f });
   } else if (local === 'lib/tesseract/lang') {
     for (const f of fs.readdirSync(abs).filter(f => f.endsWith('.traineddata.gz'))) {
-      checks.push({ file: `${local}/${f}`, url: `${url}/${f.split('.')[0]}@${LANG_DATA.split('/')[0]}/${LANG_DATA.split('/')[1]}/${f}` });
+      checks.push({ file: `${local}/${f}`, url: `${url}/${f.split('.')[0]}@${LANG_DATA}/${f}` });
     }
   } else {
-    checks.push({ file: local, url, decode: /\.wasm$/.test(url) && local.endsWith('.wasm.js') });
+    checks.push({ file: local, url, decode: url.endsWith('.wasm') });
     // pdf.js finds its worker next to itself (WORKER_URL in js/core.js), in lib/ and on the CDN alike
     if (local === 'lib/pdf.min.js') checks.push({ file: 'lib/pdf.worker.min.js', url: url.replace(/pdf\.min\.js$/, 'pdf.worker.min.js') });
   }
 }
 
-let bad = 0;
 const results = await mapLimit(checks, 8, async c => {
   const abs = path.join(ROOT, c.file);
   if (!fs.existsSync(abs)) return { ...c, state: '缺檔' };
@@ -87,13 +85,10 @@ const results = await mapLimit(checks, 8, async c => {
   try { return { ...c, state: sha(mine) === sha(await get(c.url)) ? 'same' : '不同' }; }
   catch (e) { return { ...c, state: '下載失敗 ' + e.message }; }
 });
-const maps = results.filter(r => r.file.startsWith('lib/cmaps/'));
-for (const r of results.filter(r => !r.file.startsWith('lib/cmaps/'))) {
-  if (r.state !== 'same') bad++;
-  console.log(`${r.state === 'same' ? '✓' : '✗'} ${r.file}${r.state === 'same' ? '' : '  ' + r.state}`);
-}
-const mapsBad = maps.filter(r => r.state !== 'same');
-bad += mapsBad.length;
+let bad = results.filter(r => r.state !== 'same').length;
+const isMap = r => r.file.startsWith('lib/cmaps/'), maps = results.filter(isMap), mapsBad = maps.filter(r => r.state !== 'same');
+// one line per file, but the ~170 maps as one line
+for (const r of results.filter(r => !isMap(r))) console.log(`${r.state === 'same' ? '✓' : '✗'} ${r.file}${r.state === 'same' ? '' : '  ' + r.state}`);
 console.log(`${mapsBad.length ? '✗' : '✓'} lib/cmaps/  ${maps.length - mapsBad.length}/${maps.length} 個相同${mapsBad.length ? '：' + mapsBad.slice(0, 5).map(r => path.basename(r.file) + ' ' + r.state).join('、') : ''}`);
 
 // js/core.js names some of the same addresses (fallbacks); they must name the versions build.py does.
@@ -102,13 +97,14 @@ for (const { url } of table) { const p = pkgOf(url); if (p) pinned.set(p.name, p
 const core = fs.readFileSync(path.join(ROOT, 'js', 'core.js'), 'utf8');
 for (const [, url] of core.matchAll(/'(https:\/\/[^']+)'/g)) {
   const p = pkgOf(url); if (!p) continue;
-  const want = pinned.get(p.name) || [...pinned.values()].find(q => q.name.endsWith('/' + p.name) || p.name === 'pdfjs-dist' && q.name === 'pdfjs-dist');
+  const want = pinned.get(p.name);
   if (want && want.version !== p.version) { bad++; console.log(`✗ js/core.js 的 ${p.name}@${p.version}，build.py 是 ${want.version}`); }
 }
 
 console.log('\n版本（build.py 的 CDN 表 → 目前最新）');
-for (const p of pinned.values()) {
-  const l = await latest(p);
+const packages = [...pinned.values()], newest = await Promise.all(packages.map(latest)); // asked all at once
+for (const [k, p] of packages.entries()) {
+  const l = newest[k];
   // Only a higher number counts: a package's "latest" tag can lag behind a release it already has (tesseract.js-core).
   console.log(`  ${p.name.padEnd(30)} ${p.version.padEnd(10)} → ${l}${l !== '?' && newer(l, p.version) ? '  可更新' : ''}`);
 }
