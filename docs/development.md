@@ -38,6 +38,9 @@ papertray/
 ├─ dist/                build.py 的產出，不在版本控制內
 ├─ LICENSE              MIT 授權（紙匣自己的程式碼；lib/ 裡的函式庫各有授權）
 ├─ .github/workflows/   test.yml：每次推送跑三種模式的測試，main 全部通過才發布到 GitHub Pages
+├─ .claude/             Claude Code 的設定：hooks/（改完 JS 檢查語法；lib/、dist/ 和測試執行中的檔案不能改），
+│                       skills/（full-test 完整測試、bench 效能測量、update-lib 更新函式庫）；個人的
+│                       settings.local.json 不在版本控制內
 ├─ .editorconfig        編輯器設定：UTF-8、LF、2 格縮排（Python 4 格）
 └─ .gitattributes       文字檔一律存成 LF，圖片、壓縮檔、wasm、CMap 視為二進位
 ```
@@ -153,7 +156,7 @@ papertray/
 
 ## 發布
 
-**線上版**：https://jyli0828.github.io/papertray/ ，由 GitHub Actions 發布：推送到 `main` 後先用三種模式跑完自動化測試，全部通過才把網站用到的檔案（`index.html`、`manifest.webmanifest`、`sw.js`、`css/`、`js/`、`lib/`、`icons/`）發布到 GitHub Pages，約 5 分鐘。測試沒過時線上版維持原樣，到 repo 的 Actions 頁面看是哪一項失敗。
+**線上版**：https://jyli0828.github.io/papertray/ ，由 GitHub Actions 發布：推送到 `main` 後先用三種模式跑完自動化測試，全部通過才把網站用到的檔案（`index.html`、`manifest.webmanifest`、`sw.js`、`css/`、`js/`、`lib/`、`icons/`）發布到 GitHub Pages，約 3 分鐘。測試沒過時線上版維持原樣，到 repo 的 Actions 頁面看是哪一項失敗。
 
 發布分成兩個 job：「打包網站」和三組測試同時跑，把上面那些檔案打包上傳；「發布到 GitHub Pages」等測試和打包都完成才開始。原本兩件事在同一個 job 裡，發布步驟在上傳完不到 1 秒就去找打包好的檔案，GitHub 有時還列不出來（`Found 0 artifact(s)`、`No artifacts named "github-pages"`），2026-11-28 三次推送有兩次因此失敗，測試其實都過了。分開後中間隔著測試的時間，就找得到了。發布步驟仍然找不到時，會等 30 秒再試一次；兩次都失敗才算失敗，這時在 Actions 頁面對那次執行按「Re-run failed jobs」即可，測試和打包不會重跑。線上版用的是 `lib/` 裡的函式庫，和本機伺服器完全相同，所以文字辨識等全部功能都能用。
 
@@ -208,7 +211,7 @@ python tools/build.py
 node tests/run.mjs
 ```
 
-不用安裝任何套件：需要 Node 22 以上和 Chrome 或 Edge（找不到時用環境變數 `CHROME` 指定執行檔）。它會開一個本機伺服器、在背景開瀏覽器，每個測試用全新的瀏覽器設定檔跑一次，約三分鐘。
+不用安裝任何套件：需要 Node 22 以上和 Chrome 或 Edge（找不到時用環境變數 `CHROME` 指定執行檔）。它會開一個本機伺服器、在背景開瀏覽器，每個測試用全新的瀏覽器設定檔跑一次，約兩分半。
 
 在 Linux 上跑測試還要有中文字型（Ubuntu：`sudo apt install fonts-noto-cjk`）。沒有的話，「文字辨識：掃描檔變成可搜尋的 PDF」會失敗：範例掃描檔的中文是用系統字型畫出來的，畫不出字就辨識不到。「裁切框不在原點的頁面…」也會失敗：文字框的大小由瀏覽器依字型量出來，退回 DejaVu Sans 時量到的高度和畫出來的不同。Windows、macOS 和 GitHub Actions 的 Ubuntu 都已經有中文字型，WSL 和精簡的 Linux 安裝通常沒有。
 

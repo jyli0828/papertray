@@ -62,11 +62,11 @@
 
 ```powershell
 node tools/serve.mjs           # 本機執行，打開 http://localhost:8000（不快取）
-node tests/run.mjs             # 自動化測試（Node 22 以上、Chrome 或 Edge），約三分鐘
+node tests/run.mjs             # 自動化測試（Node 22 以上、Chrome 或 Edge），約兩分半
 python tools/build.py          # 打包成單一檔案 dist/紙匣.html
 ```
 
-推送到 `main` 後，GitHub Actions 會用三種開啟方式跑一遍自動化測試，全部通過才發布到 GitHub Pages（約 5 分鐘，見 `.github/workflows/test.yml`）。新增工具、修正錯誤的做法和慣例見 [docs/development.md](docs/development.md)。
+推送到 `main` 後，GitHub Actions 會用三種開啟方式跑一遍自動化測試，全部通過才發布到 GitHub Pages（約 3 分鐘，見 `.github/workflows/test.yml`）。在 Linux 上跑測試要先裝中文字型（例如 `fonts-noto-cjk`）。新增工具、修正錯誤的做法和慣例見 [docs/development.md](docs/development.md)。
 
 ```
 index.html      頁面：頁首、工具列、每個工具一個區塊
@@ -78,6 +78,8 @@ sw.js           離線使用；manifest.webmanifest 讓它能安裝成 App
 tests/          瀏覽器自動化測試
 tools/          本機伺服器、打包、產生圖示等腳本
 docs/           說明文件
+.github/        GitHub Actions：測試與發布
+.claude/        Claude Code 的設定：改檔時的檢查、完整測試、效能測量、更新函式庫
 ```
 
 ## 文件
