@@ -5,8 +5,8 @@ dist/
 __pycache__/
 *.pyc
 
-# 編輯器、AI 助手的本機設定
-.claude/
+# 編輯器的本機設定；.claude/ 裡的 hooks、skills 是專案的一部分，只有個人的 settings.local.json 不進版本控制
+.claude/settings.local.json
 .vscode/
 .idea/
 
