@@ -36,7 +36,7 @@ async function loadForm(files) {
     try { annots = await pg.getAnnotations({ intent: 'display' }); } catch (e) {}
     for (const a of annots) {
       if (a.subtype !== 'Widget' || !a.fieldName || a.pushButton || a.fieldType === 'Sig' || a.hidden) continue;
-      const [x1, y1, x2, y2] = vp1.convertToViewportRectangle(a.rect);
+      const [x1, y1] = vp1.convertToViewportPoint(a.rect[0], a.rect[1]), [x2, y2] = vp1.convertToViewportPoint(a.rect[2], a.rect[3]);
       const r = { l: Math.min(x1, x2) / vp1.width, t: Math.min(y1, y2) / vp1.height, w: Math.abs(x2 - x1) / vp1.width, h: Math.abs(y2 - y1) / vp1.height };
       const fld = { a, page: i, r, wPt: Math.abs(x2 - x1), hPt: Math.abs(y2 - y1) };
       ff.fields.push(fld);

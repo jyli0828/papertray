@@ -328,7 +328,7 @@ $('#edit-clear').addEventListener('click', e => {
   clearEdit();
 });
 function clearEdit() {
-  Object.values(edit.docs).forEach(d => d.pj.destroy()); releaseThumbs(Object.values(edit.meta));
+  Object.values(edit.docs).forEach(d => d.pj.loadingTask.destroy()); releaseThumbs(Object.values(edit.meta));
   edit.docs = {}; edit.pages = []; edit.meta = {}; editHist.undo = []; editHist.redo = []; renderEdit();
   MD_FIELDS.forEach(k => { $('#md-' + k).value = ''; });
 }

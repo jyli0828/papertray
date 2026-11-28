@@ -8,7 +8,7 @@
 node tools/serve.mjs
 ```
 
-打開 http://localhost:8000。`tools/serve.mjs` 不讓瀏覽器快取，也是自動化測試用的伺服器；沒有 Node 時 `python -m http.server 8000` 也可以，但要記得 Ctrl+F5。直接雙擊 `index.html` 也能用，但瀏覽器不允許從硬碟開啟的網頁啟動背景程式：pdf.js 改在頁面上解析（較慢），文字辨識無法使用。改程式時請用本機伺服器，兩種情況都要能動。
+打開 http://localhost:8000。`tools/serve.mjs` 不讓瀏覽器快取，也是自動化測試用的伺服器；沒有 Node 時 `python -m http.server 8000` 也可以，但要記得 Ctrl+F5。直接雙擊 `index.html` 也能用，但瀏覽器不允許從硬碟開啟的網頁啟動背景程式、載入 ES module：pdf.js 改從 CDN 載入（需要網路）、在頁面上解析（較慢），文字辨識無法使用。改程式時請用本機伺服器，兩種情況都要能動。
 
 瀏覽器會快取 JS，改完沒生效時按 Ctrl+F5 強制重新載入。
 
@@ -24,8 +24,9 @@ papertray/
 ├─ css/styles.css       全部樣式：顏色變數（含深色模式）、共用元件、各工具版面
 ├─ js/                  程式，見下方「載入順序」
 ├─ lib/                 第三方函式庫的本機副本，見 third-party.md
-│  ├─ pdf-lib.min.js、pdf.min.js、pdf.worker.min.js、heic2any.min.js
+│  ├─ pdf-lib.min.js、pdf.min.mjs、pdf.worker.min.mjs、heic2any.min.js
 │  ├─ cmaps/            PDF.js 的字元對應表，讀沒有內嵌字型的中日韓文字
+│  ├─ wasm/、iccs/      PDF.js 的 JPEG 2000、JBIG2 解碼器和色彩轉換
 │  ├─ qpdf/             qpdf.js 與 qpdf.wasm.js（.wasm 的 base64 版）
 │  └─ tesseract/        Tesseract.js、辨識核心、lang/ 繁中與英文的辨識資料
 ├─ tools/
@@ -80,7 +81,7 @@ papertray/
 
 ## 共用機制（`js/core.js`）
 
-**函式庫延後載入**：`LIBS` 列出 `lib/` 裡的檔案，`loadScript(key)` 第一次用到時才載入。pdf-lib 透過 `PDFDocument.load()`／`create()` 自動載入；pdf.js 用 `openPdfjs()`，自己開 pdf.js 文件時用 `pdfjsOpts()` 的選項（背景程式、字元對應表）。剛開啟紙匣時只載入自己的程式（約 1 MB）。`tools/build.py` 會把這些路徑換成 CDN 網址。pdf-lib 載入後，`pdfLibChunks()` 把讀檔、存檔每段處理的物件數調大（分頁不在畫面上時一次做完）：pdf-lib 預設每處理 50～100 個物件就等一次計時器，大檔的時間大多花在等待。
+**函式庫延後載入**：`LIBS` 列出 `lib/` 裡的檔案，`loadScript(key)` 第一次用到時才載入；pdf.js 是 ES module，`needPdfjs()` 用 `import()` 載入，存成 `window.pdfjsLib`，背景程式是 module worker。pdf-lib 透過 `PDFDocument.load()`／`create()` 自動載入；pdf.js 用 `openPdfjs()`，自己開 pdf.js 文件時用 `pdfjsOpts()` 的選項（背景程式、字元對應表、解碼器）。關閉 pdf.js 文件用 `pj.loadingTask.destroy()`（PDF.js 5 起文件本身沒有 `destroy()`）。剛開啟紙匣時只載入自己的程式（約 1 MB）。`tools/build.py` 會把這些路徑換成 CDN 網址。pdf-lib 載入後，`pdfLibChunks()` 把讀檔、存檔每段處理的物件數調大（分頁不在畫面上時一次做完）：pdf-lib 預設每處理 50～100 個物件就等一次計時器，大檔的時間大多花在等待。
 
 **選檔時先載入**：使用者在收 PDF 的工具按下選擇檔案（檔案選擇框收到 click），或把檔案拖進頁面時，`warmPdfLibs()` 先載入 pdf.js、pdf-lib，啟動背景程式，並畫一張很小的頁面。選檔、拖放要一兩秒，檔案到的時候這些都已經準備好：pdf.js 第一次畫頁面、瀏覽器第一次編碼圖片都比之後慢，第一份檔案的縮圖原本要多等 0.1–0.2 秒。只看圖片的工具不會觸發。
 
@@ -110,7 +111,7 @@ papertray/
 
 **別人的頁面當成圖放進新頁面**（調整尺寸的「統一大小」）：用 `embedPageForm(out, copier, page, box)`，所有頁共用一個 `PDFObjectCopier`，不要用 pdf-lib 的 `embedPage()`。`embedPage()` 每次呼叫都用新的複製器，各頁共用的圖片、字型每頁複製一份（200 頁 266 KB 的檔案變成 4.8 MB），還把整個頁面（內容、連結連到的其他頁、縮圖）多複製一份沒用到，內容也用 pako 解開再壓一次。`embedPageForm()` 只複製資源，單一內容串流的頁直接沿用原本的位元組；資源表註冊成獨立物件，才會放進壓縮的物件串流。沒有內容的空白頁 pdf-lib 拒絕嵌入，這裡當成空內容。
 
-**讀像素的畫布**：畫完只讀一次像素（`getImageData`）的畫布不要設 `willReadFrequently`。Chrome 的畫布是讀像素時才真正畫出來，在處理器上畫比在顯示卡上慢：300 dpi 的頁面約慢三分之一，裁白邊 200 頁 6.3 秒對 4.7 秒。改用顯示卡畫的結果，很淡很細的線反鋸齒會略有不同（裁白邊的範圍可能差 1–2 pt）。同一張畫布要反覆讀寫的（校正翻拍、去浮水印）才設。掃描頁的時間大多花在 pdf.js 背景程式解碼 JPEG，畫布換哪種都一樣。
+**讀像素的畫布**：畫完只讀一次像素（`getImageData`）的畫布不要設 `willReadFrequently`。Chrome 的畫布是讀像素時才真正畫出來，在處理器上畫比在顯示卡上慢：300 dpi 的頁面約慢三分之一，裁白邊 200 頁 6.3 秒對 4.7 秒。改用顯示卡畫的結果，很淡很細的線反鋸齒會略有不同（裁白邊的範圍可能差 1–2 pt）。同一張畫布要反覆讀寫的（校正翻拍、去浮水印）才設。掃描頁的時間大多花在 pdf.js 背景程式解碼 JPEG，畫布換哪種都一樣；PDF.js 6 改用瀏覽器內建的解碼器（`ImageDecoder`）後，裁白邊 40 頁掃描 1.7 → 0.8 秒、選取空白頁 30 頁掃描 1.9 → 0.8 秒。
 
 **去浮水印的補圖**（`inpaint.js`）：多層的 PatchMatch，時間幾乎只看塗了多大面積（12 MP 照片塗一筆約 6 秒），和找補丁的範圍大小關係不大。搜尋是隨機的，同一處補兩次本來就不完全一樣（平均每個值差約 8）。要改輪數或範圍時，先用固定的 `Math.random` 比較新舊結果：最細一層從 3 輪改成 2 輪只差約 2，快了約 32%；較粗的幾層少算一輪會差到和重跑一樣大，畫面結構會變，所以沒改。微調 `dist()` 的寫法（定型陣列、預先乘 3）結果完全相同但反而變慢。
 
@@ -181,7 +182,7 @@ python tools/build.py
 
 版本、來源與授權列在 [third-party.md](third-party.md)。更新時：
 
-1. 換掉 `lib/` 裡的檔案。更新 PDF.js 時，`lib/cmaps/` 也要換成同一版 `pdfjs-dist` 套件裡的 `cmaps/`。
+1. 換掉 `lib/` 裡的檔案。更新 PDF.js 時，`lib/cmaps/`、`lib/wasm/`、`lib/iccs/` 也要換成同一版 `pdfjs-dist` 套件裡的檔案，`js/core.js` 的 `LIB_FALLBACK` 也改成同一版。`node .claude/skills/update-lib/check-libs.mjs` 會比對 `lib/` 和 CDN 上的檔案是否相同。
 2. 同步修改 `tools/build.py` 的 `CDN` 表（版本號在網址裡）。
 3. qpdf 更新後，用 `python tools/wasm_to_js.py <qpdf.wasm 路徑> <版本>` 重新產生 `lib/qpdf/qpdf.wasm.js`。這個版本的 qpdf 只認 `locateFile`，不接受直接傳入 wasm 位元組，所以 `js/password.js` 把 base64 轉成 `blob:` 網址交給它。
 4. 把 `sw.js` 的 `CACHE` 改名：`lib/` 的檔名沒有版本號，又是「先用快取」，不改名的話已安裝的使用者會一直用舊版。

@@ -29,7 +29,7 @@ async function pdfjsTry(bytes, password) {
   await needPdfjs();
   const opts = pdfjsOpts(bytes.slice());
   if (password != null) opts.password = password;
-  try { const pj = await pdfjsLib.getDocument(opts).promise; const n = pj.numPages; pj.destroy(); return { ok: true, pages: n }; }
+  try { const pj = await pdfjsLib.getDocument(opts).promise; const n = pj.numPages; pj.loadingTask.destroy(); return { ok: true, pages: n }; }
   catch (e) { return { ok: false, need: e && e.name === 'PasswordException', wrong: e && e.code === 2 }; }
 }
 

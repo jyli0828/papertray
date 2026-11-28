@@ -92,13 +92,13 @@ async function openResultPreview() {
   const { bytes, owned } = await fileBytes(file);
   const pj = await openPdfjs(bytes, owned);
   const pages = i => pj.getPage(i + 1).then(page => ({ page, rotation: page.rotate, label: `${file.name} · 第 ${i + 1} / ${pj.numPages} 頁` }));
-  if (!inMemory(file)) { openPreview(pj.numPages, 0, pages, { download, onClose: () => pj.destroy() }); return; }
+  if (!inMemory(file)) { openPreview(pj.numPages, 0, pages, { download, onClose: () => pj.loadingTask.destroy() }); return; }
   // pdf.js now has its own copy, so the page lets go of the result's bytes while the preview is open: the file is held
   // once, not twice. They come back from pdf.js when the preview closes; until then file.lent makes readers wait.
   let back; file.lent = new Promise(r => { back = r; }); file.bytes = null;
   const giveBack = async () => {
     try { file.bytes = new Uint8Array(await pj.getData()); }
-    finally { pj.destroy(); file.lent = null; back(); }
+    finally { pj.loadingTask.destroy(); file.lent = null; back(); }
   };
   openPreview(pj.numPages, 0, pages, {
     download: async () => saveFile(file.name, new Blob([await pj.getData()], { type: 'application/pdf' })),

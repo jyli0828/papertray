@@ -20,7 +20,7 @@ async function addMergeFiles(files, isSample) {
         const pj = await openPdfjs(got.bytes, got.owned); pages = pj.numPages;
         const count = list => (list || []).reduce((n, o) => n + 1 + count(o.items), 0);
         try { marks = count(await pj.getOutline()); } catch (e) {}
-        pj.destroy();
+        pj.loadingTask.destroy();
       }
       merge.items.push({ id: uid(), name: f.name, size, src, pages, marks, range: '', sample: !!isSample, fromImage });
     } catch (e) { toast(loadErr(f.name, e), 'err'); }

@@ -136,7 +136,7 @@ async function resizeCrop(check, o) {
   const { bytes } = await fileBytes(rs.src);
   const opening = openPdfjs(bytes); // both libraries read the file at the same time
   let doc;
-  try { doc = await PDFDocument.load(bytes); } catch (e) { opening.then(pj => pj.destroy(), () => {}); throw e; }
+  try { doc = await PDFDocument.load(bytes); } catch (e) { opening.then(pj => pj.loadingTask.destroy(), () => {}); throw e; }
   const pj = await opening, lanes = await pdfLanes(pj, pj.numPages, bytes, 1); // drawn at most 700 px
   const pad = o.pad, n = pj.numPages;
   let cropped = 0;
@@ -162,7 +162,7 @@ async function resizeCrop(check, o) {
       cropped++;
     }, ({ pg, cv }) => { pg.cleanup(); cv.width = cv.height = 0; }, check, lanes.docs.length);
     rsProgress(n, n);
-  } finally { lanes.close(); pj.destroy(); }
+  } finally { lanes.close(); pj.loadingTask.destroy(); }
   return { bytes: await doc.save({ useObjectStreams: true }), cropped };
 }
 $('#rs-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async check => {

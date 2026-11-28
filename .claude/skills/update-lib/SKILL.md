@@ -25,8 +25,9 @@ Exit 0 = every file matches. It also checks that `js/core.js` (`LIB_FALLBACK`) n
 | Library | Files in lib/ | Download from (= the CDN table) | Also named in |
 |---|---|---|---|
 | pdf-lib | `pdf-lib.min.js` | `cdnjs …/pdf-lib/<v>/pdf-lib.min.js` | |
-| PDF.js | `pdf.min.js`, `pdf.worker.min.js` | `cdnjs …/pdf.js/<v>/` (the worker is found next to `pdf.min.js`, not in the table) | |
+| PDF.js | `pdf.min.mjs`, `pdf.worker.min.mjs` | `cdnjs …/pdf.js/<v>/` (the worker is found next to `pdf.min.mjs`, not in the table) | `js/core.js` `LIB_FALLBACK.pdfjs` |
 | PDF.js CMaps | `cmaps/*.bcmap` (keep `cmaps/LICENSE`) | `jsdelivr …/pdfjs-dist@<v>/cmaps/` | `js/core.js` `LIB_FALLBACK.cmaps` |
+| PDF.js decoders, colour profile | `wasm/*` (not QuickJS), `iccs/*` | `jsdelivr …/pdfjs-dist@<v>/wasm/`, `…/iccs/` | `js/core.js` `LIB_FALLBACK.pdfwasm`, `.iccs` |
 | heic2any | `heic2any.min.js` | `cdnjs …/heic2any/<v>/` | `js/core.js` `LIB_FALLBACK.heic` |
 | Tesseract.js | `tesseract/tesseract.min.js`, `tesseract/worker.min.js` | `jsdelivr …/tesseract.js@<v>/dist/` | |
 | tesseract.js-core | `tesseract/tesseract-core-simd-lstm.wasm.js` | `jsdelivr …/tesseract.js-core@<v>/` | its major must match Tesseract.js |
@@ -51,21 +52,22 @@ Every update also changes:
    `gh api repos/<owner>/<repo>/releases`). Then decide:
    - Patch or minor release: continue.
    - **New major version: stop and report to the user** what breaks, before downloading anything. Known ones:
-     - PDF.js 4 and later ship ES modules only (`pdf.min.mjs`, `pdf.worker.min.mjs`); `loadScript()` in `js/core.js`
-       loads classic scripts, and the global `pdfjsLib` is gone. That is a port of `core.js` and every tool, not a
-       library update.
+     - PDF.js: 紙匣 moved to 6.x (ES modules, `import()` in `needPdfjs()`, documents closed with
+       `pj.loadingTask.destroy()`). A new major can remove more API: read the release notes' "API changes", grep
+       `js/` and `tests/` for each removed name, and run the whole suite before reporting.
      - Tesseract.js and tesseract.js-core move together: a new major of one needs the same major of the other.
        Their npm `latest` tag can lag (core showed 6.1.2 while 7.0.0 is pinned); trust the version list, not `latest`.
    - The target must exist at the CDN address (cdnjs adds versions later than npm). If it does not, say so and stop.
 
 3. **Download into the scratchpad**, one new empty folder, from the addresses the CDN table will hold. Check each:
    HTTP 200, not empty, a size near the old file's, and the license header still there (pdf-lib, PDF.js). For
-   CMaps, take every `.bcmap` the package lists
+   CMaps, `wasm/` and `iccs/`, take every file the package lists (`check-libs.mjs`'s `FOLDER_FILES` says which)
    (`https://data.jsdelivr.com/v1/packages/npm/pdfjs-dist@<v>?structure=flat`).
 
 4. **Put the files into lib/ with `cp` in Bash.** The `guard-edits` hook blocks Edit and Write under `lib/` on
    purpose; copying files downloaded unchanged is what this skill is for. Never edit a library's code. For CMaps,
-   replace the folder's `.bcmap` files as a set (delete maps the new version no longer has) and keep `LICENSE`. For
+   `wasm/` and `iccs/`, replace each folder's files as a set (delete ones the new version no longer has); keep
+   `cmaps/LICENSE`. For
    qpdf, run `$PY tools/wasm_to_js.py <downloaded qpdf.wasm> <v>` (`$PY`: the Python `/full-test` picks). Don't do
    this while tests run (the same hook stops edits then too).
 

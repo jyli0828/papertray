@@ -3,7 +3,7 @@
    and kept in the cache for when there is no network. Libraries (lib/) never change under the same name, so they
    come from the cache once they have been used. Only same-origin GET requests are handled; Google Fonts and the
    rest go to the network as usual (offline, system fonts are used instead). */
-const CACHE = 'papertray-v1';
+const CACHE = 'papertray-v2';
 /* Kept from the first visit: the page and every file it links to (its scripts, styles and icons, read from
    index.html so a new js/ file needs no entry here), then the libraries nearly every tool needs (about 0.6 MB as
    sent). OCR, qpdf and HEIC (about 11 MB together) are cached the first time they are used, so a phone is not made
@@ -14,7 +14,7 @@ const CACHE = 'papertray-v1';
    competed with the page fetching the same files for the user's first PDF, and on a slow phone network that first
    PDF took 5–7 s to open instead of under 3. */
 const PAGE = ['./', 'index.html'];
-const LIBS = ['lib/pdf.min.js', 'lib/pdf.worker.min.js', 'lib/pdf-lib.min.js'];
+const LIBS = ['lib/pdf.min.mjs', 'lib/pdf.worker.min.mjs', 'lib/pdf-lib.min.js'];
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
     const html = await (await fetch('index.html', { cache: 'no-cache' })).text();

@@ -52,12 +52,12 @@
     async pdfText(file) {
       const pj = await T.pdf(file), out = [];
       for (let i = 1; i <= pj.numPages; i++) out.push((await (await pj.getPage(i)).getTextContent()).items.map(x => x.str).join(' '));
-      pj.destroy(); return out;
+      pj.loadingTask.destroy(); return out;
     },
     async pdfPages(file) {
       const pj = await T.pdf(file), out = [];
       for (let i = 1; i <= pj.numPages; i++) { const pg = await pj.getPage(i); out.push({ w: Math.round(pg.view[2] - pg.view[0]), h: Math.round(pg.view[3] - pg.view[1]), rotate: pg.rotate }); }
-      pj.destroy(); return out;
+      pj.loadingTask.destroy(); return out;
     },
     /* The files in a .zip the app made (stored, not compressed): { files: { name: { name, bytes } } }. Checks each
        file's checksum and that the closing list agrees with the entries. */
@@ -90,7 +90,7 @@
         const o = (y * W + x) * 4;
         if (match(d[o], d[o + 1], d[o + 2])) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       }
-      pj.destroy();
+      pj.loadingTask.destroy();
       return x1 < 0 ? null : [x0 / W, y0 / H, (x1 + 1) / W, (y1 + 1) / H].map(v => +v.toFixed(3));
     },
     /* Where each text run containing `want` sits on page i as shown: [x, y] of its start on the baseline, as fractions. */
@@ -99,7 +99,7 @@
       const out = (await pg.getTextContent()).items.filter(it => it.str.includes(want)).map(it => {
         const t = pdfjsLib.Util.transform(vp.transform, it.transform); return [+(t[4] / vp.width).toFixed(3), +(t[5] / vp.height).toFixed(3)];
       });
-      pj.destroy(); return out;
+      pj.loadingTask.destroy(); return out;
     },
     /* A PDF with one page per label and bookmarks. spec: [{ title, page (0-based) | name (a named destination, to
        that page) | url, open, kids }]. */
@@ -138,7 +138,7 @@
         }
         return out;
       };
-      const r = await conv(await pj.getOutline()); pj.destroy(); return r;
+      const r = await conv(await pj.getOutline()); pj.loadingTask.destroy(); return r;
     },
     /* One A4 page per rotation, each with a grey block drawn in the page's own top-left corner area. */
     async rotated(rots = [0, 90, 180, 270]) {

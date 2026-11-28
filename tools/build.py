@@ -22,8 +22,11 @@ def read(rel):
 # (the single file stays small).
 CDN = {
     'lib/pdf-lib.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js',
-    'lib/pdf.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
-    'lib/cmaps/': 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/',
+    'lib/pdf.min.mjs': 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.5.438/pdf.min.mjs',
+    # pdf.js's character maps, WebAssembly decoders and colour profile: cdnjs does not serve these.
+    'lib/cmaps/': 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/cmaps/',
+    'lib/wasm/': 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/wasm/',
+    'lib/iccs/': 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/iccs/',
     'lib/heic2any.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js',
     # Tesseract.js (文字辨識) is not on cdnjs; jsdelivr serves the npm packages. For the language data the bundles
     # give a CDN address instead of a folder, and js/ocr.js then lets Tesseract fetch each language from its own

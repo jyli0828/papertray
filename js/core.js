@@ -6,16 +6,24 @@ const $ = (s, r = document) => r.querySelector(s);
    pdf-lib (makes PDFs) and pdf.js (reads and draws PDFs) are not loaded with the page: opening 紙匣 costs
    only its own code, and each library arrives on the first action that uses it. tools/build.py swaps these paths
    for cdnjs addresses in the bundled pages. */
-const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.js', heic: 'lib/heic2any.min.js',
+const LIBS = { pdflib: 'lib/pdf-lib.min.js', pdfjs: 'lib/pdf.min.mjs', heic: 'lib/heic2any.min.js',
   tesseract: 'lib/tesseract/tesseract.min.js', qpdf: 'lib/qpdf/qpdf.js', qpdfwasm: 'lib/qpdf/qpdf.wasm.js',
   // pdf.js's character maps: Chinese, Japanese and Korean text in a font the PDF does not embed is unreadable
   // without them (it draws and extracts as nothing). pdf.js fetches only the ones a file names.
-  cmaps: 'lib/cmaps/' };
+  cmaps: 'lib/cmaps/',
+  // pdf.js decodes JPEG 2000 and JBIG2 pictures and converts ICC colours with these (WebAssembly, with a JavaScript
+  // copy for browsers without it), and turns CMYK colours into RGB with the colour profile in iccs/.
+  pdfwasm: 'lib/wasm/', iccs: 'lib/iccs/' };
 /* Tried when the local copy is missing (heic2any is large, so lib/ may not have it). */
 const LIB_FALLBACK = { heic: 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js',
-  // Opened straight from disk, browsers refuse to let pdf.js read files next to the page, so the maps come from jsdelivr
-  // (cdnjs does not serve .bcmap files).
-  cmaps: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/cmaps/' };
+  // Opened straight from disk, browsers refuse to load an ES module (pdf.js) from the disk, or to let pdf.js read files
+  // next to the page, so these come from the CDNs then (cdnjs does not serve pdf.js's .bcmap, .wasm and .icc files).
+  pdfjs: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/6.5.438/pdf.min.mjs',
+  cmaps: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/cmaps/',
+  pdfwasm: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/wasm/',
+  iccs: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.5.438/iccs/' };
+/* The address a library is loaded from: its copy in lib/, or from disk (file://) the CDN's, as an absolute URL. */
+const libUrl = key => new URL(location.protocol === 'file:' && /^lib\//.test(LIBS[key]) && LIB_FALLBACK[key] ? LIB_FALLBACK[key] : LIBS[key], location.href).href;
 const libLoads = {};
 function loadScript(key) {
   const add = src => new Promise((resolve, reject) => {
@@ -58,22 +66,30 @@ function pdfLibChunks(L) {
   L.PDFDocument.prototype.save = function (o) { return save.call(this, { objectsPerTick: chunk(), ...o }); };
   L.PDFDocument._chunked = true;
 }
+/* pdf.js is an ES module: imported, not added as a <script>; its exports are kept as window.pdfjsLib. */
 let WORKER_URL = null;
 async function needPdfjs() {
-  if (!window.pdfjsLib) await loadScript('pdfjs');
-  if (!WORKER_URL) { // the worker sits next to pdf.min.js
-    WORKER_URL = new URL(LIBS.pdfjs.replace(/pdf\.min\.js$/, 'pdf.worker.min.js'), location.href).href;
-    pdfjsLib.GlobalWorkerOptions.workerSrc = WORKER_URL;
+  if (!window.pdfjsLib) {
+    const src = libUrl('pdfjs');
+    const worker = src.replace(/pdf\.min\.mjs$/, 'pdf.worker.min.mjs'); // the worker sits next to pdf.min.mjs
+    await (libLoads.pdfjs || (libLoads.pdfjs = (async () => {
+      // From disk there is no worker (see pdfWorker()): the worker's code runs on the page, and is loaded here.
+      // Without it pdf.js first tries a worker from the CDN, which the browser refuses with an error in the console.
+      const [m, w] = await Promise.all([import(src), location.protocol === 'file:' ? import(worker) : null]);
+      if (w) globalThis.pdfjsWorker = w;
+      WORKER_URL = worker; m.GlobalWorkerOptions.workerSrc = worker;
+      window.pdfjsLib = m;
+    })().catch(e => { delete libLoads.pdfjs; throw new Error('函式庫載入失敗，請檢查網路連線後再試一次'); })));
   }
 }
-/* pdf.js parses in a background worker (blob wrapper around the worker script). It is started the first time a PDF
-   is opened, not at page load: the worker script alone is about 1 MB and its thread holds memory of its own.
+/* pdf.js parses in a background worker (a module worker whose blob: script imports the worker script). It is
+   started the first time a PDF is opened, not at page load: the worker script alone is about 1 MB and its thread holds memory of its own.
    Opened straight from disk (file://) browsers refuse that, and pdf.js runs the worker code on the page instead. */
 let sharedWorker; // undefined = not tried yet, null = unavailable
 /* A worker running pdf.js's worker script, started from a blob: URL (revoke url when done with the worker). */
 function newPdfWorkerThread() {
-  const url = URL.createObjectURL(new Blob([`importScripts('${WORKER_URL}');`], { type: 'text/javascript' }));
-  return { url, w: new Worker(url) };
+  const url = URL.createObjectURL(new Blob([`import '${WORKER_URL}';`], { type: 'text/javascript' }));
+  return { url, w: new Worker(url, { type: 'module' }) };
 }
 function pdfWorker() {
   if (sharedWorker !== undefined) return sharedWorker;
@@ -98,7 +114,7 @@ function warmPdfLibs() {
     const d = await PDFDocument.create(), font = await d.embedFont(StandardFonts.Helvetica);
     d.addPage([60, 80]).drawText('Aa', { x: 8, y: 40, size: 14, font });
     const pj = await openPdfjs(await d.save(), true);
-    try { URL.revokeObjectURL((await renderThumb(await pj.getPage(1))).thumb); } finally { pj.destroy(); }
+    try { URL.revokeObjectURL((await renderThumb(await pj.getPage(1))).thumb); } finally { pj.loadingTask.destroy(); }
   }).catch(() => {});
 }
 const takesPdf = el => !!el && el.matches('input[type="file"]') && /pdf/i.test(el.accept);
@@ -336,14 +352,14 @@ function pdfSlot(tab, ids, state, { blank, leave, extraSize }) {
       } finally { if (!o) settle(ask); }
     },
     /* o given up without being shown (the tool found it unusable): it holds no later file back. */
-    drop(o) { settle(o.ask); o.pj.destroy(); },
+    drop(o) { settle(o.ask); o.pj.loadingTask.destroy(); },
     async take(o, meta) {
       settle(o.ask);
       for (const [a, r] of reading) if (a > o.ask) await r.settled; // a later file: shown, or failed
-      if (o.ask < shown) { o.pj.destroy(); return false; }
+      if (o.ask < shown) { o.pj.loadingTask.destroy(); return false; }
       shown = o.ask;
       if (leave) leave(false);
-      if (state.pj) state.pj.destroy();
+      if (state.pj) state.pj.loadingTask.destroy();
       Object.assign(state, blank(), { name: o.f.name, pj: o.pj, size: o.size });
       $(`#${ids}-fname`).textContent = o.f.name;
       if (meta !== null) $(`#${ids}-fmeta`).textContent = meta || `${o.pj.numPages} 頁 · ${fmtSize(o.size)}`;
@@ -356,7 +372,7 @@ function pdfSlot(tab, ids, state, { blank, leave, extraSize }) {
   registerHolder(tab, () => state.pj ? state.size + (extraSize ? extraSize() : 0) : 0, () => {
     shown = asks + 1; // a file still being read is not shown afterwards
     if (leave) leave(true);
-    state.pj.destroy(); Object.assign(state, blank());
+    state.pj.loadingTask.destroy(); Object.assign(state, blank());
     $(`#${ids}-empty`).hidden = false; $(`#${ids}-work`).hidden = true;
   });
   return slot;
@@ -384,8 +400,7 @@ async function eachPage(pj, page, { batch, stop } = {}) {
 }
 /* The options every pdf.js document is opened with (call after needPdfjs). */
 function pdfjsOpts(data) {
-  const maps = location.protocol === 'file:' && /^lib\//.test(LIBS.cmaps) ? LIB_FALLBACK.cmaps : LIBS.cmaps;
-  const opts = { data, isEvalSupported: false, cMapUrl: new URL(maps, location.href).href, cMapPacked: true };
+  const opts = { data, isEvalSupported: false, cMapUrl: libUrl('cmaps'), cMapPacked: true, wasmUrl: libUrl('pdfwasm'), iccUrl: libUrl('iccs') };
   const w = pdfWorker(); if (w) opts.worker = w;
   return opts;
 }
@@ -1050,7 +1065,7 @@ async function pdfLanes(pj, n, bytes, scale = 1) {
     catch (e) { want = 1; }
   }
   const extra = [];
-  const lanes = { docs: [pj], close() { for (const x of extra) { try { x.pj.destroy(); } catch (e) {} x.w.terminate(); URL.revokeObjectURL(x.url); } extra.length = 0; } };
+  const lanes = { docs: [pj], close() { for (const x of extra) { try { x.pj.loadingTask.destroy(); } catch (e) {} x.w.terminate(); URL.revokeObjectURL(x.url); } extra.length = 0; } };
   if (want < 2) return lanes;
   const data = bytes || await pj.getData();
   try {

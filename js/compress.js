@@ -35,7 +35,7 @@ async function loadCompFile(files) {
     let pages, paper;
     try {
       const pj = await openPdfjs(got.bytes, got.owned), vp = (await pj.getPage(1)).getViewport({ scale: 1 });
-      pages = pj.numPages; paper = paperName(vp.width, vp.height); pj.destroy();
+      pages = pj.numPages; paper = paperName(vp.width, vp.height); pj.loadingTask.destroy();
     } catch (e) { toast(loadErr(f.name, e), 'err'); continue; }
     comp.items.push({ id: uid(), name: f.name, src, size, pages, paper, out: null });
   }
@@ -156,7 +156,7 @@ async function compressRaster(bytes, lv, gray, check) {
       page.drawImage(jpg, { x: 0, y: 0, width: vp1.width, height: vp1.height });
     }, dropRaster, check, lanes.docs.length);
     progress(pj.numPages, pj.numPages);
-  } finally { lanes.close(); pj.destroy(); }
+  } finally { lanes.close(); pj.loadingTask.destroy(); }
   return { bytes: await out.save({ useObjectStreams: true }) };
 }
 function dropRaster(r) { r.pg.cleanup(); r.cv.width = r.cv.height = 0; }
@@ -212,7 +212,7 @@ async function compressBW(bytes, dpi, check) {
       page.pushOperators(PDFLib.pushGraphicsState(), PDFLib.concatTransformationMatrix(vp1.width, 0, 0, vp1.height, 0, 0), PDFLib.drawObject(name), PDFLib.popGraphicsState());
     }, () => {}, check, lanes.docs.length);
     progress(pj.numPages, pj.numPages);
-  } finally { lanes.close(); pj.destroy(); }
+  } finally { lanes.close(); pj.loadingTask.destroy(); }
   return { bytes: await out.save({ useObjectStreams: true }) };
 }
 

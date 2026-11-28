@@ -55,7 +55,7 @@ async function pdfFacts(f) {
       const pg = await pj.getPage(i), tc = await pg.getTextContent();
       chars += tc.items.reduce((n, it) => n + (it.str || '').trim().length, 0); pg.cleanup();
     }
-    out.scanned = chars < 20; pj.destroy();
+    out.scanned = chars < 20; pj.loadingTask.destroy();
   } catch (e) { out.broken = true; }
   return out;
 }

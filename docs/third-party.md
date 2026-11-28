@@ -7,8 +7,9 @@
 | 函式庫 | 版本 | 本機檔案 | 大小 | 用在 | 授權 | CDN |
 |---|---|---|---|---|---|---|
 | [pdf-lib](https://github.com/Hopding/pdf-lib) | 1.17.1 | `pdf-lib.min.js` | 513 KB | 產生與修改 PDF | MIT | cdnjs |
-| [PDF.js](https://github.com/mozilla/pdf.js) | 3.11.174 | `pdf.min.js`、`pdf.worker.min.js` | 1.4 MB | 顯示頁面、轉圖片、抽出文字 | Apache-2.0 | cdnjs |
-| PDF.js 字元對應表（CMap） | 3.11.174 | `cmaps/*.bcmap` | 1.5 MB | 沒有內嵌字型的中、日、韓文字；只下載檔案用到的那幾個 | BSD-3-Clause（Adobe），全文在 `lib/cmaps/LICENSE` | jsdelivr |
+| [PDF.js](https://github.com/mozilla/pdf.js) | 6.5.438 | `pdf.min.mjs`、`pdf.worker.min.mjs` | 1.7 MB | 顯示頁面、轉圖片、抽出文字 | Apache-2.0 | cdnjs |
+| PDF.js 圖片解碼器、色彩轉換 | 6.5.438 | `wasm/`（OpenJPEG、JBIG2、QCMS 的 WebAssembly 與 JavaScript 備用版）、`iccs/`（CMYK 色彩描述檔） | 0.9 MB | JPEG 2000、JBIG2 圖片和 ICC 色彩；只在檔案用到時下載 | OpenJPEG BSD-2-Clause、JBIG2（PDFium）BSD-3-Clause、QCMS MIT，全文在 `lib/wasm/LICENSE_*`；色彩描述檔見 `lib/iccs/LICENSE` | jsdelivr |
+| PDF.js 字元對應表（CMap） | 6.5.438 | `cmaps/*.bcmap` | 1.5 MB | 沒有內嵌字型的中、日、韓文字；只下載檔案用到的那幾個 | BSD-3-Clause（Adobe），全文在 `lib/cmaps/LICENSE` | jsdelivr |
 | [heic2any](https://github.com/alexcorvi/heic2any) | 0.0.4 | `heic2any.min.js` | 1.3 MB | iPhone 照片（HEIC）轉 JPG；瀏覽器自己能解碼時不載入 | MIT | cdnjs |
 | [Tesseract.js](https://github.com/naptha/tesseract.js) | 7.0.0 | `tesseract/tesseract.min.js`、`tesseract/worker.min.js` | 170 KB | 文字辨識 | Apache-2.0 | jsdelivr |
 | [tesseract.js-core](https://github.com/naptha/tesseract.js-core) | 7.0.0 | `tesseract/tesseract-core-simd-lstm.wasm.js` | 3.7 MB | 辨識核心（Tesseract 的 WebAssembly 版，只含 LSTM 引擎） | Apache-2.0 | jsdelivr |
@@ -16,8 +17,8 @@
 | [qpdf-wasm](https://github.com/neslinesli93/qpdf-wasm)（[qpdf](https://github.com/qpdf/qpdf)） | 0.3.1 | `qpdf/qpdf.js`、`qpdf/qpdf.wasm.js` | 1.7 MB | 解除與加上密碼 | 包裝 ISC，qpdf 本身 Apache-2.0 | jsdelivr |
 
 - `qpdf/qpdf.wasm.js` 是 `qpdf.wasm` 轉成 base64 的版本（`tools/wasm_to_js.py`），直接雙擊開啟時也能載入；單一檔案版直接從 CDN 取 `.wasm`。
-- Tesseract.js 和 qpdf 的授權全文在 `lib/tesseract/LICENSE`、`lib/qpdf/LICENSE`；pdf-lib、PDF.js 的授權聲明在各自 `.min.js` 的開頭；heic2any 的發布檔沒有附聲明，授權見它的 GitHub。
-- `cmaps/` 取自 npm 套件 `pdfjs-dist@3.11.174`。直接雙擊開啟（`file://`）時瀏覽器不讓 PDF.js 讀旁邊的檔案，改從 jsdelivr 取。
+- Tesseract.js 和 qpdf 的授權全文在 `lib/tesseract/LICENSE`、`lib/qpdf/LICENSE`；pdf-lib、PDF.js 的授權聲明在各自 `.min.js`／`.min.mjs` 的開頭；heic2any 的發布檔沒有附聲明，授權見它的 GitHub。
+- `cmaps/`、`wasm/`、`iccs/` 取自 npm 套件 `pdfjs-dist@6.5.438`（`wasm/` 不含沒用到的 QuickJS）。PDF.js 4 以後只有 ES module；直接雙擊開啟（`file://`）時瀏覽器不從硬碟載入 ES module，也不讓 PDF.js 讀旁邊的檔案，所以 PDF.js 本身改從 cdnjs、這三個資料夾改從 jsdelivr 取（`js/core.js` 的 `LIB_FALLBACK`），需要網路。
 - 單一檔案版的文字辨識資料不指定版本，由 Tesseract.js 從 `@tesseract.js-data/<語言>` 下載。
 
 ## 字型

@@ -158,7 +158,7 @@ export default [
         T.ok(off < ink * .03, `${i ? '轉向' : '直放'}的頁面：${off} / ${ink} 個點不一樣`);
         diff.push((off / ink * 100).toFixed(1) + '%');
       }
-      pj.destroy();
+      pj.loadingTask.destroy();
       // Ten digits, 「第」「頁」 and the header: a few pictures for 30 pages, not one per page and label.
       showTab('edit');
       await loadEditFiles([await T.labeled(Array(30).fill(''), 'n.pdf')]);
@@ -772,7 +772,7 @@ export default [
       T.ok(ocrEng.worker, '引擎啟動');
       showTab('ocr'); T.ok(ocrEng.worker, '文字辨識也會用到，留著');
       showTab('merge'); T.ok(!ocrEng.worker, '離開後關閉');
-      pj.destroy();
+      pj.loadingTask.destroy();
     }
   },
 
@@ -1129,7 +1129,7 @@ export default [
       showTab('split');
       await loadSplit([await T.labeled(['S1', 'S2'], 'first.pdf')]);
       // The old file is closed only after every page of the new one has been read.
-      const old = split.pj, order = [], realOpen = openPdfjs, realDestroy = old.destroy.bind(old);
+      const old = split.pj.loadingTask, order = [], realOpen = openPdfjs, realDestroy = old.destroy.bind(old);
       old.destroy = () => { order.push('close old'); return realDestroy(); };
       openPdfjs = async (...a) => { const pj = await realOpen(...a), get = pj.getPage.bind(pj); pj.getPage = n => { order.push('read'); return get(n); }; return pj; };
       try { await loadSplit([await T.labeled(Array.from({ length: 30 }, (_, i) => 'N' + i), 'next.pdf')]); } finally { openPdfjs = realOpen; }
@@ -1545,7 +1545,7 @@ export default [
           let d = a.dest; if (typeof d === 'string') d = await pj.getDestination(d);
           out.push(d ? (await pj.getPageIndex(d[0])) + 1 : null);
         }
-        pj.destroy(); return out;
+        pj.loadingTask.destroy(); return out;
       };
       showTab('split'); await loadSplit([src]);
       $('input[name="split-mode"][value="range"]').checked = true; T.set('#split-ranges', '1-3'); renderSplit();
@@ -1599,8 +1599,8 @@ export default [
       const src = pdfFile(await doc.save(), 'layers.pdf');
       const red = (r, g, b) => r > 200 && g < 80 && b < 80, blue = (r, g, b) => b > 200 && r < 80 && g < 80;
       const check = async (file, what) => {
-        const pj = await T.pdf(file), n = pj.numPages, groups = Object.values((await pj.getOptionalContentConfig()).getGroups() || {}).map(g => g.name).sort();
-        pj.destroy();
+        const pj = await T.pdf(file), n = pj.numPages, groups = [...await pj.getOptionalContentConfig()].map(([, g]) => g.name).sort();
+        pj.loadingTask.destroy();
         T.eq([...new Set(groups)], ['Hidden', 'Shown'], what + '：圖層清單');
         for (let i = 0; i < n; i++) {
           T.eq(await T.ink(file, i, red), null, `${what} 第 ${i + 1} 頁：隱藏的圖層不該顯示`);
@@ -1747,7 +1747,7 @@ export default [
       const src = pdfFile(await doc.save(), 'png-predictor.pdf');
       showTab('compress'); await loadCompFile([src]);
       const r = await T.result(() => T.click('#comp-go'), '壓縮', 90000);
-      const pixels = async f => { const pj = await T.pdf(f), pg = await pj.getPage(1), vp = pg.getViewport({ scale: 1 }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height; await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; pj.destroy(); return c.getContext('2d').getImageData(0, 0, c.width, c.height).data; };
+      const pixels = async f => { const pj = await T.pdf(f), pg = await pj.getPage(1), vp = pg.getViewport({ scale: 1 }), c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height; await pg.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise; pj.loadingTask.destroy(); return c.getContext('2d').getImageData(0, 0, c.width, c.height).data; };
       const a = await pixels(src), b = await pixels(r.file);
       let diff = 0; for (let i = 0; i < a.length; i += 4) diff += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
       const mean = diff / (a.length / 4) / 3;
@@ -1840,7 +1840,7 @@ export default [
       await navigator.serviceWorker.ready;
       const own = [...document.querySelectorAll('script[src], link[href]')].map(e => new URL(e.src || e.href, location.href))
         .filter(u => u.origin === location.origin).map(u => u.pathname);
-      const need = [...new Set([...own, '/', '/index.html', '/lib/pdf.min.js', '/lib/pdf-lib.min.js', '/lib/pdf.worker.min.js'])];
+      const need = [...new Set([...own, '/', '/index.html', '/lib/pdf.min.mjs', '/lib/pdf-lib.min.js', '/lib/pdf.worker.min.mjs'])];
       await T.until(async () => { const kept = await T.cachedPaths(); return need.every(p => kept.includes(p)); }, '快取完成', 20000);
       return `${need.length} 個檔案`;
     }
@@ -1851,7 +1851,7 @@ export default [
     async run() {
       await navigator.serviceWorker.ready;
       // The page's own files are kept first, the libraries right after (sw.js): wait for both.
-      const need = ['/js/app.js', '/lib/pdf-lib.min.js', '/lib/pdf.min.js', '/lib/pdf.worker.min.js'];
+      const need = ['/js/app.js', '/lib/pdf-lib.min.js', '/lib/pdf.min.mjs', '/lib/pdf.worker.min.mjs'];
       await T.until(async () => { const kept = await T.cachedPaths(); return need.every(p => kept.includes(p)); }, '快取完成', 20000);
     },
     async after() {
@@ -1955,11 +1955,11 @@ export default [
           const d2 = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let h = 0; for (let k = 0; k < d2.length; k += 7) h = (h * 31 + d2[k]) | 0; return h; };
         const sums = await Promise.all(lanes.docs.map(px));
         T.ok(sums.every(s => s === sums[0]), '每條通道畫出一樣的頁面');
-      } finally { lanes.close(); pj.destroy(); }
+      } finally { lanes.close(); pj.loadingTask.destroy(); }
       const text = await T.labeled(['1', '2', '3', '4', '5', '6', '7', '8', '9'], 'text.pdf'), pt = await openPdfjs(text.bytes), lt = await pdfLanes(pt, 9, text.bytes, 150 / 72);
       T.eq(lt.docs.length, 1, '文字檔畫大圖只用一條'); lt.close();
       const ls = await pdfLanes(pt, 9, text.bytes, 1);
-      T.eq(ls.docs.length, location.protocol === 'file:' ? 1 : Math.min(LANES_MAX, 3), '文字檔畫小圖（裁白邊、找空白頁）多開幾條'); ls.close(); pt.destroy();
+      T.eq(ls.docs.length, location.protocol === 'file:' ? 1 : Math.min(LANES_MAX, 3), '文字檔畫小圖（裁白邊、找空白頁）多開幾條'); ls.close(); pt.loadingTask.destroy();
       const r = await compressRaster(scan, LEVELS.medium, false, () => {});
       T.eq((await T.pdfPages(pdfFile(r.bytes, 'x.pdf'))).length, 9, '整頁轉圖片 9 頁');
     }
@@ -2061,7 +2061,7 @@ export default [
       };
       const a = await shot(1), b = await shot(2);
       let off = 0; for (let k = 0; k < a.length; k++) if (Math.abs(a[k] - b[k]) > 8) off++;
-      pj.destroy();
+      pj.loadingTask.destroy();
       T.ok(off < a.length * .002, `整張和只取有字部分畫出來不同的點：${off}`);
     }
   },
@@ -2195,7 +2195,7 @@ export default [
         const pj = await openPdfjs(bytes), pg = await pj.getPage(i), vp = pg.getViewport({ scale: 2 }), cv = document.createElement('canvas');
         cv.width = vp.width; cv.height = vp.height;
         const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-        await pg.render({ canvasContext: ctx, viewport: vp }).promise; pj.destroy();
+        await pg.render({ canvasContext: ctx, viewport: vp }).promise; pj.loadingTask.destroy();
         return ctx.getImageData(0, 0, cv.width, cv.height).data;
       };
       for (const [label, ct, depth, px, extra, fast] of cases) {
@@ -2278,7 +2278,7 @@ export default [
         const pj = await openPdfjs(bytes), pg = await pj.getPage(i), vp = pg.getViewport({ scale: .6 }), c2 = document.createElement('canvas');
         c2.width = Math.ceil(vp.width); c2.height = Math.ceil(vp.height);
         const x = c2.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c2.width, c2.height);
-        await pg.render({ canvasContext: x, viewport: vp }).promise; pj.destroy(); return x.getImageData(0, 0, c2.width, c2.height).data;
+        await pg.render({ canvasContext: x, viewport: vp }).promise; pj.loadingTask.destroy(); return x.getImageData(0, 0, c2.width, c2.height).data;
       };
       for (let i = 1; i <= 12; i++) {
         const a = await shot(mine, i), b = await shot(theirs, i);

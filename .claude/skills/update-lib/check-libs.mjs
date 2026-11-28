@@ -3,7 +3,8 @@
      node .claude/skills/update-lib/check-libs.mjs
    For every entry of CDN: the local file must be byte for byte the file at that address (the bundles load the
    address, the site and the offline copy load lib/, so both must be the same code). Special entries:
-     lib/cmaps/            every .bcmap in the folder, against <address><name>
+     lib/cmaps/ wasm/ iccs/ every file of the folder (FOLDER_FILES picks which), here and in the package, against
+                           <address><name>
      lib/tesseract/lang    every <lang>.traineddata.gz, against @tesseract.js-data/<lang>@LANG_DATA
      lib/qpdf/qpdf.wasm.js the base64 in it, decoded, against the .wasm at the address
    Also: each versioned address in js/core.js (LIB_FALLBACK) names the same version as build.py.
@@ -50,17 +51,24 @@ const build = fs.readFileSync(path.join(ROOT, 'tools', 'build.py'), 'utf8');
 const table = [...build.matchAll(/'(lib\/[^']*)':\s*'([^']+)'/g)].map(m => ({ local: m[1], url: m[2] }));
 if (!table.length) { console.error('tools/build.py 裡找不到 CDN 表'); process.exit(2); }
 
+/* Which files of a folder entry are checked: here and in the package alike. cmaps/LICENSE is ours; pdf.js's
+   scripting engine (quickjs) is not used (no JavaScript in PDFs is run), so it is not in lib/wasm/. */
+const FOLDER_FILES = { 'lib/cmaps/': f => f.endsWith('.bcmap'), 'lib/wasm/': f => !/quickjs/i.test(f), 'lib/iccs/': () => true };
 const checks = []; // { file, url, decode? }
 for (const { local, url } of table) {
   const abs = path.join(ROOT, local);
   if (local.endsWith('/')) {
-    // The maps here and the ones the package has: one missing here shows as 缺檔.
-    const names = new Set(fs.readdirSync(abs).filter(f => f.endsWith('.bcmap'))), p = pkgOf(url);
+    // The files here and the ones the package has: one missing here shows as 缺檔.
+    const want = FOLDER_FILES[local] || (() => true), p = pkgOf(url);
+    const names = new Set(fs.existsSync(abs) ? fs.readdirSync(abs).filter(want) : []);
     const dir = url.replace(/^.*?@[^/]+/, ''); // e.g. /cmaps/
     try {
       const flat = await getJson(`https://data.jsdelivr.com/v1/packages/npm/${p.name}@${p.version}?structure=flat`);
-      for (const f of flat.files || []) if (f.name.startsWith(dir) && f.name.endsWith('.bcmap')) names.add(f.name.slice(dir.length));
-    } catch (e) { console.log(`（拿不到 ${p.name}@${p.version} 的檔案清單，只比對本機有的對應表）`); }
+      for (const f of flat.files || []) {
+        const name = f.name.slice(dir.length);
+        if (f.name.startsWith(dir) && !name.includes('/') && want(name)) names.add(name);
+      }
+    } catch (e) { console.log(`（拿不到 ${p.name}@${p.version} 的檔案清單，只比對 ${local} 裡有的檔案）`); }
     for (const f of [...names].sort()) checks.push({ file: local + f, url: url + f });
   } else if (local === 'lib/tesseract/lang') {
     for (const f of fs.readdirSync(abs).filter(f => f.endsWith('.traineddata.gz'))) {
@@ -69,7 +77,7 @@ for (const { local, url } of table) {
   } else {
     checks.push({ file: local, url, decode: url.endsWith('.wasm') });
     // pdf.js finds its worker next to itself (WORKER_URL in js/core.js), in lib/ and on the CDN alike
-    if (local === 'lib/pdf.min.js') checks.push({ file: 'lib/pdf.worker.min.js', url: url.replace(/pdf\.min\.js$/, 'pdf.worker.min.js') });
+    if (local === 'lib/pdf.min.mjs') checks.push({ file: 'lib/pdf.worker.min.mjs', url: url.replace(/pdf\.min\.mjs$/, 'pdf.worker.min.mjs') });
   }
 }
 
@@ -86,10 +94,14 @@ const results = await mapLimit(checks, 8, async c => {
   catch (e) { return { ...c, state: '下載失敗 ' + e.message }; }
 });
 let bad = results.filter(r => r.state !== 'same').length;
-const isMap = r => r.file.startsWith('lib/cmaps/'), maps = results.filter(isMap), mapsBad = maps.filter(r => r.state !== 'same');
-// one line per file, but the ~170 maps as one line
-for (const r of results.filter(r => !isMap(r))) console.log(`${r.state === 'same' ? '✓' : '✗'} ${r.file}${r.state === 'same' ? '' : '  ' + r.state}`);
-console.log(`${mapsBad.length ? '✗' : '✓'} lib/cmaps/  ${maps.length - mapsBad.length}/${maps.length} 個相同${mapsBad.length ? '：' + mapsBad.slice(0, 5).map(r => path.basename(r.file) + ' ' + r.state).join('、') : ''}`);
+// one line per file, but each folder (the ~170 maps) as one line
+const folders = table.map(t => t.local).filter(l => l.endsWith('/')), folderOf = r => folders.find(l => r.file.startsWith(l));
+for (const r of results.filter(r => !folderOf(r))) console.log(`${r.state === 'same' ? '✓' : '✗'} ${r.file}${r.state === 'same' ? '' : '  ' + r.state}`);
+for (const l of folders) {
+  const all = results.filter(r => folderOf(r) === l), off = all.filter(r => r.state !== 'same');
+  console.log(`${off.length || !all.length ? '✗' : '✓'} ${l}  ${all.length - off.length}/${all.length} 個相同${off.length ? '：' + off.slice(0, 5).map(r => path.basename(r.file) + ' ' + r.state).join('、') : ''}`);
+  if (!all.length) bad++;
+}
 
 // js/core.js names some of the same addresses (fallbacks); they must name the versions build.py does.
 const pinned = new Map();

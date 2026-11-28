@@ -8,4 +8,5 @@
 *.gz binary
 *.wasm binary
 *.bcmap binary
+*.icc binary
 *.woff2 binary
