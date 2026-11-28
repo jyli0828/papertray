@@ -17,3 +17,6 @@ desktop.ini
 
 # 記錄檔
 *.log
+
+# 測試執行中的標記（tests/run.mjs 結束時自動刪除）
+tests/.running-*

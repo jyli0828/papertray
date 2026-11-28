@@ -151,12 +151,24 @@ async function runCase(cdp, base, tc) {
   }
 }
 
+/* While the tests run, tests/.running-<pid> exists: a page that loads a half-saved file fails for no real reason, so an
+   editor or an assistant can check for it before changing the files the pages load (the Claude Code hook in
+   .claude/hooks/ does). It goes when the run ends, also on Ctrl+C; one left by a run that was killed names a process
+   that no longer exists. */
+function markRunning() {
+  const mark = path.join(ROOT, 'tests', `.running-${process.pid}`);
+  try { fs.writeFileSync(mark, new Date().toISOString()); } catch (e) { return; }
+  process.on('exit', () => { try { fs.rmSync(mark, { force: true }); } catch (e) {} });
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(130));
+}
+
 async function main() {
   const picked = cases.filter(tc => (!filters.length || filters.some(f => tc.name.toLowerCase().includes(f)))
     && !(skipSlow && tc.slow) && !(mode !== 'http' && tc.http));
   if (!picked.length) { console.error('沒有符合的測試'); process.exit(2); }
   const exe = findBrowser();
   if (!exe) { console.error('找不到 Chrome 或 Edge；請用環境變數 CHROME 指定瀏覽器執行檔的路徑。'); process.exit(2); }
+  markRunning();
   const server = await serve();
   let base = `http://127.0.0.1:${server.address().port}/`;
   if (mode === 'file') base = pathToFileURL(path.join(ROOT, 'index.html')).href;
