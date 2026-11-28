@@ -620,7 +620,8 @@ export default [
       await T.until(() => ocrTab.pj && ocrTab.hasText.length === ocrTab.n && !$('#ocr-go').disabled, '檢查頁面');
       const r = await T.result(() => T.click('#ocr-go'), '辨識', 220000);
       const text = (await T.pdfText(r.file)).join('').replace(/\s+/g, '');
-      for (const w of ['管理委員會', '486,500', 'office@example.com']) T.ok(text.includes(w), `找不到「${w}」`);
+      // On a miss, what was read: Tesseract's result depends on how the page was drawn (fonts, GPU or not).
+      for (const w of ['管理委員會', '486,500', 'office@example.com']) T.ok(text.includes(w), `找不到「${w}」，辨識出：${text.slice(0, 300)}`);
     }
   },
 
