@@ -1,0 +1,42 @@
+# Runs the browser tests (tests/run.mjs) on every push and pull request, in the three ways 紙匣 is opened.
+# Nothing to install: the tests need Node 22+ and Chrome, both already on GitHub's Ubuntu runners.
+name: 測試
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: 本機伺服器, flags: '' }
+          - { label: 直接開啟 index.html, flags: '--file' }
+          - { label: 單一檔案版, flags: '--bundle' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        if: matrix.flags == '--bundle'
+        with:
+          python-version: '3.x'
+      - name: 打包單一檔案版
+        if: matrix.flags == '--bundle'
+        run: python tools/build.py
+      - name: 測試
+        run: node tests/run.mjs ${{ matrix.flags }}
