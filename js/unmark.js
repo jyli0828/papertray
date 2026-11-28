@@ -23,7 +23,7 @@ async function loadUm(files) {
   uctx.drawImage(bmp, 0, 0, w, h);
   bmp.close && bmp.close();
   mctxU.clearRect(0, 0, umMask.width, umMask.height);
-  $('#um-name').value = f.name.replace(/\.[^.]+$/, '') + '-去浮水印.' + (um.mime === 'image/jpeg' ? 'jpg' : 'png');
+  $('#um-name').value = stemName(f.name) + '-去浮水印.' + (um.mime === 'image/jpeg' ? 'jpg' : 'png');
   $('#um-meta').textContent = w === ow ? `${w} × ${h} px` : `${w} × ${h} px（原圖 ${ow} × ${oh}，已縮小以便處理）`;
   $('#um-empty').hidden = true; $('#um-work').hidden = false;
   um.zoom = 1; updateUmButtons(); fitUm();
@@ -183,7 +183,7 @@ async function removeMarked(signal) {
 }
 $('#um-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async (check, signal) => {
   if (await removeMarked(signal)) toast('已移除，不滿意可以按「復原」');
-}).catch(err => toast('處理失敗：' + err.message, 'err')));
+}).catch(failToast('處理失敗')));
 $('#um-undo').addEventListener('click', () => {
   // The removal under way read its pixels before this; finishing, it would paint the undone change back.
   if (um.busy) { toast('正在處理，請等完成再復原'); return; }
@@ -206,14 +206,14 @@ $('#um-compare').addEventListener('pointerdown', () => showOrig(true));
 $('#um-compare').addEventListener('keydown', e => { if (e.key === ' ' || e.key === 'Enter') showOrig(true); });
 $('#um-compare').addEventListener('keyup', () => showOrig(false));
 $('#um-save').addEventListener('click', e => busy(e.currentTarget, '準備中…', async () => {
-  const blob = await new Promise(r => umImg.toBlob(r, um.mime, .93));
+  const blob = await canvasBlob(umImg, um.mime, .93);
   if (!blob) throw new Error('圖片太大，瀏覽器無法輸出');
   let name = ($('#um-name').value || 'image').trim();
   const ext = um.mime === 'image/jpeg' ? 'jpg' : 'png';
   if (!new RegExp('\\.' + ext + '$', 'i').test(name)) name = name.replace(/\.(jpe?g|png|webp|bmp|gif)$/i, '') + '.' + ext;
   await saveFile(name, blob);
   offerNext(new File([blob], name, { type: um.mime }), 'image', 'unmark');
-}).catch(err => toast('下載失敗：' + err.message, 'err')));
+}).catch(failToast('下載失敗')));
 bindInput($('#um-input'), loadUm);
 registerTarget('image', 'unmark', '去浮水印', loadUm);
 acceptFiles($('#panel-unmark'), $('#um-drop'), loadUm);
@@ -233,7 +233,7 @@ onSample($('#um-sample'), async () => {
   c.font = '700 120px sans-serif'; c.textAlign = 'center'; c.fillStyle = 'rgba(255,255,255,.55)'; c.fillText('© SAMPLE PHOTO', 0, 40);
   c.restore();
   c.font = '600 44px monospace'; c.fillStyle = '#ff8a1e'; c.fillText('2026 11 19', W - 330, H - 50);
-  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .92));
+  const blob = await canvasBlob(cv, 'image/jpeg', .92);
   await loadUm([new File([blob], 'landscape.jpg', { type: 'image/jpeg' })]);
 });
 registerHolder('unmark', () => um.w ? um.w * um.h * 4 + umMask.width * umMask.height * 4 + umOrig.width * umOrig.height * 4

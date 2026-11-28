@@ -73,12 +73,12 @@ async function processImage(it, o) {
   const ctx = cv.getContext('2d'); ctx.imageSmoothingQuality = 'high';
   if (mime === 'image/jpeg') { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h); } // JPEG has no transparency
   ctx.drawImage(bmp, 0, 0, w, h); bmp.close && bmp.close();
-  const blob = await new Promise(r => cv.toBlob(r, mime, o.q));
+  const blob = await canvasBlob(cv, mime, o.q);
   cv.width = cv.height = 0;
   if (!blob) throw new Error(`「${it.name}」無法輸出`);
   // A browser without WebP encoding silently hands back PNG; name the file by what we really got.
   const ext = IT_EXT[blob.type] || 'png';
-  return { blob, w, h, size: blob.size, name: it.name.replace(/\.[^.]+$/, '') + '.' + ext };
+  return { blob, w, h, size: blob.size, name: stemName(it.name) + '.' + ext };
 }
 $('#it-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…', async check => {
   const o = itOpts();
@@ -100,7 +100,7 @@ $('#it-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
   for (const x of outs) await zip.add(x.name, x.blob);
   let zipName = ($('#it-zip').value || '圖片').trim(); if (!/\.zip$/i.test(zipName)) zipName += '.zip';
   await deliver(new File([zip.blob()], zipName, { type: 'application/zip' }), 'zip', 'imgtool');
-}).catch(err => toast('處理失敗：' + err.message, 'err')));
+}).catch(failToast('處理失敗')));
 bindInput($('#it-input'), addImgTool);
 acceptFiles($('#panel-imgtool'), $('#it-drop'), addImgTool);
 registerTarget('image', 'imgtool', '圖片工具', addImgTool);
@@ -114,7 +114,7 @@ onSample($('#it-sample'), async () => {
     for (let p = 0; p < d.length; p += 4) { const n = (Math.random() - .5) * 30; d[p] += n; d[p + 1] += n; d[p + 2] += n; }
     c.putImageData(img, 0, 0);
     c.fillStyle = 'rgba(255,255,255,.85)'; c.font = `700 ${w / 10}px sans-serif`; c.fillText(`Photo ${i + 1}`, w * .08, h * .88);
-    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .95));
+    const blob = await canvasBlob(cv, 'image/jpeg', .95);
     files.push(new File([blob], `IMG_00${i + 1}.jpg`, { type: 'image/jpeg' }));
   }
   await addImgTool(files);

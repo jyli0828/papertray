@@ -29,12 +29,6 @@ async function loadSplit(files) {
   $('#split-empty').hidden = true; $('#split-work').hidden = false;
   renderSplit();
 }
-async function loadSplitThumb(p) {
-  if (p.thumb || p.loading) return;
-  const pj = split.pj; p.loading = true;
-  try { Object.assign(p, await renderThumb(await pj.getPage(p.index + 1))); } catch (e) { return; } finally { p.loading = false; }
-  if (split.pj === pj) setCardThumb($(`#split-grid [data-id="${p.id}"]`), p.thumb, p.tw, p.th, 0);
-}
 function splitGroups() {
   const n = split.pages.length, mode = document.querySelector('input[name="split-mode"]:checked').value;
   if (mode === 'single') return { groups: split.pages.map((_, i) => [i]) };
@@ -63,8 +57,7 @@ function renderSplit() {
     card.innerHTML = `<div class="thumb">${p.thumb ? '<img alt="" draggable="false">' : '<span class="thumb-loading"></span>'}</div>
       <div class="meta"><span class="mid"><span class="pno">${p.index + 1}</span><span class="psize">${p.w ? paperName(p.w, p.h) : ''}</span></span>
       ${gi !== undefined ? `<span class="gchip">第 ${gi + 1} 份</span>` : '<span class="psize">不輸出</span>'}</div>`;
-    if (p.thumb) { const img = card.querySelector('img'); img.src = p.thumb; sizeThumbImg(img, p.tw, p.th, 0); }
-    else whenVisible(card, () => loadSplitThumb(p));
+    fillPageThumb(card, p, split, '#split-grid');
     grid.append(card);
   }
   const shown = groups.slice(0, 8).map(groupLabel).join('、') + (groups.length > 8 ? '…' : '');
@@ -97,7 +90,7 @@ $('#split-go').addEventListener('click', e => runJob(e.currentTarget, '拆分中
     await zip.add(name, bytes);
   }
   await deliver(new File([zip.blob()], `${base}-拆分.zip`, { type: 'application/zip' }), 'zip', 'split');
-}).catch(err => toast('拆分失敗：' + err.message, 'err')));
+}).catch(failToast('拆分失敗')));
 $('#split-grid').addEventListener('click', e => {
   if (!isThumbClick(e)) return;
   const i0 = split.pages.findIndex(x => x.id === e.target.closest('.page-card').dataset.id);
@@ -107,7 +100,7 @@ bindInput($('#split-input'), loadSplit);
 acceptFiles($('#panel-split'), $('#split-drop'), loadSplit);
 $('#split-change').addEventListener('click', () => $('#split-input').click());
 registerTarget('pdf', 'split', '拆分', loadSplit);
-onSample($('#split-sample'), async () => loadSplit([asFile(await makeSample('Quarterly Report', 6, [.04, .48, .42]), 'quarterly-report.pdf')]));
+onSample($('#split-sample'), async () => loadSplit([await quarterlySample(6)]));
 registerHolder('split', () => split.pj ? split.size : 0, () => {
   split.pj.destroy(); releaseThumbs(split.pages);
   forgetCards($('#split-grid')); $('#split-grid').innerHTML = '';

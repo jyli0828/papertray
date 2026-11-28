@@ -291,11 +291,11 @@ $('#sc-apply').addEventListener('click', e => busy(e.currentTarget, '處理中�
   const mode = $('#sc-filter').value;
   const out = scanRender(sc.bmp, sc.quad, mode, sc.rot, 3200);
   const png = mode === 'bw'; // black and white compresses far better as PNG
-  const blob = await new Promise(r => out.toBlob(r, png ? 'image/png' : 'image/jpeg', .9));
+  const blob = await canvasBlob(out, png ? 'image/png' : 'image/jpeg', .9);
   const src = it.scan ? it.scan.src : it.file;
-  const file = new File([blob], src.name.replace(/\.[^.]+$/, '') + (png ? '.png' : '.jpg'), { type: png ? 'image/png' : 'image/jpeg' });
+  const file = new File([blob], stemName(src.name) + (png ? '.png' : '.jpg'), { type: png ? 'image/png' : 'image/jpeg' });
   await replaceImgItem(it, file, out, png ? 'png' : 'jpg', it.thumbPx); out.width = out.height = 0;
   it.scan = { src, quad: sc.quad.map(p => p.slice()), mode, rot: sc.rot };
   const done = sc.done; closeScan(); done(); toast('已校正');
-}).catch(err => toast('校正失敗：' + err.message, 'err')));
+}).catch(failToast('校正失敗')));
 window.addEventListener('resize', () => { if (scDlg.open) drawScan(); });

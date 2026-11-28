@@ -83,7 +83,7 @@ bindInput($('#comp-input-more'), loadCompFile);
 acceptFiles($('#panel-compress'), $('#comp-drop'), loadCompFile);
 registerTarget('pdf', 'compress', '壓縮', loadCompFile);
 $('#comp-sample').addEventListener('click', async e => {
-  await busy(e.currentTarget, '產生範例…', async () => loadCompFile([asFile(await makePhotoSample(), 'site-survey-photos.pdf')]));
+  await busy(e.currentTarget, '產生範例…', async () => loadCompFile([pdfFile(await makePhotoSample(), 'site-survey-photos.pdf')]));
 });
 const levelVal = () => document.querySelector('input[name="level"]:checked').value;
 function setCompMode(m) {
@@ -158,7 +158,7 @@ async function compressRaster(bytes, lv, gray, check) {
       return r;
     }, async ({ cv, vp1 }, i) => {
       progress(i, pj.numPages);
-      const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', lv.q));
+      const blob = await canvasBlob(cv, 'image/jpeg', lv.q);
       const jpg = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
       const page = out.addPage([vp1.width, vp1.height]);
       page.drawImage(jpg, { x: 0, y: 0, width: vp1.width, height: vp1.height });
@@ -446,7 +446,7 @@ async function reencodeOnPage(info, obj, lv, gray) {
     const c2 = outCv.getContext('2d'); c2.imageSmoothingQuality = 'high'; c2.drawImage(cv, 0, 0, outCv.width, outCv.height);
   }
   if (gray || info.comps === 1) toGray(outCv.getContext('2d'), outCv.width, outCv.height);
-  const blob = await new Promise(r => outCv.toBlob(r, 'image/jpeg', lv.q));
+  const blob = await canvasBlob(outCv, 'image/jpeg', lv.q);
   const out = blob && { bytes: new Uint8Array(await blob.arrayBuffer()), w: outCv.width, h: outCv.height };
   cv.width = cv.height = 0; if (outCv !== cv) { outCv.width = outCv.height = 0; }
   return out;
@@ -582,7 +582,7 @@ $('#comp-go').addEventListener('click', e => runJob(e.currentTarget, '壓縮中�
     const f = comp.items[0].out.src; f.name = ensurePdf($('#comp-name').value);
     await deliver(f, 'pdf', 'compress');
   }
-}).catch(err => toast('壓縮失敗：' + err.message, 'err')));
+}).catch(failToast('壓縮失敗')));
 $('#comp-save').addEventListener('click', e => busy(e.currentTarget, '準備中…', async () => {
   const done = comp.items.filter(x => x.out); if (!done.length) return;
   if (done.length === 1) { await saveFile(ensurePdf($('#comp-name').value), done[0].out.src); return; }
@@ -590,7 +590,7 @@ $('#comp-save').addEventListener('click', e => busy(e.currentTarget, '準備中�
   for (const it of done) await zip.add(baseName(it.name) + '-壓縮.pdf', it.out.src instanceof Blob ? it.out.src : (await fileBytes(it.out.src)).bytes);
   let name = ($('#comp-name').value || '壓縮後的 PDF').trim(); if (!/\.zip$/i.test(name)) name += '.zip';
   await saveFile(name, zip.blob());
-}).catch(err => toast('下載失敗：' + err.message, 'err')));
+}).catch(failToast('下載失敗')));
 setCompMode('keep');
 registerHolder('compress', () => comp.items.reduce((n, it) => n + heldBytes(it.src) + (it.out && it.out.src !== it.src ? heldBytes(it.out.src) : 0), 0),
   () => { comp.items = []; clearCompResults(); renderCompList(); });

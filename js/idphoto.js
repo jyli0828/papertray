@@ -155,7 +155,9 @@ function updatePhSummary(L) {
 }
 let phFrameQueued = false;
 function drawPhAll() {
-  if (phFrameQueued) return; phFrameQueued = true;
+  // Hidden, the preview has no size to measure (and measuring makes the browser lay out the page): showTab() draws
+  // it when 證件照 opens.
+  if (phFrameQueued || $('#panel-idphoto').hidden) return; phFrameQueued = true;
   requestAnimationFrame(() => { phFrameQueued = false; drawPhFrame(); drawPhSheet(); });
 }
 
@@ -216,7 +218,7 @@ $('#ph-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
   if (!ph.bmp || !L.cells.length) return;
   const tile = phTile(L.s, pxPerMm);
   if ($('#ph-paper').value === 'a4') {
-    const blob = await new Promise(r => tile.toBlob(r, 'image/jpeg', .95)); tile.width = tile.height = 0;
+    const blob = await canvasBlob(tile, 'image/jpeg', .95); tile.width = tile.height = 0;
     const out = await PDFDocument.create(), page = out.addPage([L.W * MM_PT, L.H * MM_PT]);
     const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
     for (const c of L.cells) {
@@ -233,11 +235,11 @@ $('#ph-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
   for (const c of L.cells) ctx.drawImage(tile, Math.round(c.x * pxPerMm), Math.round(c.y * pxPerMm));
   tile.width = tile.height = 0;
   if (cut) phCutLines(ctx, L, pxPerMm);
-  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .95)); cv.width = cv.height = 0;
+  const blob = await canvasBlob(cv, 'image/jpeg', .95); cv.width = cv.height = 0;
   const bytes = setJpegDpi(new Uint8Array(await blob.arrayBuffer()), 300);
   await deliver(new File([bytes], name.replace(/\.(jpe?g|pdf)$/i, '') + '.jpg', { type: 'image/jpeg' }), 'image', 'idphoto');
   toast('列印時請選「4×6 相片」、「原尺寸／不要縮放」，印出來才是正確大小');
-}).catch(err => toast('產生失敗：' + err.message, 'err')));
+}).catch(failToast('產生失敗')));
 
 /* ---------- wiring ---------- */
 bindInput($('#ph-input'), loadPh);
@@ -265,7 +267,6 @@ onSample($('#ph-sample'), async () => {
   ctx.strokeStyle = '#b67f63'; ctx.lineWidth = 9; ctx.lineCap = 'round';
   ctx.beginPath(); ctx.moveTo(W / 2, H * .47); ctx.lineTo(W / 2 - 18, H * .52); ctx.lineTo(W / 2 + 8, H * .525); ctx.stroke();
   ctx.beginPath(); ctx.arc(W / 2, H * .53, 70, .2 * Math.PI, .8 * Math.PI); ctx.stroke();
-  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9)); cv.width = cv.height = 0;
+  const blob = await canvasBlob(cv, 'image/jpeg', .9); cv.width = cv.height = 0;
   await loadPh([new File([blob], 'portrait-sample.jpg', { type: 'image/jpeg' })]);
 });
-drawPhAll();

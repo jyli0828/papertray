@@ -16,7 +16,6 @@ async function loadWm(files) {
   $('#wm-empty').hidden = true; $('#wm-work').hidden = false;
   await renderWmPage();
 }
-const wmFont = size => `700 ${size}px "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif`;
 const wmFontAsked = new Set();
 /* The bold web font loads per character on demand; draw again once it arrives so preview and export use the same face. */
 function wmFontReady(font, text) {
@@ -32,7 +31,7 @@ function wmSettings() {
 }
 function wmTextMark(s) {
   const { text, size } = s, k = 4;
-  const font = wmFont(size);
+  const font = fontStr(size, 700);
   wmFontReady(font, text);
   mctx.font = font;
   const wPt = mctx.measureText(text).width + size * .2, hPt = size * 1.3;
@@ -157,7 +156,7 @@ $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
   const tg = wmTargets(); if (tg.error) { toast(tg.error, 'err'); return; }
   // Changing a setting while this runs must not reach only some of the pages.
   const s = wmSettings(), { deg, opacity, pos } = s;
-  if (s.type === 'text') await loadFont(wmFont(64), s.text);
+  if (s.type === 'text') await loadFont(fontStr(64, 700), s.text);
   const out = await PDFDocument.load(await wm.pj.getData());
   const cache = new Map();
   const embedMark = async mark => {
@@ -187,12 +186,12 @@ $('#wm-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
   const bytes = await out.save({ useObjectStreams: true });
   const name = ensurePdf($('#wm-name').value);
   await deliver(pdfFile(bytes, name), 'pdf', 'watermark');
-}).catch(err => toast('加浮水印失敗：' + err.message, 'err')));
+}).catch(failToast('加浮水印失敗')));
 bindInput($('#wm-input'), loadWm);
 registerTarget('pdf', 'watermark', '加浮水印', loadWm);
 acceptFiles($('#panel-watermark'), $('#wm-drop'), loadWm);
 $('#wm-change').addEventListener('click', () => $('#wm-input').click());
-onSample($('#wm-sample'), async () => loadWm([asFile(await makeSample('Quarterly Report', 3, [.04, .48, .42]), 'quarterly-report.pdf')]));
+onSample($('#wm-sample'), async () => loadWm([await quarterlySample(3)]));
 let wmResizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(wmResizeTimer);

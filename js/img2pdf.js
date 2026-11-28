@@ -71,7 +71,7 @@ async function addImages(files) {
     else if (!p) toast(`「${f.name}」不是支援的圖片格式`, 'err');
     else imgs.items.push({ id: uid(), name: f.name, size: f.size, file: f, url: p.url, w: p.w, h: p.h, kind: p.kind });
   });
-  if (imgs.items.length && $('#img-name').value === '圖片.pdf') $('#img-name').value = baseName(imgs.items[0].name.replace(/\.[^.]+$/, '')) + '.pdf';
+  if (imgs.items.length && $('#img-name').value === '圖片.pdf') $('#img-name').value = baseName(stemName(imgs.items[0].name)) + '.pdf';
   renderImgs();
 }
 function renderImgs() {
@@ -122,7 +122,7 @@ onSample($('#img-sample'), async () => {
     g.addColorStop(0, a); g.addColorStop(1, b); ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
     ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.font = `700 ${Math.round(w / 9)}px sans-serif`;
     ctx.fillText(`Photo ${i + 1}`, w * .08, h * .85);
-    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9));
+    const blob = await canvasBlob(cv, 'image/jpeg', .9);
     files.push(new File([blob], `photo-${i + 1}.jpg`, { type: 'image/jpeg' }));
   }
   await addImages(files);
@@ -133,7 +133,7 @@ async function imageBytesFor(it) {
   const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
   const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.drawImage(bmp, 0, 0);
   bmp.close && bmp.close();
-  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .92));
+  const blob = await canvasBlob(cv, 'image/jpeg', .92);
   cv.width = cv.height = 0;
   return { kind: 'jpg', bytes: new Uint8Array(await blob.arrayBuffer()) };
 }
@@ -160,7 +160,7 @@ $('#img-go').addEventListener('click', e => runJob(e.currentTarget, '轉換中�
   }
   const bytes = await out.save({ useObjectStreams: true });
   await deliver(pdfFile(bytes, name), 'pdf', 'img2pdf');
-}).catch(err => toast('轉換失敗：' + err.message, 'err')));
+}).catch(failToast('轉換失敗')));
 registerHolder('img2pdf', () => imgs.items.reduce((n, it) => n + it.size + (it.scan ? it.scan.src.size : 0), 0), () => {
   imgs.items.forEach(it => URL.revokeObjectURL(it.url)); imgs.items = []; renderImgs();
 });

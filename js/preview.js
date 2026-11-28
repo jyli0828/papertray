@@ -105,7 +105,7 @@ async function openResultPreview() {
     onClose: giveBack
   });
 }
-$('#handoff-preview').addEventListener('click', e => busy(e.currentTarget, '開啟中…', openResultPreview).catch(err => toast('無法預覽：' + err.message, 'err')));
+$('#handoff-preview').addEventListener('click', e => busy(e.currentTarget, '開啟中…', openResultPreview).catch(failToast('無法預覽')));
 $('#handoff-download').addEventListener('click', e => { if (lastResult) busy(e.currentTarget, '準備中…', () => saveFile(lastResult.file.name, lastResult.file)); });
 $('#auto-dl').checked = autoDownload;
 $('#auto-dl').addEventListener('change', e => {

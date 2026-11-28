@@ -21,8 +21,8 @@ async function loadIdImage(f) {
     const quad = detectQuad(bmp);
     if (quad) {
       const out = scanRender(bmp, quad, 'none', 0, 2400);
-      const blob = await new Promise(r => out.toBlob(r, 'image/jpeg', .92));
-      const file = new File([blob], f.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' });
+      const blob = await canvasBlob(out, 'image/jpeg', .92);
+      const file = new File([blob], stemName(f.name) + '.jpg', { type: 'image/jpeg' });
       await replaceImgItem(it, file, out, 'jpg', ID_THUMB_PX);
       out.width = out.height = 0;
       it.scan = { src: f, quad, mode: 'none', rot: 0 };
@@ -208,14 +208,14 @@ $('#id-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
   for (const c of cards) {
     check();
     const cv = await idCardCanvas(c, pxPerMm, o);
-    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9)); cv.width = cv.height = 0;
+    const blob = await canvasBlob(cv, 'image/jpeg', .9); cv.width = cv.height = 0;
     const img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
     page.drawImage(img, { x: c.x * MM_PT, y: (A4_MM[1] - c.y - c.h) * MM_PT, width: c.w * MM_PT, height: c.h * MM_PT });
   }
   out.setTitle(baseName(name));
   const bytes = await out.save({ useObjectStreams: true });
   await deliver(pdfFile(bytes, name), 'pdf', 'idcard');
-}).catch(err => toast('產生失敗：' + err.message, 'err')));
+}).catch(failToast('產生失敗')));
 
 /* ---------- wiring ---------- */
 acceptFiles($('#panel-idcard'), null, addIdFiles); // first: Ctrl+V and drops outside the two boxes
@@ -275,7 +275,7 @@ onSample($('#id-sample'), async () => {
     }
     ctx.fillStyle = '#6d7b86';
     for (let k = 0; k < 5; k++) ctx.fillRect(-W / 2 + 60, -H / 2 + 170 + k * 58, (s ? 900 : 560) - k * 40, 22);
-    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9));
+    const blob = await canvasBlob(cv, 'image/jpeg', .9);
     files.push(new File([blob], s ? 'card-back.jpg' : 'card-front.jpg', { type: 'image/jpeg' }));
   }
   await addIdFiles(files);

@@ -115,7 +115,7 @@ $('#pw-lock-go').addEventListener('click', e => {
     if (!out || !(await pdfjsTry(out, user)).ok || (user && (await pdfjsTry(out)).ok)) throw new Error('產生的檔案驗證不通過');
     await deliver(pdfFile(out, name), 'locked', 'password');
     toast(user ? '已加上密碼。請記好密碼，忘記了就打不開。' : '已加上限制');
-  }).catch(err => toast('加密失敗：' + err.message, 'err'));
+  }).catch(failToast('加密失敗'));
 });
 bindInput($('#pw-input'), loadPw);
 acceptFiles($('#panel-password'), $('#pw-drop'), loadPw);

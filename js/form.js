@@ -60,7 +60,7 @@ async function loadForm(files) {
       // ENABLE_FORMS: everything except the form fields, which are the inputs on top
       await p.render({ canvasContext: ctx, viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE_FORMS }).promise;
       p.cleanup();
-      const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .9)); cv.width = cv.height = 0;
+      const blob = await canvasBlob(cv, 'image/jpeg', .9); cv.width = cv.height = 0;
       if (token !== ff.token || !blob) return;
       const img = document.createElement('img'); img.alt = ''; img.draggable = false;
       img.src = URL.createObjectURL(blob); ff.urls.push(img.src);
@@ -281,7 +281,7 @@ $('#ff-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
   const bytes = await doc.save({ useObjectStreams: true, updateFieldAppearances: false });
   if (problems.length) toast(`有 ${problems.length} 個欄位無法寫入：${problems.slice(0, 3).join('、')}${problems.length > 3 ? '…' : ''}`, 'err');
   await deliver(pdfFile(bytes, name), 'pdf', 'form');
-}).catch(err => toast('匯出失敗：' + err.message, 'err')));
+}).catch(failToast('匯出失敗')));
 
 bindInput($('#ff-input'), loadForm);
 acceptFiles($('#panel-form'), $('#ff-drop'), loadForm);

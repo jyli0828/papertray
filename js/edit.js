@@ -75,8 +75,7 @@ async function loadEditFiles(files, onFirst, insertAt, replace, undoable) {
   let at = insertAt == null ? null : insertAt;
   for (let f of files) {
     if (!isPdf(f) && isImage(f)) { // a picture is inserted as an A4 page
-      try { const [img] = await prepImages([f]); if (!img) continue; f = await imagesToPdf([img]); }
-      catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); continue; }
+      f = await pictureAsPdf(f); if (!f) continue;
     }
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 或圖片`, 'err'); continue; }
     const got = await readPdf(f); if (!got) continue; // a password-protected file is unlocked here first
@@ -252,7 +251,7 @@ $('#edit-blank').addEventListener('click', async () => {
   toast('已插入空白頁');
 });
 onSample($('#edit-sample'), async () => {
-  await loadEditFiles([asFile(await makeSample('Quarterly Report', 4, [.04, .48, .42]), 'quarterly-report.pdf')]);
+  await loadEditFiles([await quarterlySample(4)]);
 });
 $('#edit-selall').addEventListener('click', () => {
   const all = selCount() === edit.pages.length; edit.pages.forEach(p => { p.selected = !all; }); renderEdit();
@@ -313,7 +312,7 @@ $('#edit-find-blank').addEventListener('click', e => {
     edit.pages.forEach(p => { p.selected = blank.includes(p); });
     if (!blank.length) toast('沒有找到空白頁');
     else toast(`找到 ${blank.length} 頁空白頁，已勾選。確認沒有選錯後，按「刪除選取」或 Delete。`);
-  }).catch(err => toast('檢查失敗：' + err.message, 'err')).finally(renderEdit);
+  }).catch(failToast('檢查失敗')).finally(renderEdit);
 });
 $('#edit-rot-sel').addEventListener('click', () => { pushUndo(); edit.pages.forEach(p => { if (p.selected) p.rot = (p.rot + 90) % 360; }); renderEdit(); });
 $('#edit-del-sel').addEventListener('click', () => {
@@ -429,7 +428,7 @@ async function renderShapePng(a) {
   const k = 4, c = document.createElement('canvas');
   c.width = Math.max(1, Math.ceil(a.wPt * k)); c.height = Math.max(1, Math.ceil(a.hPt * k));
   const ctx = c.getContext('2d'); ctx.scale(k, k); drawShape(ctx, a);
-  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  const blob = await canvasBlob(c, 'image/png');
   return new Uint8Array(await blob.arrayBuffer());
 }
 
@@ -506,7 +505,7 @@ async function exportEdit(onlySel, btn) {
     if (!strip) { const now = new Date(); out.setCreator('紙匣'); out.setProducer('紙匣'); out.setCreationDate(now); out.setModificationDate(now); }
     const bytes = await out.save({ useObjectStreams: true });
     await deliver(pdfFile(bytes, name), 'pdf', 'edit');
-  }).catch(err => toast('匯出失敗：' + err.message, 'err'));
+  }).catch(failToast('匯出失敗'));
 }
 $('#edit-export').addEventListener('click', e => exportEdit(false, e.currentTarget));
 $('#edit-export-sel').addEventListener('click', e => exportEdit(true, e.currentTarget));

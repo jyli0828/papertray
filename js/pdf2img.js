@@ -29,12 +29,6 @@ async function loadP2i(files) {
   }
   updateP2iSummary();
 }
-async function loadP2iThumb(p) {
-  if (p.thumb || p.loading) return;
-  const pj = p2i.pj; p.loading = true;
-  try { Object.assign(p, await renderThumb(await pj.getPage(p.index + 1))); } catch (e) { return; } finally { p.loading = false; }
-  if (p2i.pj === pj) setCardThumb($(`#p2i-grid [data-id="${p.id}"]`), p.thumb, p.tw, p.th, 0);
-}
 function renderP2i() {
   const grid = $('#p2i-grid'); forgetCards(grid); grid.innerHTML = '';
   p2i.pages.forEach((p, i) => {
@@ -63,8 +57,7 @@ function renderP2iCard(p, card) {
       <span class="mid"><span class="pno">${p.index + 1}</span><span class="psize">${p.w ? paperName(p.w, p.h) : ''}</span></span>
       <button class="icon-btn mini" data-act="one" title="只下載這一頁" aria-label="只下載第 ${p.index + 1} 頁"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4-4m4 4 4-4M5 20h14"/></svg></button>
     </div>`;
-  if (p.thumb) { const img = card.querySelector('img'); img.src = p.thumb; sizeThumbImg(img, p.tw, p.th, 0); }
-  else whenVisible(card, () => loadP2iThumb(p));
+  fillPageThumb(card, p, p2i, '#p2i-grid');
 }
 function p2iOpts() {
   const fmt = $('#p2i-fmt').value;
@@ -101,7 +94,7 @@ async function drawP2iPage(index, o, pj = p2i.pj) {
   return r;
 }
 function dropP2iPage(r) { r.pg.cleanup(); r.cv.width = r.cv.height = 0; }
-const p2iBlob = (r, o) => new Promise(res => r.cv.toBlob(res, o.mime, o.q));
+const p2iBlob = (r, o) => canvasBlob(r.cv, o.mime, o.q);
 async function pageToBlob(index, o) {
   const r = await drawP2iPage(index, o);
   try { return await p2iBlob(r, o); } finally { dropP2iPage(r); }
@@ -123,7 +116,7 @@ function runsToText(items, vp) {
       if (Math.abs(dy) > lh * .5 || x < prev.x - lh * 2) { // a new line
         out = out.replace(/[ \t]+$/, '');
         out += dy > lh * 1.9 ? '\n\n' : '\n';
-      } else if (x - prev.end > lh * .25 && !/\s$/.test(out) && !/^\s/.test(it.str)) out += ' ';
+      } else if (x - prev.end > lh * .25 && !/\s/.test(out.slice(-1)) && !/^\s/.test(it.str)) out += ' '; // the last character, not a search of the page so far
     }
     out += fixCjk(it.str);
     prev = { x, y, h, end: x + w };
@@ -149,7 +142,7 @@ function p2iProgress(i, n) {
 async function exportP2i(pages, btn) {
   const o = p2iOpts();
   const mini = btn.classList.contains('mini');
-  await (mini ? busy(btn, '', () => go(() => {})) : runJob(btn, '轉換中…', go)).catch(err => toast('轉換失敗：' + err.message, 'err'));
+  await (mini ? busy(btn, '', () => go(() => {})) : runJob(btn, '轉換中…', go)).catch(failToast('轉換失敗'));
   async function go(check) {
     if (o.fmt === 'txt') return goText(check);
     if (pages.length === 1) {
@@ -225,7 +218,7 @@ registerTarget('pdf', 'pdf2img', '轉成圖片／文字', loadP2i);
 acceptFiles($('#panel-pdf2img'), $('#p2i-drop'), loadP2i);
 $('#p2i-change').addEventListener('click', () => $('#p2i-input').click());
 onSample($('#p2i-sample'), async () => {
-  await loadP2i([asFile(await makeSample('Quarterly Report', 3, [.04, .48, .42]), 'quarterly-report.pdf')]);
+  await loadP2i([await quarterlySample(3)]);
 });
 registerHolder('pdf2img', () => p2i.pj ? p2i.size : 0, () => {
   p2i.pj.destroy(); releaseThumbs(p2i.pages);

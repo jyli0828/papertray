@@ -70,13 +70,17 @@ async function needPdfjs() {
    is opened, not at page load: the worker script alone is about 1 MB and its thread holds memory of its own.
    Opened straight from disk (file://) browsers refuse that, and pdf.js runs the worker code on the page instead. */
 let sharedWorker; // undefined = not tried yet, null = unavailable
+/* A worker running pdf.js's worker script, started from a blob: URL (revoke url when done with the worker). */
+function newPdfWorkerThread() {
+  const url = URL.createObjectURL(new Blob([`importScripts('${WORKER_URL}');`], { type: 'text/javascript' }));
+  return { url, w: new Worker(url) };
+}
 function pdfWorker() {
   if (sharedWorker !== undefined) return sharedWorker;
   sharedWorker = null;
   if (location.protocol !== 'file:') {
     try {
-      const w = new Worker(URL.createObjectURL(new Blob([`importScripts('${WORKER_URL}');`], { type: 'text/javascript' })));
-      sharedWorker = new pdfjsLib.PDFWorker({ port: w });
+      sharedWorker = new pdfjsLib.PDFWorker({ port: newPdfWorkerThread().w });
     } catch (e) { sharedWorker = null; }
   }
   return sharedWorker;
@@ -120,7 +124,12 @@ window.addEventListener('dragenter', e => {
 let _n = 0; const uid = () => 'i' + (++_n);
 const isPdf = f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
 const baseName = n => n.replace(/\.pdf$/i, '');
+const stemName = n => n.replace(/\.[^.]+$/, ''); // the name without its ending, whatever it is
 const ensurePdf = n => { n = (n || '').trim() || 'document'; return /\.pdf$/i.test(n) ? n : n + '.pdf'; };
+/* A canvas as a Blob (toBlob() with a promise). */
+const canvasBlob = (cv, type, q) => new Promise(r => cv.toBlob(r, type, q));
+/* The .catch() of a job: its error as a toast, e.g. runJob(…).catch(failToast('壓縮失敗')). */
+const failToast = what => err => toast(what + '：' + err.message, 'err');
 function fmtSize(b) {
   if (b < 1024) return b + ' B';
   if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
@@ -766,6 +775,7 @@ function makeSortable(container, sel, getArr, onChange, horizontal, beforeChange
     t.el.classList.remove('sort-lifted'); t.el.draggable = t.wasDraggable;
     clear();
     const done = t; t = null;
+    unlisten();
     if (done.active) container._sortedAt = Date.now(); // the finger lifts on a card; that is not a click on it
     if (done.active && done.target) move(done.id, done.target, done.before);
   };
@@ -775,6 +785,7 @@ function makeSortable(container, sel, getArr, onChange, horizontal, beforeChange
     if (!el || e.target.closest('button, input, label, select, textarea')) return;
     t = { el, id: el.dataset.id, x: e.clientX, y: e.clientY, active: false, wasDraggable: el.draggable };
     el.draggable = false;
+    listen();
     t.timer = setTimeout(() => {
       if (!t) return;
       const r = el.getBoundingClientRect();
@@ -785,7 +796,7 @@ function makeSortable(container, sel, getArr, onChange, horizontal, beforeChange
       try { navigator.vibrate && navigator.vibrate(12); } catch (_) {}
     }, 350);
   });
-  window.addEventListener('pointermove', e => {
+  const onMove = e => {
     if (!t || e.pointerType !== 'touch') return;
     if (!t.active) { if (Math.hypot(e.clientX - t.x, e.clientY - t.y) > 10) end(); return; } // it was a scroll
     t.ghost.style.left = (e.clientX - t.dx) + 'px'; t.ghost.style.top = (e.clientY - t.dy) + 'px';
@@ -797,10 +808,18 @@ function makeSortable(container, sel, getArr, onChange, horizontal, beforeChange
       t.target = el; t.before = isBefore(el, e.clientX, e.clientY);
       el.classList.add(t.before ? 'drop-before' : 'drop-after');
     }
-  });
-  window.addEventListener('pointerup', end);
-  window.addEventListener('pointercancel', end);
-  document.addEventListener('touchmove', e => { if (t && t.active) e.preventDefault(); }, { passive: false });
+  };
+  // Only while a finger is down on a card: a touchmove listener that may cancel scrolling (not passive) makes the
+  // browser wait for the page's thread before every scroll on the page, which stutters while a job keeps it busy.
+  const noScroll = e => { if (t && t.active) e.preventDefault(); };
+  function listen() {
+    window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', end); window.addEventListener('pointercancel', end);
+    document.addEventListener('touchmove', noScroll, { passive: false });
+  }
+  function unlisten() {
+    window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', end); window.removeEventListener('pointercancel', end);
+    document.removeEventListener('touchmove', noScroll, { passive: false });
+  }
   container.addEventListener('contextmenu', e => { if (t) e.preventDefault(); });
 }
 
@@ -810,9 +829,11 @@ function makeSortable(container, sel, getArr, onChange, horizontal, beforeChange
 function onSample(btn, load) {
   btn.addEventListener('click', () => {
     if (btn.disabled) return;
-    busy(btn, btn.textContent.trim(), load).catch(err => toast('範例載入失敗：' + err.message, 'err'));
+    busy(btn, btn.textContent.trim(), load).catch(failToast('範例載入失敗'));
   });
 }
+/* The report sample of 編輯, 拆分, 轉成圖片 and 加浮水印, n pages long. */
+const quarterlySample = async n => pdfFile(await makeSample('Quarterly Report', n, [.04, .48, .42]), 'quarterly-report.pdf');
 async function makeSample(title, pages, color) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -860,7 +881,6 @@ async function makePhotoSample() {
   }
   return doc.save();
 }
-const asFile = (bytes, name) => pdfFile(bytes, name);
 
 
 /* ---------- page jobs: drawing the next page while finishing this one ----------
@@ -922,8 +942,7 @@ async function pdfLanes(pj, n, bytes, scale = 1) {
   const data = bytes || await pj.getData();
   try {
     await Promise.all(Array.from({ length: want - 1 }, async () => {
-      const url = URL.createObjectURL(new Blob([`importScripts('${WORKER_URL}');`], { type: 'text/javascript' }));
-      const x = { url, w: new Worker(url), pj: null }; extra.push(x);
+      const x = { ...newPdfWorkerThread(), pj: null }; extra.push(x);
       x.pj = await pdfjsLib.getDocument({ ...pdfjsOpts(data.slice()), worker: new pdfjsLib.PDFWorker({ port: x.w }) }).promise;
     }));
   } catch (e) { lanes.close(); return lanes; } // no extra workers: one lane, as before
@@ -938,6 +957,19 @@ async function pdfLanes(pj, n, bytes, scale = 1) {
    kept for a long file nearly twice the bytes. */
 const thumbPx = () => Math.min(320, Math.round(240 * (window.devicePixelRatio || 1)));
 
+/* The thumbnail of page p of a tool's one open file (state.pj: 拆分, 轉成圖片) on its card in grid, drawn once; if
+   the file is replaced meanwhile, the new file's card is left alone. */
+async function loadPageThumb(p, state, grid) {
+  if (p.thumb || p.loading) return;
+  const pj = state.pj; p.loading = true;
+  try { Object.assign(p, await renderThumb(await pj.getPage(p.index + 1))); } catch (e) { return; } finally { p.loading = false; }
+  if (state.pj === pj) setCardThumb($(`${grid} [data-id="${p.id}"]`), p.thumb, p.tw, p.th, 0);
+}
+/* A card's thumbnail: shown now if drawn before, otherwise drawn once the card comes into view. */
+function fillPageThumb(card, p, state, grid) {
+  if (p.thumb) { const img = card.querySelector('img'); img.src = p.thumb; sizeThumbImg(img, p.tw, p.th, 0); }
+  else whenVisible(card, () => loadPageThumb(p, state, grid));
+}
 async function renderThumb(pg) {
   const vp1 = pg.getViewport({ scale: 1 });
   const vp = pg.getViewport({ scale: thumbPx() / Math.max(vp1.width, vp1.height) });
@@ -945,7 +977,7 @@ async function renderThumb(pg) {
   const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
   await pg.render({ canvasContext: ctx, viewport: vp }).promise;
   // A Blob URL keeps the picture outside the JavaScript heap (a data: URL would be a base64 string a third larger).
-  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .8));
+  const blob = await canvasBlob(cv, 'image/jpeg', .8);
   const out = { thumb: URL.createObjectURL(blob), tw: cv.width, th: cv.height };
   pg.cleanup(); cv.width = cv.height = 0;
   return out;
@@ -1040,7 +1072,7 @@ async function listThumb(pic, px = 96) {
   const c = document.createElement('canvas');
   c.width = Math.max(1, Math.round(pic.width * k)); c.height = Math.max(1, Math.round(pic.height * k));
   const ctx = c.getContext('2d'); ctx.imageSmoothingQuality = 'high'; ctx.drawImage(pic, 0, 0, c.width, c.height);
-  const blob = await new Promise(r => c.toBlob(r, 'image/png')); c.width = c.height = 0;
+  const blob = await canvasBlob(c, 'image/png'); c.width = c.height = 0;
   return URL.createObjectURL(blob);
 }
 /* iPhone photos (HEIC) become JPEG before any tool sees them. Safari can decode HEIC itself; other browsers
@@ -1049,14 +1081,14 @@ async function prepImages(files) {
   const out = [];
   for (const f of files) {
     if (!isHeic(f) && !(await looksHeic(f))) { out.push(f); continue; }
-    const name = f.name.replace(/\.[^.]+$/, '') + '.jpg';
+    const name = stemName(f.name) + '.jpg';
     try {
       let blob = null;
       try {
         const bmp = await createImageBitmap(f);
         const cv = document.createElement('canvas'); cv.width = bmp.width; cv.height = bmp.height;
         cv.getContext('2d').drawImage(bmp, 0, 0); bmp.close && bmp.close();
-        blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .92)); cv.width = cv.height = 0;
+        blob = await canvasBlob(cv, 'image/jpeg', .92); cv.width = cv.height = 0;
       } catch (e) { blob = null; }
       if (!blob) {
         toast(`正在轉換「${f.name}」…`);
@@ -1075,6 +1107,11 @@ async function prepImages(files) {
    needs no turning goes in as it is (directKind() in img2pdf.js), like in 圖片轉 PDF: decoding a 12 MP photo and
    encoding it again took about 0.3 s and 48 MB, and lost a little quality each time. Other pictures are drawn as the
    browser shows them. */
+/* A picture put among PDFs (合併, 編輯) as a one-page A4 PDF; null, with the reason shown, if it cannot be read. */
+async function pictureAsPdf(f) {
+  try { const [img] = await prepImages([f]); return img ? await imagesToPdf([img]) : null; }
+  catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); return null; }
+}
 async function imagesToPdf(files, name) {
   const out = await PDFDocument.create();
   for (const f of files) {
@@ -1092,7 +1129,7 @@ async function imagesToPdf(files, name) {
       const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.drawImage(bmp, 0, 0); bmp.close && bmp.close();
       if (f.type === 'image/png' || /\.png$/i.test(f.name)) img = await embedCanvasImage(out, cv); // lossless, like the PNG it was
       else {
-        const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .92));
+        const blob = await canvasBlob(cv, 'image/jpeg', .92);
         img = await out.embedJpg(new Uint8Array(await blob.arrayBuffer()));
       }
       cv.width = cv.height = 0;
@@ -1102,7 +1139,7 @@ async function imagesToPdf(files, name) {
     const m = 28.35, s = Math.min((pw - m * 2) / w, (ph - m * 2) / h);
     out.addPage([pw, ph]).drawImage(img, { x: (pw - w * s) / 2, y: (ph - h * s) / 2, width: w * s, height: h * s });
   }
-  return pdfFile(await out.save({ useObjectStreams: true }), name || files[0].name.replace(/\.[^.]+$/, '') + '.pdf');
+  return pdfFile(await out.save({ useObjectStreams: true }), name || stemName(files[0].name) + '.pdf');
 }
 
 /* Some fonts (Microsoft JhengHei among them) map common characters to look-alike Kangxi radicals (⽇ U+2F47 for 日,
@@ -1206,7 +1243,7 @@ function userToDisplay(view, R, ux, uy) {
 }
 
 const LH = 1.3;
-const fontStr = s => `500 ${s}px "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif`;
+const fontStr = (s, weight = 500) => `${weight} ${s}px "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif`;
 const mctx = document.createElement('canvas').getContext('2d');
 /* Waits for a web font, but not for long: when the network drops the request instead of refusing it, the font never
    arrives and the job would hang. The system font is drawn instead. */
@@ -1428,6 +1465,6 @@ async function renderTextPng(a) {
   const ctx = c.getContext('2d'); ctx.scale(k, k);
   ctx.font = fontStr(a.size); ctx.fillStyle = a.color; ctx.textBaseline = 'middle';
   a.text.split('\n').forEach((ln, i) => ctx.fillText(ln, 1, (i + .5) * a.size * LH));
-  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  const blob = await canvasBlob(c, 'image/png');
   return new Uint8Array(await blob.arrayBuffer());
 }

@@ -7,8 +7,7 @@ async function addMergeFiles(files, isSample) {
     let fromImage = false;
     if (!isPdf(f) && isImage(f)) {
       // A picture (an ID card photo next to a form, say) becomes a one-page A4 PDF in the list.
-      try { const [img] = await prepImages([f]); if (!img) continue; f = await imagesToPdf([img]); fromImage = true; }
-      catch (e) { toast(`「${f.name}」無法讀取，圖片可能已損壞。`, 'err'); continue; }
+      f = await pictureAsPdf(f); if (!f) continue; fromImage = true;
     }
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 或圖片`, 'err'); continue; }
     const got = await readPdf(f); if (!got) continue; // a password-protected file is unlocked here first
@@ -239,7 +238,7 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   }));
   const bytes = await out.save({ useObjectStreams: true });
   await deliver(pdfFile(bytes, name), 'pdf', 'merge');
-}).catch(err => toast('合併失敗：' + err.message, 'err')));
+}).catch(failToast('合併失敗')));
 registerTarget('pdf', 'merge', '合併', f => addMergeFiles(f));
 registerHolder('merge', () => merge.items.reduce((n, it) => n + (it.sample ? 0 : heldBytes(it.src)), 0),
   () => { merge.items = []; renderMerge(); });

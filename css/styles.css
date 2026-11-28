@@ -148,7 +148,8 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .split-card.excluded { opacity: .35; }
 .gchip { font-size: 12px; font-weight: 700; color: #fff; background: var(--g, var(--muted)); border-radius: 999px; padding: 0 8px; white-space: nowrap; }
 .mode-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.mode-row input[type="text"], .mode-row input[type="number"], .optfield input[type="text"], .optfield input[type="number"] { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 10px; font-size: 14.5px; color: var(--ink); }
+.mode-row input[type="text"], .mode-row input[type="number"], .optfield input[type="text"], .optfield input[type="number"],
+.optfield select, .field input[type="text"] { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 10px; font-size: 14.5px; color: var(--ink); }
 .mode-row input[type="number"] { width: 80px; }
 .err { color: var(--danger); font-size: 13.5px; margin: 0; }
 
@@ -212,7 +213,7 @@ dialog.sigpad { width: min(680px, calc(100vw - 24px)); }
 /* Option selects */
 .optgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
 .optfield { display: flex; flex-direction: column; gap: 5px; font-size: 13px; color: var(--muted); min-width: 0; }
-.optfield select { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 10px; font-size: 14.5px; color: var(--ink); width: 100%; }
+.optfield select { width: 100%; }
 .img-thumb { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; background: var(--sunk); display: block; }
 .page-card.static { cursor: default; }
 
@@ -230,7 +231,7 @@ dialog.sigpad { width: min(680px, calc(100vw - 24px)); }
 .drop svg { width: 34px; height: 34px; color: var(--accent); }
 .drop strong { color: var(--ink); font-size: 16px; }
 .drop:hover, .drop.is-over { border-color: var(--ink); background: var(--mark-soft); }
-.drop input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.drop input, .add-label input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .drop.compact { flex-direction: row; padding: 14px 16px; gap: 12px; }
 .drop.compact svg { width: 24px; height: 24px; }
 .drop:focus-within { border-color: var(--accent); }
@@ -284,7 +285,6 @@ dialog.sigpad { width: min(680px, calc(100vw - 24px)); }
 .toolbar .stat { margin-left: auto; font-size: 13px; color: var(--muted); }
 .toolbar label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; padding: 6px 8px; }
 .add-label { cursor: pointer; }
-.add-label input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 
 .page-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); gap: 14px; }
 @media (max-width: 560px) {
@@ -434,8 +434,9 @@ body.has-handoff .wrap { padding-bottom: 90px; }
 .zoom-v:hover { color: var(--accent); }
 
 /* Editor: modes and markup */
-.seg-3, .seg-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.seg-3, .seg-4 { display: grid; }
 .seg-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.seg-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .seg-3 button, .seg-4 button { justify-content: center; padding: 8px 4px; font-size: 13.5px; }
 .ed-overlay.is-draw { cursor: crosshair; }
 .annot.is-shape canvas { width: 100%; height: 100%; display: block; pointer-events: none; }
@@ -506,12 +507,11 @@ select.ff-field { padding: 0 .1em; }
 .ff-field:focus { outline: 2px solid #1d4fb8; outline-offset: 0; background: rgba(29, 79, 184, .04); }
 .ff-field:disabled { background: transparent; border-color: transparent; }
 .ff-field.is-check { appearance: auto; accent-color: #1d4fb8; padding: 0; }
-.footer-bar label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
+.footer-bar label.check, .merge-mode label.check, .ph-tools label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
 
 /* Text fields, OCR option */
 .p2i-ocr { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; align-self: end; padding-bottom: 8px; }
 .p2i-ocr input { accent-color: var(--accent); width: 16px; height: 16px; }
-.field input[type="text"] { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 8px 10px; font-size: 14.5px; color: var(--ink); }
 .optfield input[type="text"], .optfield input[type="number"] { width: 100%; }
 
 /* Scan correction */
@@ -541,7 +541,6 @@ select.ff-field { padding: 0 .1em; }
 
 /* Merge: how the files are put together */
 .merge-mode { display: flex; flex-direction: column; gap: 8px; max-width: 560px; }
-.merge-mode label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
 .merge-mode .hint.warn { color: var(--danger); }
 
 /* ID photo: the frame to aim the photo, next to its tools */
@@ -551,7 +550,6 @@ select.ff-field { padding: 0 .1em; }
 #ph-frame:active { cursor: grabbing; }
 .ph-tools { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .ph-tools input[type="range"] { width: 100%; accent-color: var(--accent); }
-.ph-tools label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; cursor: pointer; }
 .ph-btns { display: flex; gap: 8px; flex-wrap: wrap; }
 @media (max-width: 560px) { .ph-edit { grid-template-columns: minmax(0, 1fr); } }
 

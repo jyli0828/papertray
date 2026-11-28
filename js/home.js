@@ -46,10 +46,10 @@ $('#home-groups').addEventListener('click', e => { const b = e.target.closest('[
 /* ---------- suggestions for dropped files ---------- */
 let homeFiles = [];
 async function pdfFacts(f) {
-  const { bytes } = await fileBytes(f), out = { size: bytes.length, locked: hasEncrypt(bytes), pages: 0, scanned: false };
+  const { bytes, owned } = await fileBytes(f), out = { size: bytes.length, locked: hasEncrypt(bytes), pages: 0, scanned: false };
   if (out.locked) return out;
   try {
-    const pj = await openPdfjs(bytes, false); out.pages = pj.numPages;
+    const pj = await openPdfjs(bytes, owned); out.pages = pj.numPages; // size and locked are read first: owned bytes move to pdf.js
     let chars = 0;
     for (let i = 1; i <= Math.min(3, pj.numPages); i++) {
       const pg = await pj.getPage(i), tc = await pg.getTextContent();

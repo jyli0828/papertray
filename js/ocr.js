@@ -112,7 +112,7 @@ async function ocrPage(pg, R, opts = {}) {
   const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
   const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
   await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-  const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+  const blob = await canvasBlob(cv, 'image/png');
   pg.cleanup(); cv.width = cv.height = 0;
   const data = await ocrRecognize(blob, opts);
   const out = ocrText(data.blocks);
@@ -182,7 +182,7 @@ async function loadOcr(files) {
   if (!isPdf(f)) {
     const imgs = await prepImages(files.filter(isImage));
     if (!imgs.length) { toast(`「${f.name}」不是 PDF 或圖片`, 'err'); return; }
-    try { f = await imagesToPdf(imgs, imgs[0].name.replace(/\.[^.]+$/, '') + '.pdf'); }
+    try { f = await imagesToPdf(imgs, stemName(imgs[0].name) + '.pdf'); }
     catch (e) { toast('圖片無法讀取，可能已損壞。', 'err'); return; }
   }
   const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
@@ -241,6 +241,7 @@ $('#ocr-go').addEventListener('click', e => {
     ocrProgress(0, targets.size);
     for (let i = 0; i < ocrTab.n; i++) {
       check();
+      if (!txt && !targets.has(i)) continue; // a page with text already: nothing to read or add
       const pg = await pj.getPage(i + 1);
       let text = '';
       if (targets.has(i)) {
@@ -272,7 +273,7 @@ $('#ocr-go').addEventListener('click', e => {
       await deliver(pdfFile(bytes, asked.replace(/\.txt$/i, '-可搜尋.pdf')), 'pdf', 'ocr');
       toast(`已辨識 ${found} 頁，文字可以搜尋、選取和複製`);
     }
-  }).catch(err => toast('辨識失敗：' + err.message, 'err'));
+  }).catch(failToast('辨識失敗'));
 });
 bindInput($('#ocr-input'), loadOcr);
 acceptFiles($('#panel-ocr'), $('#ocr-drop'), loadOcr);
@@ -303,14 +304,14 @@ $('#ocr-sample').addEventListener('click', async e => {
     let y = 190;
     for (const [size, t] of lines) {
       if (!size) { y += 26; continue; }
-      ctx.font = (size > 30 ? '700 ' : '400 ') + fontStr(size).replace(/^\d+ /, '');
+      ctx.font = fontStr(size, size > 30 ? 700 : 400);
       ctx.fillText(t, 120, y); y += size * 2.1;
     }
     ctx.restore();
     const img = ctx.getImageData(0, 0, W, H), d = img.data;
     for (let p = 0; p < d.length; p += 4) { const n = (Math.random() - .5) * 18; d[p] += n; d[p + 1] += n; d[p + 2] += n; }
     ctx.putImageData(img, 0, 0);
-    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', .85)); cv.width = cv.height = 0;
+    const blob = await canvasBlob(cv, 'image/jpeg', .85); cv.width = cv.height = 0;
     await loadOcr([await imagesToPdf([new File([blob], '範例掃描檔.jpg', { type: 'image/jpeg' })], '範例掃描檔.pdf')]);
   });
 });
