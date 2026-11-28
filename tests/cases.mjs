@@ -124,6 +124,11 @@ export default [
     async run() {
       // A label drawn in pieces against the same label as one picture (the way it was drawn before), upright and turned.
       const text = '第 12 頁，共 3,450 頁（機密）', size = 12;
+      // The web font's stylesheet loads on its own (media="print" until it arrives): drawn before it and after it,
+      // the pieces and the whole label would be in different fonts. Wait for it, unless the network keeps it away.
+      const sheet = $('link[href*="fonts.googleapis"]');
+      for (let k = 0; sheet && sheet.media !== 'all' && k < 100; k++) await T.sleep(50);
+      await ensureFont(text, size);
       const doc = await PDFDocument.create(), font = await doc.embedFont(StandardFonts.Helvetica), pictures = pictureCache(doc);
       for (const R of [0, 90]) {
         const a = doc.addPage([595.28, 841.89]), b = doc.addPage([595.28, 841.89]);
@@ -945,7 +950,8 @@ export default [
     async run() {
       showTab('imgtool'); itool.items = []; renderImgTool();
       const files = [];
-      for (let i = 0; i < 4; i++) {
+      // More pictures than are processed at once (LIST_DECODES): some are still waiting when the format changes.
+      for (let i = 0; i < 12; i++) {
         const cv = document.createElement('canvas'); cv.width = 2400; cv.height = 1600; cv.getContext('2d').fillRect(0, 0, 50, 50);
         files.push(new File([await new Promise(r => cv.toBlob(r, 'image/jpeg', .9))], `p${i}.jpg`, { type: 'image/jpeg' }));
       }
@@ -959,7 +965,7 @@ export default [
         await T.idle('#it-go');
         T.eq(T.results.length, n, '改了格式就不交出混合格式的結果');
         const r = await T.result(() => T.click('#it-go'));
-        T.eq(Object.keys((await T.zip(r.file)).files).map(k => k.split('.').pop()), ['png', 'png', 'png', 'png'], '同一種格式');
+        T.eq(Object.keys((await T.zip(r.file)).files).map(k => k.split('.').pop()), Array(12).fill('png'), '同一種格式');
       } finally { T.set('#it-fmt', 'keep'); }
     }
   },

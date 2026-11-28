@@ -1,6 +1,7 @@
-# Runs the browser tests (tests/run.mjs) on every push and pull request, in the three ways 紙匣 is opened.
+# Runs the browser tests (tests/run.mjs) on every push and pull request, in the three ways 紙匣 is opened, and
+# publishes main to GitHub Pages once they all pass.
 # Nothing to install: the tests need Node 22+ and Chrome, both already on GitHub's Ubuntu runners.
-name: 測試
+name: 測試與發布
 
 on:
   push:
@@ -40,3 +41,29 @@ jobs:
         run: python tools/build.py
       - name: 測試
         run: node tests/run.mjs ${{ matrix.flags }}
+
+  # The live site (GitHub Pages) is published from here, and only when every test above passed on a push to main.
+  deploy:
+    name: 發布到 GitHub Pages
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 收集網站檔案
+        # Only what the page itself uses; docs, tests and tools stay in the repository.
+        run: |
+          mkdir _site
+          cp -r index.html manifest.webmanifest sw.js css js lib icons _site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -66,7 +66,7 @@ node tests/run.mjs             # 自動化測試（Node 22 以上、Chrome 或 E
 python tools/build.py          # 打包成單一檔案 dist/紙匣.html
 ```
 
-推送到 `main` 後，GitHub Pages 約一分鐘就會更新線上版；每次推送，GitHub Actions 也會用三種開啟方式跑一遍自動化測試（`.github/workflows/test.yml`）。新增工具、修正錯誤的做法和慣例見 [docs/development.md](docs/development.md)。
+推送到 `main` 後，GitHub Actions 會用三種開啟方式跑一遍自動化測試，全部通過才發布到 GitHub Pages（約 5 分鐘，見 `.github/workflows/test.yml`）。新增工具、修正錯誤的做法和慣例見 [docs/development.md](docs/development.md)。
 
 ```
 index.html      頁面：頁首、工具列、每個工具一個區塊

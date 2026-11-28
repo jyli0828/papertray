@@ -37,7 +37,7 @@ papertray/
 ├─ docs/                說明文件
 ├─ dist/                build.py 的產出，不在版本控制內
 ├─ LICENSE              MIT 授權（紙匣自己的程式碼；lib/ 裡的函式庫各有授權）
-├─ .nojekyll            讓 GitHub Pages 原樣提供檔案，不經過 Jekyll
+├─ .github/workflows/   test.yml：每次推送跑三種模式的測試，main 全部通過才發布到 GitHub Pages
 ├─ .editorconfig        編輯器設定：UTF-8、LF、2 格縮排（Python 4 格）
 └─ .gitattributes       文字檔一律存成 LF，圖片、壓縮檔、wasm、CMap 視為二進位
 ```
@@ -153,7 +153,7 @@ papertray/
 
 ## 發布
 
-**線上版**：https://jyli0828.github.io/papertray/ ，由 GitHub Pages 直接提供 `main` 分支的檔案，不需要建置。推送到 `main` 後約一分鐘更新。線上版用的是 `lib/` 裡的函式庫，和本機伺服器完全相同，所以文字辨識等全部功能都能用。
+**線上版**：https://jyli0828.github.io/papertray/ ，由 GitHub Actions 發布：推送到 `main` 後先用三種模式跑完自動化測試，全部通過才把網站用到的檔案（`index.html`、`manifest.webmanifest`、`sw.js`、`css/`、`js/`、`lib/`、`icons/`）發布到 GitHub Pages，約 5 分鐘。測試沒過時線上版維持原樣，到 repo 的 Actions 頁面看是哪一項失敗。線上版用的是 `lib/` 裡的函式庫，和本機伺服器完全相同，所以文字辨識等全部功能都能用。
 
 **可以安裝、離線使用（PWA）**：
 - `manifest.webmanifest` 是 App 的名稱、圖示和顏色；`icons/` 裡的 PNG 由 `python tools/make_icons.py` 從 `icons/icon.svg` 的圖形畫出來，改了圖示要重新產生。
