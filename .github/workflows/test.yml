@@ -28,11 +28,11 @@ jobs:
           - { label: 直接開啟 index.html, flags: '--file' }
           - { label: 單一檔案版, flags: '--bundle' }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: matrix.flags == '--bundle'
         with:
           python-version: '3.x'
@@ -42,11 +42,29 @@ jobs:
       - name: 測試
         run: node tests/run.mjs ${{ matrix.flags }}
 
-  # The live site (GitHub Pages) is published from here, and only when every test above passed on a push to main.
+  # The live site (GitHub Pages) is published by the two jobs below, and only when every test above passed on a push
+  # to main. Its files are packed in a job of their own, beside the tests: deploy-pages looks the package up as soon as
+  # it starts, and in the same job, half a second after the upload, GitHub sometimes listed none yet ("Found 0
+  # artifact(s)", 2 of 3 pushes on 2026-11-28). The deploy job starts once the tests are done, well after that.
+  site:
+    name: 打包網站
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: 收集網站檔案
+        # Only what the page itself uses; docs, tests and tools stay in the repository.
+        run: |
+          mkdir _site
+          cp -r index.html manifest.webmanifest sw.js css js lib icons _site/
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+
   deploy:
     name: 發布到 GitHub Pages
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, site]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -54,16 +72,15 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment.outputs.page_url || steps.retry.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - name: 收集網站檔案
-        # Only what the page itself uses; docs, tests and tools stay in the repository.
-        run: |
-          mkdir _site
-          cp -r index.html manifest.webmanifest sw.js css js lib icons _site/
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: _site
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+      # Should GitHub still not list the package, once more after a pause; a second failure fails the job.
+      - name: 稍候重試
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 30
+      - id: retry
+        if: steps.deployment.outcome == 'failure'
+        uses: actions/deploy-pages@v5
