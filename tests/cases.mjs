@@ -921,7 +921,7 @@ export default [
       paint(250, 250, 300, 300); T.click('#um-go'); await T.idle('#um-go');
       T.eq(um.history.length, 1, '第一次移除');
       paint(400, 250, 460, 310); T.click('#um-go');
-      T.ok(um.busy, '第二次移除進行中');
+      T.ok($('#um-go').classList.contains('is-running'), '第二次移除進行中');
       $('#um-undo').click();
       T.eq(um.history.length, 1, '處理中不復原');
       await T.idle('#um-go');

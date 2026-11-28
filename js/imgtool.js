@@ -55,13 +55,13 @@ function renderImgTool() {
 }
 $('#it-list').addEventListener('click', e => {
   const b = e.target.closest('[data-act="remove"]'); if (!b) return;
-  if ($('#it-go').classList.contains('is-running')) { toast('正在處理，請等完成（或按「取消」）再調整清單'); return; }
+  if (toolBusy($('#panel-imgtool'), '正在處理，請等完成（或按「取消」）再調整清單')) return;
   const i = itool.items.findIndex(x => x.id === b.closest('.file-row').dataset.id);
   URL.revokeObjectURL(itool.items[i].url); itool.items.splice(i, 1); renderImgTool();
 });
 /* A setting changed: earlier results no longer match it, and a run under way stops. */
 function itSettingsChanged() {
-  const go = $('#it-go'); if (go._job) go._job.abort();
+  cancelJob($('#it-go'));
   itool.items.forEach(it => { it.out = null; }); renderImgTool();
 }
 ['#it-fmt', '#it-q', '#it-size', '#it-size-v'].forEach(s => $(s).addEventListener('input', itSettingsChanged));

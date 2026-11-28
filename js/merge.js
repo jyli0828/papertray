@@ -106,7 +106,7 @@ $('#merge-list').addEventListener('pointerdown', e => { if (e.target.closest('[d
 $('#merge-list').addEventListener('focusout', e => { if (e.target.closest('[data-range]')) e.target.closest('.file-row').draggable = true; });
 $('#merge-list').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
-  if ($('#merge-go').classList.contains('is-running')) { toast('正在合併，請等完成（或按「取消」）再調整清單'); return; }
+  if (toolBusy($('#panel-merge'), '正在合併，請等完成（或按「取消」）再調整清單')) return;
   const id = b.closest('.file-row').dataset.id;
   const i = merge.items.findIndex(x => x.id === id); const a = merge.items;
   if (b.dataset.act === 'up' && i > 0) [a[i - 1], a[i]] = [a[i], a[i - 1]];

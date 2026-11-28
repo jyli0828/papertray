@@ -10,6 +10,7 @@ const wmSlot = pdfSlot('watermark', 'wm', wm, { // see pdfSlot() in core.js; the
   },
   extraSize: () => canvasBytes('#wm-canvas, #wm-over'),
 });
+registerTool('watermark', { shown: () => { if (wm.pj) requestAnimationFrame(renderWmPage); } }); // drawn at the panel's size
 async function loadWm(files) {
   const o = await wmSlot.open(files[0]); if (!o || !await wmSlot.take(o)) return;
   wm.n = o.pj.numPages;

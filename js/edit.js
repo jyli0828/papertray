@@ -266,15 +266,11 @@ async function pageLooksBlank(pg) {
   const tc = await pg.getTextContent();
   const text = tc.items.map(it => it.str || '').join('').replace(/\s+/g, '');
   if (text && !/^[\d\s\-–—./|·()第頁页PpageofOF]{1,12}$/.test(text)) return false; // only a page number does not count
-  const vp1 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: 1000 / Math.max(vp1.width, vp1.height) });
-  const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-  const ctx = cv.getContext('2d', { willReadFrequently: true }); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-  await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+  const { cv, ctx } = await drawPage(pg, 0, { longSide: 1000, willRead: true });
   const mx = Math.round(cv.width * .06), my = Math.round(cv.height * .06), W = cv.width - mx * 2, H = cv.height - my * 2;
   const { data } = ctx.getImageData(mx, my, W, H);
   pg.cleanup(); cv.width = cv.height = 0;
-  const lum = new Uint8Array(W * H), hist = new Uint32Array(256);
-  for (let i = 0, j = 0; i < data.length; i += 4, j++) hist[lum[j] = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8]++;
+  const { lum, hist } = lumaHist(data);
   let acc = 0, paper = 255;
   for (let l = 0; l < 256; l++) { acc += hist[l]; if (acc >= lum.length / 2) { paper = l; break; } }
   if (paper < 150) return false; // a dark or full-colour page (a cover, a photo) is not an empty one
@@ -320,11 +316,7 @@ $('#edit-del-sel').addEventListener('click', () => {
   const s = selCount(); edit.pages = edit.pages.filter(p => !p.selected); toast(`已刪除 ${s} 頁，可按「復原」`); renderEdit();
 });
 /* Exporting and finding blank pages read the open files until they finish; closing them under way breaks the job. */
-function editBusy() {
-  if (!['#edit-export', '#edit-export-sel', '#edit-find-blank'].some(s => $(s).classList.contains('is-running'))) return false;
-  toast('「編輯」正在處理這份檔案，請等完成（或按取消）再換檔案');
-  return true;
-}
+const editBusy = () => toolBusy($('#panel-edit'), '「編輯」正在處理這份檔案，請等完成（或按取消）再換檔案');
 $('#edit-clear').addEventListener('click', e => {
   if (editBusy()) return;
   const b = e.currentTarget, disarm = () => { clearTimeout(b._disarm); b._armedAt = 0; b.textContent = '清空重來'; };
@@ -341,6 +333,7 @@ function clearEdit() {
   MD_FIELDS.forEach(k => { $('#md-' + k).value = ''; });
 }
 registerHolder('edit', () => Object.values(edit.docs).reduce((n, d) => n + (d.size || 0), 0), clearEdit);
+registerTool('edit', { docs: () => Object.values(edit.docs).map(d => d.pj) }); // see registerTool() in core.js
 
 /* ---------- export options: page numbers, header and footer, document info ---------- */
 const MD_FIELDS = ['title', 'author', 'subject', 'keywords'];
@@ -432,17 +425,19 @@ async function renderShapePng(a) {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
-async function exportEdit(onlySel, btn) {
+/* The pages and settings an export works on, as they are when it starts (see read in runJob()). */
+function editExportSettings(onlySel) {
   const list = onlySel ? edit.pages.filter(p => p.selected) : edit.pages.slice();
-  if (btn._job) { runJob(btn); return; } // a second click cancels
-  if (!list.length) { toast('沒有可匯出的頁面'); return; }
-  if (!list.every(fillMeta)) { toast('頁面還在載入，請稍候再匯出'); return; }
-  // The pages and settings as they are now: turning a page or changing a setting while this runs must not end up
-  // in part of the file.
-  const pages = list.map(p => ({ ...p, annots: p.annots.map(a => ({ ...a })) }));
-  const st = stampOptions(), name = ensurePdf($('#edit-name').value), dateFmt = $('#te-datefmt').value;
-  const md = Object.fromEntries(MD_FIELDS.map(k => [k, $('#md-' + k).value.trim()])), strip = $('#md-strip').checked;
-  await runJob(btn, '產生中…', async check => {
+  if (!list.length) { toast('沒有可匯出的頁面'); return null; }
+  if (!list.every(fillMeta)) { toast('頁面還在載入，請稍候再匯出'); return null; }
+  return {
+    pages: list.map(p => ({ ...p, annots: p.annots.map(a => ({ ...a })) })),
+    st: stampOptions(), name: ensurePdf($('#edit-name').value), dateFmt: $('#te-datefmt').value,
+    md: Object.fromEntries(MD_FIELDS.map(k => [k, $('#md-' + k).value.trim()])), strip: $('#md-strip').checked,
+  };
+}
+async function exportEdit(onlySel, btn) {
+  await runJob(btn, '產生中…', async (check, signal, { pages, st, name, dateFmt, md, strip }) => {
     const out = await PDFDocument.create({ updateMetadata: false });
     // Copy pages per source file (see pageCopier() in core.js); each source is let go once its pages are copied.
     const copier = pageCopier(out), copied = new Map(), byDoc = new Map();
@@ -490,7 +485,7 @@ async function exportEdit(onlySel, btn) {
     if (!strip) { const now = new Date(); out.setCreator('紙匣'); out.setProducer('紙匣'); out.setCreationDate(now); out.setModificationDate(now); }
     const bytes = await out.save({ useObjectStreams: true });
     await deliver(pdfFile(bytes, name), 'pdf', 'edit');
-  }).catch(failToast('匯出失敗'));
+  }, { read: () => editExportSettings(onlySel) }).catch(failToast('匯出失敗'));
 }
 $('#edit-export').addEventListener('click', e => exportEdit(false, e.currentTarget));
 $('#edit-export-sel').addEventListener('click', e => exportEdit(true, e.currentTarget));

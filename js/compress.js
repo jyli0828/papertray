@@ -26,7 +26,7 @@ function compTarget() {
 const fmtLimit = b => b >= 1e6 ? `${+(b / 1e6).toFixed(2)} MB` : `${Math.round(b / 1e3)} KB`;
 async function loadCompFile(files) {
   // The running job works through this list and reports on every file in it at the end.
-  if ($('#comp-go').classList.contains('is-running')) { toast('正在壓縮，請等完成再加入檔案'); return; }
+  if (toolBusy($('#panel-compress'), '正在壓縮，請等完成再加入檔案')) return;
   for (const f of files) {
     if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); continue; }
     const got = await readPdf(f); if (!got) continue; // a password-protected file is unlocked here first
@@ -45,7 +45,7 @@ async function loadCompFile(files) {
 function clearCompResults() { comp.items.forEach(it => { it.out = null; }); $('#comp-result').hidden = true; $('#comp-progress').hidden = true; }
 /* A setting changed: the results so far no longer match it, and a run under way stops (its results are cleared too). */
 function compSettingsChanged() {
-  const go = $('#comp-go'); if (go._job) go._job.abort();
+  cancelJob($('#comp-go'));
   clearCompResults(); renderCompList();
 }
 function renderCompList() {
@@ -74,7 +74,7 @@ function renderCompList() {
   setJobButton($('#comp-go'), { text: n > 1 ? `壓縮 ${n} 份` : '開始壓縮' });
 }
 $('#comp-list').addEventListener('click', e => {
-  const b = e.target.closest('[data-act="remove"]'); if (!b || $('#comp-go').classList.contains('is-running')) return;
+  const b = e.target.closest('[data-act="remove"]'); if (!b || toolBusy($('#panel-compress'), '正在壓縮，請等完成再移除檔案')) return;
   comp.items = comp.items.filter(x => x.id !== b.closest('.file-row').dataset.id);
   clearCompResults(); renderCompList();
 });
@@ -144,17 +144,9 @@ async function compressRaster(bytes, lv, gray, check) {
     // The next pages are drawn while page i is encoded (see pagePipeline() and pdfLanes() in core.js).
     await pagePipeline(pj.numPages, async (i, k) => {
       const pg = await lanes.docs[k].getPage(i + 1);
-      const vp1 = pg.getViewport({ scale: 1 });
-      let scale = lv.dpi / 72;
-      const maxPx = 16e6; if (vp1.width * vp1.height * scale * scale > maxPx) scale = Math.sqrt(maxPx / (vp1.width * vp1.height));
-      const vp = pg.getViewport({ scale });
-      const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-      const r = { pg, cv, vp1, px: cv.width * cv.height };
-      try {
-        const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-        await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-        if (gray) toGray(ctx, cv.width, cv.height);
-      } catch (e) { dropRaster(r); throw e; }
+      let d; try { d = await drawPage(pg, lv.dpi / 72, { maxPx: 16e6 }); } catch (e) { pg.cleanup(); throw e; }
+      const { cv, ctx, vp1 } = d, r = { pg, cv, vp1, px: cv.width * cv.height };
+      try { if (gray) toGray(ctx, cv.width, cv.height); } catch (e) { dropRaster(r); throw e; }
       return r;
     }, async ({ cv, vp1 }, i) => {
       progress(i, pj.numPages);
@@ -191,23 +183,16 @@ async function compressBW(bytes, dpi, check) {
     // core.js); only the pixels are kept from the drawing.
     await pagePipeline(pj.numPages, async (i, k) => {
       const pg = await lanes.docs[k].getPage(i + 1);
-      const vp1 = pg.getViewport({ scale: 1 });
-      let scale = dpi / 72;
-      const maxPx = 30e6; if (vp1.width * vp1.height * scale * scale > maxPx) scale = Math.sqrt(maxPx / (vp1.width * vp1.height));
-      const vp = pg.getViewport({ scale });
-      const W = Math.ceil(vp.width), H = Math.ceil(vp.height);
-      const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+      let cv;
       try {
         // An ordinary (graphics card) canvas: the pixels are read once, and drawn on the processor (willReadFrequently)
         // a 300 dpi page took about a third longer.
-        const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H);
-        await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-        return { d: ctx.getImageData(0, 0, W, H).data, W, H, vp1, px: W * H };
-      } finally { pg.cleanup(); cv.width = cv.height = 0; }
+        const r = await drawPage(pg, dpi / 72, { maxPx: 30e6 }), W = r.cv.width, H = r.cv.height; cv = r.cv;
+        return { d: r.ctx.getImageData(0, 0, W, H).data, W, H, vp1: r.vp1, px: W * H };
+      } finally { pg.cleanup(); if (cv) cv.width = cv.height = 0; }
     }, async ({ d, W, H, vp1 }, i) => {
       progress(i, pj.numPages);
-      const lum = new Uint8Array(W * H), hist = new Uint32Array(256);
-      for (let k = 0, j = 0; k < lum.length; k++, j += 4) { const y = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8; lum[k] = y; hist[y]++; }
+      const { lum, hist } = lumaHist(d);
       const t = Math.min(200, Math.max(60, otsu(hist, lum.length)));
       const rowBytes = Math.ceil(W / 8), bits = new Uint8Array(rowBytes * H);
       // 1 = white. Eight dots make a byte in one go, twice as fast as setting each bit on its own.

@@ -99,7 +99,7 @@ function renderImgs() {
 }
 $('#img-list').addEventListener('click', e => {
   const b = e.target.closest('button[data-act]'); if (!b) return;
-  if ($('#img-go').classList.contains('is-running')) { toast('正在轉換，請等完成（或按「取消」）再調整清單'); return; }
+  if (toolBusy($('#panel-img2pdf'), '正在轉換，請等完成（或按「取消」）再調整清單')) return;
   const id = b.closest('.file-row').dataset.id;
   const a = imgs.items, i = a.findIndex(x => x.id === id);
   if (b.dataset.act === 'up' && i > 0) [a[i - 1], a[i]] = [a[i], a[i - 1]];

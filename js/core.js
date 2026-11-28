@@ -174,27 +174,34 @@ async function busy(btn, label, fn) {
 }
 
 /* ---------- cancellable jobs ----------
-   The button stays clickable while the job runs and shows「取消」; a second click stops the job at its next check(). */
+   The button stays clickable while the job runs and shows「取消」; a second click stops the job at its next check().
+   read(), when given, runs once as the job starts (not on the click that cancels): it checks what the job needs and
+   gives the pages and settings as they are now, or null (having said why) to not start. fn(check, signal, settings)
+   works on those, so a setting changed or a page turned while it runs reaches none of the result. */
 class Cancelled extends Error { constructor() { super('已取消'); this.cancelled = true; } }
-function runJob(btn, label, fn) {
+function runJob(btn, label, fn, { read } = {}) {
   if (btn._job) {
     // The second click of a double-click lands a moment after the first: that is not 「取消」.
     if (Date.now() - btn._jobAt >= 500) btn._job.abort();
     return Promise.resolve();
   }
+  let settings;
+  if (read) { settings = read(); if (settings == null) return Promise.resolve(); }
   const ac = new AbortController(); btn._job = ac; btn._jobAt = Date.now();
   const old = btn.innerHTML; btn.classList.add('is-running');
   btn.innerHTML = `<span class="spin"></span>${label}<span class="cancel-hint">取消</span>`;
   const check = () => { if (ac.signal.aborted) throw new Cancelled(); };
   return (async () => {
-    try { return await fn(check, ac.signal); }
+    try { return await fn(check, ac.signal, settings); }
     finally {
       btn._job = null; btn.innerHTML = old; btn.classList.remove('is-running');
       const later = btn._later; btn._later = null; if (later) setJobButton(btn, later);
-      if (typeof ocrLeave === 'function') ocrLeave(); // a finished OCR job on a tool left meanwhile: stop the engine now
+      document.dispatchEvent(new Event('jobdone')); // e.g. 文字辨識 stops its engine once the tool it served was left
     }
   })().catch(err => { if (err && err.cancelled) { toast('已取消'); return; } throw err; });
 }
+/* Stops the job a button is running, if any (a setting changed that its result would no longer match). */
+function cancelJob(btn) { if (btn._job) btn._job.abort(); }
 /* Label, disabled and hidden of a button that runs jobs. While its job runs the button says 「取消」 and has to stay
    visible and clickable, so what the tool asks for meanwhile (a new label for the list it shows, say) is applied
    once the job is done. */
@@ -345,6 +352,7 @@ function pdfSlot(tab, ids, state, { blank, leave, extraSize }) {
     },
     isCurrent: pj => !!pj && state.pj === pj,
   };
+  registerTool(tab, { docs: () => state.pj ? [state.pj] : [] });
   registerHolder(tab, () => state.pj ? state.size + (extraSize ? extraSize() : 0) : 0, () => {
     shown = asks + 1; // a file still being read is not shown afterwards
     if (leave) leave(true);
@@ -767,11 +775,23 @@ window.addEventListener('dragover', e => { if (e.dataTransfer && [...e.dataTrans
 window.addEventListener('drop', e => { if (e.dataTransfer && e.dataTransfer.files.length) e.preventDefault(); });
 /* While a tool is working, its job still reads the files it started with: a new file put in now would be mixed into
    the result or pulled out from under it. Dropped, pasted, picked and handed-on files wait until it is done. */
-function toolBusy(panel) {
+function toolBusy(panel, msg) {
   if (!panel || !panel.querySelector('.is-running')) return false;
-  toast('這個工具正在處理，請等完成（或按「取消」）再放入新的檔案');
+  toast(msg || '這個工具正在處理，請等完成（或按「取消」）再放入新的檔案');
   return true;
 }
+/* ---------- the tools ----------
+   What the page around the tools (showTab() in app.js, 釋放記憶體, the home page) needs to know of a tool, registered
+   by the tool itself, so the page names none of them:
+     owner   the tab whose files and panel this one works with: 簽名 works in 編輯's editor, so the two keep, free and
+             guard the same files
+     docs()  the pdf.js documents it keeps open; their caches (decoded pictures, fonts) are freed when it is left
+     shown() runs when its tab opens: a preview measured against its panel is drawn once the panel has a size
+   A tab switch is also announced as the event 'tabshown' (detail: the tab), and the end of every job as 'jobdone'. */
+const TOOLS = {};
+function registerTool(tab, spec) { Object.assign(TOOLS[tab] || (TOOLS[tab] = {}), spec); }
+const toolOwner = tab => (TOOLS[tab] && TOOLS[tab].owner) || tab;
+const toolPanel = tab => $('#panel-' + toolOwner(tab));
 function acceptFiles(area, highlight, handler) {
   const panel = area.closest('.panel'); if (panel && !panel._paste) panel._paste = handler; // Ctrl+V goes to the same place
   area.addEventListener('dragover', e => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); highlight && highlight.classList.add('is-over'); } });
@@ -1063,12 +1083,37 @@ function fillPageThumb(card, p, state, grid) {
   if (p.thumb) { const img = card.querySelector('img'); img.src = p.thumb; sizeThumbImg(img, p.tw, p.th, 0); }
   else whenVisible(card, () => loadPageThumb(p, state, grid));
 }
-async function renderThumb(pg) {
-  const vp1 = pg.getViewport({ scale: 1 });
-  const vp = pg.getViewport({ scale: thumbPx() / Math.max(vp1.width, vp1.height) });
+/* A pdf.js page drawn on white on a new canvas, at scale pixels per point. Options:
+     longSide  at most this many pixels on the long side (with scale omitted: exactly this many)
+     maxPx     at most this many pixels in all (a huge page is drawn smaller)
+     rotation  turned like this instead of as the page says
+     willRead  a canvas kept on the processor (willReadFrequently): only where its pixels are read again and again;
+               read once, the plain (graphics card) one is faster, see the notes where each is chosen
+     forms     form fields left out of the drawing (填表單 puts inputs over them)
+   Gives { cv, ctx, vp, vp1 } (vp1: the page at scale 1, same rotation). A failed drawing lets its canvas go; the page
+   itself (pg.cleanup()) stays the caller's. */
+async function drawPage(pg, scale, { longSide, maxPx, rotation, willRead, forms } = {}) {
+  const vp1 = pg.getViewport({ scale: 1, rotation });
+  if (longSide) scale = Math.min(scale || Infinity, longSide / Math.max(vp1.width, vp1.height));
+  if (maxPx && vp1.width * vp1.height * scale * scale > maxPx) scale = Math.sqrt(maxPx / (vp1.width * vp1.height));
+  const vp = pg.getViewport({ scale, rotation });
   const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-  const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-  await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+  const ctx = cv.getContext('2d', willRead ? { willReadFrequently: true } : undefined);
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  const task = { canvasContext: ctx, viewport: vp };
+  if (forms) task.annotationMode = pdfjsLib.AnnotationMode.ENABLE_FORMS;
+  try { await pg.render(task).promise; } catch (e) { cv.width = cv.height = 0; throw e; }
+  return { cv, ctx, vp, vp1 };
+}
+/* The brightness (0–255) of each pixel of RGBA data, and how many pixels have each brightness (black and white
+   pages in 壓縮, blank pages in 編輯). */
+function lumaHist(d) {
+  const n = d.length >> 2, lum = new Uint8Array(n), hist = new Uint32Array(256);
+  for (let k = 0, j = 0; k < n; k++, j += 4) { const y = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8; lum[k] = y; hist[y]++; }
+  return { lum, hist };
+}
+async function renderThumb(pg) {
+  const { cv } = await drawPage(pg, 0, { longSide: thumbPx() });
   // A Blob URL keeps the picture outside the JavaScript heap (a data: URL would be a base64 string a third larger).
   const blob = await canvasBlob(cv, 'image/jpeg', .8);
   const out = { thumb: URL.createObjectURL(blob), tw: cv.width, th: cv.height };
@@ -1245,14 +1290,13 @@ const fixCjk = s => s.replace(/[⺀-⿟]/g, ch => RADICAL_FIX[ch] || ch.normaliz
    Every tool keeps its files until they are replaced or cleared, so after a few big files in different tools the
    page can hold hundreds of MB. Each tool registers how much it holds (roughly: file bytes plus decoded pictures)
    and how to let go of it. Switching tabs shows a notice when the other tools hold a lot together; 釋放 clears them.
-   The editor's files belong to 編輯 and 簽名 alike, so those two count as one place. */
+   A tool and its owner (簽名 and 編輯, see registerTool()) count as one place. */
 const HOLDERS = [];
 function registerHolder(tab, size, release) { HOLDERS.push({ tab, size, release }); }
 const MEM_NOTE_MIN = 50 * 1048576;
-const memGroup = t => t === 'sign' ? 'edit' : t;
 let memShownFor = null, memDismissedAt = 0;
 function heldElsewhere(active) {
-  return HOLDERS.filter(h => memGroup(h.tab) !== memGroup(active) && !$('#panel-' + h.tab).querySelector('.is-running'))
+  return HOLDERS.filter(h => toolOwner(h.tab) !== toolOwner(active) && !toolPanel(h.tab).querySelector('.is-running'))
     .map(h => { let bytes = 0; try { bytes = h.size() || 0; } catch (e) {} return { ...h, bytes }; })
     .filter(h => h.bytes > 0).sort((a, b) => b.bytes - a.bytes);
 }

@@ -76,17 +76,8 @@ function updateP2iSummary() {
 /* A page drawn for saving: { cv, pg, px }; give it back with dropP2iPage(). */
 async function drawP2iPage(index, o, pj = p2i.pj) {
   const pg = await pj.getPage(index + 1);
-  const vp1 = pg.getViewport({ scale: 1 });
-  let scale = o.dpi / 72;
-  const maxPx = 40e6; if (vp1.width * vp1.height * scale * scale > maxPx) scale = Math.sqrt(maxPx / (vp1.width * vp1.height));
-  const vp = pg.getViewport({ scale });
-  const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-  const r = { cv, pg, px: cv.width * cv.height };
-  try {
-    const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-    await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-  } catch (e) { dropP2iPage(r); throw e; }
-  return r;
+  let cv; try { ({ cv } = await drawPage(pg, o.dpi / 72, { maxPx: 40e6 })); } catch (e) { pg.cleanup(); throw e; }
+  return { cv, pg, px: cv.width * cv.height };
 }
 function dropP2iPage(r) { r.pg.cleanup(); r.cv.width = r.cv.height = 0; }
 const p2iBlob = (r, o) => canvasBlob(r.cv, o.mime, o.q);

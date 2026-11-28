@@ -48,11 +48,8 @@ async function loadForm(files) {
     // a high-resolution screen is about 18 MB), the picture a few hundred KB, and the browser decodes it only while shown.
     whenVisible(pageEl, async () => {
       const p = await pj.getPage(i); if (gone()) return;
-      const vp = p.getViewport({ scale: maxW * dpr / vp1.width });
-      const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-      const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-      // ENABLE_FORMS: everything except the form fields, which are the inputs on top
-      await p.render({ canvasContext: ctx, viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE_FORMS }).promise;
+      // forms: everything except the form fields, which are the inputs on top
+      const { cv } = await drawPage(p, maxW * dpr / vp1.width, { forms: true });
       p.cleanup();
       const blob = await canvasBlob(cv, 'image/jpeg', .9); cv.width = cv.height = 0;
       if (gone() || !blob) return;

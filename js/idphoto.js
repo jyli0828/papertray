@@ -245,6 +245,7 @@ $('#ph-go').addEventListener('click', e => runJob(e.currentTarget, '產生中…
 bindInput($('#ph-input'), loadPh);
 acceptFiles($('#panel-idphoto'), $('#ph-drop'), loadPh);
 registerTarget('image', 'idphoto', '證件照', loadPh);
+registerTool('idphoto', { shown: drawPhAll }); // drawPhAll() skips a hidden panel
 registerHolder('idphoto', () => ph.bmp ? ph.bmp.width * ph.bmp.height * 4 + ph.file.size : 0, () => {
   if (ph.bmp && ph.bmp.close) ph.bmp.close();
   Object.assign(ph, { file: null, bmp: null });

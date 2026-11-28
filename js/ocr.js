@@ -75,6 +75,8 @@ function ocrLeave(tab) {
   // A job still running (a long document between two pages, say) keeps it; the one-minute timer stops it later.
   if (ocrEng.worker && !ocrEng.jobs && !OCR_TABS.includes(tab) && !document.querySelector('.is-running')) ocrStop();
 }
+document.addEventListener('tabshown', e => ocrLeave(e.detail));
+document.addEventListener('jobdone', () => ocrLeave()); // a job finished on a tool left meanwhile: stop it now
 
 /* Text from Tesseract's blocks. Tesseract puts a space between every "word", which in
    Chinese is wrong, so words are joined without one when both sides are CJK. */
@@ -106,12 +108,7 @@ function ocrText(blocks) {
 }
 /* OCR one pdf.js page, drawn upright as it is shown (rotation R) at about 300 dpi. */
 async function ocrPage(pg, R, opts = {}) {
-  const vp1 = pg.getViewport({ scale: 1, rotation: R });
-  let s = 300 / 72; if (vp1.width * vp1.height * s * s > 16e6) s = Math.sqrt(16e6 / (vp1.width * vp1.height));
-  const vp = pg.getViewport({ scale: s, rotation: R });
-  const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-  const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-  await pg.render({ canvasContext: ctx, viewport: vp }).promise;
+  const { cv, vp } = await drawPage(pg, 300 / 72, { maxPx: 16e6, rotation: R }), s = vp.scale; // pixels per point, for the text's places
   const blob = await canvasBlob(cv, 'image/png');
   pg.cleanup(); cv.width = cv.height = 0;
   const data = await ocrRecognize(blob, opts);
@@ -230,9 +227,8 @@ function ocrProgress(k, n, msg) {
   $('#ocr-plabel').textContent = k < n ? `第 ${k + 1} / ${n} 頁 · ${ocrProgressText(msg)}` : `完成 ${n} 頁`;
 }
 $('#ocr-go').addEventListener('click', e => {
-  const txt = $('#ocr-out').value === 'txt', langs = $('#ocr-lang').value, pj = ocrTab.pj;
-  const targets = new Set(ocrTargets());
-  runJob(e.currentTarget, '辨識中…', async check => {
+  const read = () => ({ txt: $('#ocr-out').value === 'txt', langs: $('#ocr-lang').value, pj: ocrTab.pj, targets: new Set(ocrTargets()) });
+  runJob(e.currentTarget, '辨識中…', async (check, signal, { txt, langs, pj, targets }) => {
     const lib = txt ? null : await PDFDocument.load(await pj.getData(), { updateMetadata: false });
     const parts = []; let k = 0, found = 0, fontRef = null;
     ocrProgress(0, targets.size);
@@ -270,7 +266,7 @@ $('#ocr-go').addEventListener('click', e => {
       await deliver(pdfFile(bytes, asked.replace(/\.txt$/i, '-可搜尋.pdf')), 'pdf', 'ocr');
       toast(`已辨識 ${found} 頁，文字可以搜尋、選取和複製`);
     }
-  }).catch(failToast('辨識失敗'));
+  }, { read }).catch(failToast('辨識失敗'));
 });
 bindInput($('#ocr-input'), loadOcr);
 acceptFiles($('#panel-ocr'), $('#ocr-drop'), loadOcr);

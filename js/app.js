@@ -24,26 +24,18 @@ function showTab(name) {
   requestAnimationFrame(() => {
     if (nav.scrollWidth > nav.clientWidth) nav.scrollTo({ left: Math.max(0, tb.offsetLeft - (nav.clientWidth - tb.offsetWidth) / 2), behavior: 'smooth' });
   });
-  if (name === 'home') renderHomeGroups();
+  const t = TOOLS[name]; if (t && t.shown) t.shown(); // see registerTool() in core.js
   releaseCaches(name);
-  ocrLeave(name);
+  document.dispatchEvent(new CustomEvent('tabshown', { detail: name }));
   checkMemory(name);
-  if (name === 'unmark') requestAnimationFrame(fitUm);
-  if (name === 'idcard') requestAnimationFrame(drawIdPreview);
-  if (name === 'idphoto') requestAnimationFrame(drawPhAll);
-  if (name === 'watermark' && wm.pj) requestAnimationFrame(renderWmPage);
 }
 /* Leaving a tool frees what pdf.js cached for its files (decoded images, fonts); the files stay open and are
-   simply re-read when needed again. The editor's files stay warm on the tabs that open the editor. */
+   simply re-read when needed again. A tool's files stay warm on the tabs that share them (簽名 in 編輯's editor). */
 function releaseCaches(active) {
-  const docs = [];
-  if (!['edit', 'sign'].includes(active)) Object.values(edit.docs).forEach(d => docs.push(d.pj));
-  if (active !== 'split' && split.pj) docs.push(split.pj);
-  if (active !== 'pdf2img' && p2i.pj) docs.push(p2i.pj);
-  if (active !== 'watermark' && wm.pj) docs.push(wm.pj);
-  if (active !== 'form' && ff.pj) docs.push(ff.pj);
-  if (active !== 'ocr' && ocrTab.pj) docs.push(ocrTab.pj);
-  for (const d of docs) { try { const r = d.cleanup(); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
+  for (const [tab, t] of Object.entries(TOOLS)) {
+    if (!t.docs || toolOwner(tab) === toolOwner(active)) continue;
+    for (const d of t.docs()) { try { const r = d.cleanup(); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
+  }
 }
 document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
   showTab(b.dataset.tab);

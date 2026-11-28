@@ -123,7 +123,7 @@ async function sendHomeFiles(tab) {
     if (locked.length > 1) toast(`有 ${locked.length} 份檔案有密碼，先處理「${locked[0].name}」；其他的可以之後再放入。`);
   }
   // A tool still working on its own files must not get new ones under it (see toolBusy()); they stay here for later.
-  if (t && files.length && toolBusy($('#panel-' + tab))) return;
+  if (t && files.length && toolBusy(toolPanel(tab))) return;
   openTool(tab);
   if (t && files.length) t.load(files.slice());
   else if (homeFiles.length) toast(isImgTool ? '這個工具處理圖片，請在這裡放入圖片' : '這個工具處理 PDF，請在這裡放入 PDF');
@@ -137,6 +137,7 @@ acceptFiles($('#panel-home'), $('#home-drop'), homeTakeFiles);
 $('#home-groups').addEventListener('click', e => {
   const b = e.target.closest('[data-tab]'); if (b && homeFiles.length) { e.stopImmediatePropagation(); sendHomeFiles(b.dataset.tab); }
 }, true);
+registerTool('home', { shown: renderHomeGroups }); // the drawer follows the tool used last
 registerHolder('home', () => homeFiles.reduce((n, f) => n + (f.size || 0), 0), clearHomeFiles);
 
 /* ---------- Ctrl+K: jump to a tool by typing ---------- */

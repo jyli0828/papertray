@@ -96,7 +96,7 @@ umMask.addEventListener('pointerdown', e => {
   e.preventDefault();
   try { umMask.setPointerCapture(e.pointerId); } catch (_) {}
   if (um.mode === 'pan' || umSpace) { const box = $('#um-stagebox'); um.pan = { x: e.clientX, y: e.clientY, l: box.scrollLeft, t: box.scrollTop }; return; }
-  if (um.busy) { toast('正在處理，請等完成再塗抹'); return; }
+  if (toolBusy($('#panel-unmark'), '正在處理，請等完成再塗抹')) return;
   um.drawing = true; const p = umPt(e); um.last = p; umStroke(p, p);
 });
 umMask.addEventListener('pointermove', e => {
@@ -170,14 +170,11 @@ async function removeMarked(signal) {
   const before = uctx.getImageData(cx0, cy0, cw, chh);
   const sub = uctx.getImageData(cx0, cy0, cw, chh);
   const token = um.token;
-  um.busy = true;
-  try {
-    const out = await runFill(sub.data, mask, cw, chh, signal);
-    if (token !== um.token) return false; // a different image was loaded meanwhile
-    uctx.putImageData(new ImageData(out, cw, chh), cx0, cy0);
-    um.history.push({ x: cx0, y: cy0, data: before }); if (um.history.length > 8) um.history.shift();
-    mctxU.clearRect(0, 0, MW, MH);
-  } finally { um.busy = false; }
+  const out = await runFill(sub.data, mask, cw, chh, signal);
+  if (token !== um.token) return false; // a different image was loaded meanwhile
+  uctx.putImageData(new ImageData(out, cw, chh), cx0, cy0);
+  um.history.push({ x: cx0, y: cy0, data: before }); if (um.history.length > 8) um.history.shift();
+  mctxU.clearRect(0, 0, MW, MH);
   updateUmButtons();
   return true;
 }
@@ -186,7 +183,7 @@ $('#um-go').addEventListener('click', e => runJob(e.currentTarget, '處理中…
 }).catch(failToast('處理失敗')));
 $('#um-undo').addEventListener('click', () => {
   // The removal under way read its pixels before this; finishing, it would paint the undone change back.
-  if (um.busy) { toast('正在處理，請等完成再復原'); return; }
+  if (toolBusy($('#panel-unmark'), '正在處理，請等完成再復原')) return;
   const s = um.history.pop(); if (s) uctx.putImageData(s.data, s.x, s.y); updateUmButtons();
 });
 async function showOrig(on) {
@@ -236,6 +233,7 @@ onSample($('#um-sample'), async () => {
   const blob = await canvasBlob(cv, 'image/jpeg', .92);
   await loadUm([new File([blob], 'landscape.jpg', { type: 'image/jpeg' })]);
 });
+registerTool('unmark', { shown: () => requestAnimationFrame(fitUm) }); // fitted to the panel, which has a size now
 registerHolder('unmark', () => um.w ? um.w * um.h * 4 + umMask.width * umMask.height * 4 + umOrig.width * umOrig.height * 4
   + um.history.reduce((n, h) => n + h.data.data.length, 0) : 0, () => {
   um.token = (um.token || 0) + 1;

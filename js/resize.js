@@ -143,18 +143,12 @@ async function resizeCrop(check, o) {
   try {
     // The next pages are drawn while page i is read (see pagePipeline() and pdfLanes() in core.js).
     await pagePipeline(n, async (i, lane) => {
-      const pg = await lanes.docs[lane].getPage(i + 1), vp1 = pg.getViewport({ scale: 1 });
-      const k = Math.min(2, 700 / Math.max(vp1.width, vp1.height)), vp = pg.getViewport({ scale: k });
-      const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
-      const r = { pg, cv, k, px: cv.width * cv.height };
-      try {
-        // An ordinary (graphics card) canvas, though its pixels are read once: drawn on the processor instead
-        // (willReadFrequently), reading them took 13 ms a page, since the browser draws only when they are read; 200
-        // pages took 6.3 s instead of 4.7. Faint, thin lines come out a little differently, so a box can move by 1–2 pt.
-        const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
-        await pg.render({ canvasContext: ctx, viewport: vp }).promise;
-      } catch (e) { pg.cleanup(); cv.width = cv.height = 0; throw e; }
-      return r;
+      const pg = await lanes.docs[lane].getPage(i + 1);
+      // An ordinary (graphics card) canvas, though its pixels are read once: drawn on the processor instead
+      // (willReadFrequently), reading them took 13 ms a page, since the browser draws only when they are read; 200
+      // pages took 6.3 s instead of 4.7. Faint, thin lines come out a little differently, so a box can move by 1–2 pt.
+      let d; try { d = await drawPage(pg, 2, { longSide: 700 }); } catch (e) { pg.cleanup(); throw e; }
+      return { pg, cv: d.cv, k: d.vp.scale, px: d.cv.width * d.cv.height };
     }, ({ cv, k }, i) => {
       rsProgress(i, n);
       const box = inkBox(cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data, cv.width, cv.height);
