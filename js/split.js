@@ -74,17 +74,14 @@ $('#split-go').addEventListener('click', e => runJob(e.currentTarget, '拆分中
   if (error || !groups.length) { toast(error || '沒有要輸出的頁面'); return; }
   const base = baseName(split.name);
   const lib = await PDFDocument.load(await split.pj.getData()); // parsed only for the export, then dropped
-  markLayers(lib, 's'); // see relinkLayers() in core.js
   // Several files go into the zip as each is made, so their bytes are not all held at once.
   const zip = groups.length > 1 ? zipWriter() : null;
   for (const g of groups) {
     check();
     const out = await PDFDocument.create();
-    const undo = unlinkDests(lib, g, 's'), copied = await out.copyPages(lib, g); undo(); // see unlinkDests()
-    copied.forEach(pg => out.addPage(pg));
-    relinkDests(out, (tag, i) => copied[g.indexOf(i)]);
-    relinkFormFields(out, [lib]); // keep form fields fillable
-    relinkLayers(out, [['s', lib]]); // hidden layers stay hidden
+    const copier = pageCopier(out); // see pageCopier() in core.js
+    (await copier.add('s', lib, g)).forEach(pg => out.addPage(pg));
+    copier.finish(); // internal links, form fields, layers
     const name = `${base}-第${groupLabel(g).replace('–', '-')}頁.pdf`, bytes = await out.save({ useObjectStreams: true });
     if (!zip) { await deliver(pdfFile(bytes, name), 'pdf', 'split'); return; }
     await zip.add(name, bytes);

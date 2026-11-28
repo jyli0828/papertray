@@ -203,14 +203,9 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
   // A parsed file takes several times its size, so each one is let go as soon as its pages are in: what the steps at
   // the end need from it (form settings, layers, bookmarks) is taken right after copying. Holding them all until the
   // end made merging twenty big files take gigabytes.
-  const forms = [], layers = [], outlines = [];
-  // Internal links are cut before copying and joined again to the new pages (see unlinkDests() in core.js).
-  const placed = new Map(), copy = async (k, src, idx) => {
-    markLayers(src, k); // see relinkLayers() in core.js
-    const undo = unlinkDests(src, idx, k), pages = await out.copyPages(src, idx); undo();
-    idx.forEach((i, j) => { if (!placed.has(`${k}:${i}`)) placed.set(`${k}:${i}`, pages[j]); });
-    forms[k] = formDefaults(out, src, pages);
-    layers[k] = layerPart(out, k, src);
+  const copier = pageCopier(out), outlines = []; // see pageCopier() in core.js
+  const copy = async (k, src, idx) => {
+    const pages = await copier.add(k, src, idx);
     try { outlines[k] = readOutline(src); } catch (err) { outlines[k] = []; } // a broken outline is left out
     return pages;
   };
@@ -225,15 +220,13 @@ $('#merge-go').addEventListener('click', e => runJob(e.currentTarget, '合併中
     (await copy(k, await load(items[k]), picks[k].idx)).forEach(p => out.addPage(p));
   }
   check();
-  relinkDests(out, (k, i) => placed.get(`${k}:${i}`));
-  relinkFormFields(out, forms); // keep form fields fillable
-  writeLayers(out, layers); // hidden layers stay hidden
+  copier.finish(); // internal links, form fields, layers
   // Bookmarks: each file's own, and (when merging in order) one per file holding them.
   writeOutline(out, items.flatMap((it, k) => {
     let own = [];
-    try { own = placeOutline(outlines[k] || [], i => placed.get(`${k}:${i}`)); } catch (err) { own = []; }
+    try { own = placeOutline(outlines[k] || [], i => copier.pageFor(k, i)); } catch (err) { own = []; }
     if (!perFile) return own;
-    const first = placed.get(`${k}:${picks[k].idx[0]}`);
+    const first = copier.pageFor(k, picks[k].idx[0]);
     return first ? [{ title: baseName(it.name), page: first, open: true, kids: own }] : [];
   }));
   const bytes = await out.save({ useObjectStreams: true });

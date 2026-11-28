@@ -444,36 +444,23 @@ async function exportEdit(onlySel, btn) {
   const md = Object.fromEntries(MD_FIELDS.map(k => [k, $('#md-' + k).value.trim()])), strip = $('#md-strip').checked;
   await runJob(btn, '產生中…', async check => {
     const out = await PDFDocument.create({ updateMetadata: false });
-    // Copy pages per source file. A page used twice (duplicated) needs its own copy, so repeats go in later rounds.
-    const copied = new Map(), byDoc = new Map();
+    // Copy pages per source file (see pageCopier() in core.js); each source is let go once its pages are copied.
+    const copier = pageCopier(out), copied = new Map(), byDoc = new Map();
     pages.forEach(p => { if (!byDoc.has(p.docId)) byDoc.set(p.docId, []); byDoc.get(p.docId).push(p); });
-    const libs = {};
-    for (const docId of byDoc.keys()) {
-      libs[docId] = await PDFDocument.load(await edit.docs[docId].pj.getData());
-      markLayers(libs[docId], docId); // see relinkLayers() in core.js
-    }
     for (const [docId, list] of byDoc) {
-      let rest = list;
-      while (rest.length) {
-        const seen = new Set(), round = [], later = [];
-        rest.forEach(p => (seen.has(p.index) ? later : (seen.add(p.index), round)).push(p));
-        const idx = round.map(p => p.index), undo = unlinkDests(libs[docId], idx, docId); // see unlinkDests() in core.js
-        const res = await out.copyPages(libs[docId], idx); undo();
-        round.forEach((p, k) => copied.set(p, res[k]));
-        rest = later;
-      }
+      const src = await PDFDocument.load(await edit.docs[docId].pj.getData());
+      (await copier.add(docId, src, list.map(p => p.index))).forEach((page, k) => copied.set(list[k], page));
     }
     const font = st.num || st.head || st.foot ? await out.embedFont(StandardFonts.Helvetica) : null;
     const numbered = st.num ? pages.length - (st.num.skip ? 1 : 0) : 0, lastNo = st.num ? st.num.start + numbered - 1 : 0;
     // Replaced by functions: a string replacement reads $& or $$ in a file name as a pattern, not as text.
     const fill = t => t.replace(/\{總頁\}/g, () => pages.length).replace(/\{日期\}/g, () => todayText(dateFmt))
       .replace(/\{檔名\}/g, () => baseName(name));
-    const pictures = pictureCache(out), placed = new Map(); // source page → its first new page, for internal links
+    const pictures = pictureCache(out);
     for (let i = 0; i < pages.length; i++) {
       check();
       const p = pages[i], R = (p.baseRot + p.rot) % 360;
       const page = copied.get(p); out.addPage(page);
-      if (!placed.has(metaKey(p))) placed.set(metaKey(p), page);
       page.setRotation(degrees(R));
       for (const a of p.annots) {
         let png, extra = {};
@@ -495,9 +482,7 @@ async function exportEdit(onlySel, btn) {
       for (const hf of [st.head, st.foot]) if (hf) await drawLabel(out, page, fill(hf.text).replace(/\{頁\}/g, i + 1), hf.pos, st.size, font, R, pictures);
     }
     check();
-    relinkDests(out, (docId, i) => placed.get(docId + ':' + i));
-    relinkFormFields(out, Object.values(libs)); // keep form fields fillable
-    relinkLayers(out, Object.entries(libs)); // hidden layers stay hidden
+    copier.finish(); // internal links, form fields, layers
     if (md.title) out.setTitle(md.title, { showInWindowTitleBar: true });
     if (md.author) out.setAuthor(md.author);
     if (md.subject) out.setSubject(md.subject);

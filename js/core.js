@@ -327,23 +327,25 @@ function pdfjsOpts(data) {
 
 /* pdf-lib's copyPages() brings form fields along with the pages (their widgets and field dictionaries) but not the
    document's list of fields, the AcroForm. Without it the copy still looks like a form, but no viewer, and not
-   填表單, can fill it in. Call this on a document made by copying pages: it lists the copied fields again, drops the
-   parts of a field that sat on pages not copied, and takes the default font settings (DA, DR) from the sources.
-   sources: the source documents, or what formDefaults() took from each (so a source need not stay open till the end). */
+   填表單, can fill it in. Called on a document made by copying pages (pageCopier().finish()): it lists the copied
+   fields again, drops the parts of a field that sat on pages not copied, and sets the default font settings (DA, DR,
+   Q) that formDefaults() took from the sources, so a source need not stay open till the end. */
 /* A source's default form settings (DA, DR, Q), copied into out: only from a source whose copied pages (PDFPages of
-   out) carry form fields, since what is copied is written into out whether used or not. null when there is nothing. */
-function formDefaults(out, src, pages) {
+   out) carry form fields, and only the settings not in have (taken from an earlier source), since what is copied is
+   written into out whether used or not. null when there is nothing. */
+function formDefaults(out, src, pages, have = {}) {
   const sa = src.catalog.getAcroForm(); if (!sa) return null;
   const N = k => PDFName.of(k), ctx = out.context;
+  const missing = ['DA', 'DR', 'Q'].filter(k => !have[k] && sa.dict.get(N(k))); if (!missing.length) return null;
   if (pages && !pages.some(p => {
     const annots = p.node.lookupMaybe(N('Annots'), PDFArray);
     return annots && annots.asArray().some(r => { const d = ctx.lookup(r); return d instanceof PDFDict && d.get(N('Subtype')) === N('Widget'); });
   })) return null;
   const copier = window.PDFLib.PDFObjectCopier.for(src.context, ctx), out2 = {};
-  for (const k of ['DA', 'DR', 'Q']) { const v = sa.dict.get(N(k)); if (v) out2[k] = copier.copy(v); }
+  for (const k of missing) out2[k] = copier.copy(sa.dict.get(N(k)));
   return out2;
 }
-function relinkFormFields(out, sources) {
+function relinkFormFields(out, defaults) {
   const L = window.PDFLib, ctx = out.context, N = k => PDFName.of(k), key = r => r.toString();
   const widgets = new Set(), tops = new Map();
   for (const page of out.getPages()) {
@@ -368,14 +370,7 @@ function relinkFormFields(out, sources) {
   if (!fields.length) return;
   const acro = out.catalog.getOrCreateAcroForm();
   acro.dict.set(N('Fields'), ctx.obj(fields));
-  for (const src of sources) {
-    if (!src) continue;
-    if (src.catalog) { // an open document: copy only what is still missing
-      const sa = src.catalog.getAcroForm(); if (!sa) continue;
-      const copier = L.PDFObjectCopier.for(src.context, ctx);
-      for (const k of ['DA', 'DR', 'Q']) { const v = sa.dict.get(N(k)); if (v && !acro.dict.get(N(k))) acro.dict.set(N(k), copier.copy(v)); }
-    } else for (const [k, v] of Object.entries(src)) if (!acro.dict.get(N(k))) acro.dict.set(N(k), v);
-  }
+  for (const [k, v] of Object.entries(defaults)) if (!acro.dict.get(N(k))) acro.dict.set(N(k), v);
 }
 
 /* Internal links (a table of contents, "see page 5") point at page objects, and pdf-lib's copyPages() follows them:
@@ -576,6 +571,47 @@ function writeLayers(out, parts) {
   if (off.length) D.set(N('OFF'), ctx.obj(off));
   for (const [k, list] of Object.entries(extra)) if (list.length) D.set(N(k), ctx.obj(list));
   out.catalog.set(N('OCProperties'), ctx.obj({ OCGs: ctx.obj(all), D }));
+}
+
+/* Copying pages of other PDFs into out, with what pdf-lib's copyPages() leaves behind or takes too much of put right:
+   internal links (unlinkDests, relinkDests), form fields (formDefaults, relinkFormFields) and layers (markLayers,
+   layerPart, writeLayers). 編輯, 合併 and 拆分 each put these steps together themselves before.
+     const copier = pageCopier(out);
+     const pages = await copier.add(tag, src, indices); // new PDFPages of out, one per index; not yet added to out
+     …out.addPage(page) for each, in any order…
+     copier.finish();                                    // once every page is in
+   tag tells the sources of out apart (any string or number, the same for every add() from one source). What
+   finish() needs from a source is taken in add(), so the source may be let go right after (merging twenty big files
+   took gigabytes while each was held to the end). An index asked for twice gets a copy of its own each time, not a
+   page shared by two places in the file (編輯 then draws on each separately), so repeats are copied in later rounds.
+   copier.pageFor(tag, i): the first new page made of page i of that source (for bookmarks), or nothing. */
+function pageCopier(out) {
+  const placed = new Map(), layers = [], forms = {};
+  const pageFor = (tag, i) => placed.get(`${tag}:${i}`);
+  return {
+    pageFor,
+    async add(tag, src, indices) {
+      markLayers(src, tag); // see relinkLayers()
+      const res = new Array(indices.length);
+      let rest = indices.map((i, at) => ({ i, at }));
+      while (rest.length) {
+        const seen = new Set(), round = [], later = [];
+        for (const x of rest) (seen.has(x.i) ? later : (seen.add(x.i), round)).push(x);
+        const idx = round.map(x => x.i), undo = unlinkDests(src, idx, tag); // see unlinkDests()
+        let got; try { got = await out.copyPages(src, idx); } finally { undo(); }
+        round.forEach((x, k) => { res[x.at] = got[k]; if (!pageFor(tag, x.i)) placed.set(`${tag}:${x.i}`, got[k]); });
+        rest = later;
+      }
+      Object.assign(forms, formDefaults(out, src, res, forms));
+      layers.push(layerPart(out, tag, src));
+      return res;
+    },
+    finish() {
+      relinkDests(out, pageFor);
+      relinkFormFields(out, forms); // keep form fields fillable
+      writeLayers(out, layers); // hidden layers stay hidden
+    }
+  };
 }
 
 /* ---------- saving files ---------- */
