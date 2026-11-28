@@ -1914,7 +1914,7 @@ export default [
     }
   },
   {
-    name: '逐頁處理，多條通道：同時畫幾頁、依序處理；掃描檔多開 pdf.js，文字檔不開；結果和一條通道一樣',
+    name: '逐頁處理，多條通道：同時畫幾頁、依序處理；掃描檔多開 pdf.js，文字檔畫大圖時不開；結果和一條通道一樣',
     async run() {
       const wait = ms => new Promise(r => setTimeout(r, ms)), lanesOf = [], used = [], dropped = [];
       let drawing = 0, most = 0;
@@ -1943,8 +1943,10 @@ export default [
         const sums = await Promise.all(lanes.docs.map(px));
         T.ok(sums.every(s => s === sums[0]), '每條通道畫出一樣的頁面');
       } finally { lanes.close(); pj.destroy(); }
-      const text = await T.labeled(['1', '2', '3', '4', '5', '6', '7', '8', '9'], 'text.pdf'), pt = await openPdfjs(text.bytes), lt = await pdfLanes(pt, 9, text.bytes);
-      T.eq(lt.docs.length, 1, '文字檔只用一條'); lt.close(); pt.destroy();
+      const text = await T.labeled(['1', '2', '3', '4', '5', '6', '7', '8', '9'], 'text.pdf'), pt = await openPdfjs(text.bytes), lt = await pdfLanes(pt, 9, text.bytes, 150 / 72);
+      T.eq(lt.docs.length, 1, '文字檔畫大圖只用一條'); lt.close();
+      const ls = await pdfLanes(pt, 9, text.bytes, 1);
+      T.eq(ls.docs.length, location.protocol === 'file:' ? 1 : Math.min(LANES_MAX, 3), '文字檔畫小圖（裁白邊、找空白頁）多開幾條'); ls.close(); pt.destroy();
       const r = await compressRaster(scan, LEVELS.medium, false, () => {});
       T.eq((await T.pdfPages(pdfFile(r.bytes, 'x.pdf'))).length, 9, '整頁轉圖片 9 頁');
     }
