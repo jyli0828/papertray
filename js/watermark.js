@@ -1,19 +1,19 @@
 'use strict';
 /* ================= WATERMARK ================= */
-const wm = { name: '', pj: null, n: 0, cur: 0, type: 'text', img: null, disp: [595, 842] };
+const wm = { name: '', pj: null, n: 0, cur: 0, size: 0, type: 'text', img: null, disp: [595, 842] };
+const wmSlot = pdfSlot('watermark', 'wm', wm, { // see pdfSlot() in core.js; the mark's settings stay
+  blank: () => ({ name: '', pj: null, n: 0, cur: 0, size: 0 }),
+  leave(forGood) {
+    if (!forGood) return; // the new file's first page is drawn over the old one
+    wm.renderToken = (wm.renderToken || 0) + 1;
+    for (const c of [$('#wm-canvas'), $('#wm-over')]) c.width = c.height = 0;
+  },
+  extraSize: () => canvasBytes('#wm-canvas, #wm-over'),
+});
 async function loadWm(files) {
-  const f = files[0];
-  if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
-  const { bytes, owned } = got, size = bytes.length;
-  let pj;
-  try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
-  if (wm.pj) wm.pj.destroy();
-  Object.assign(wm, { name: f.name, pj, n: pj.numPages, cur: 0, size });
-  $('#wm-fname').textContent = f.name;
-  $('#wm-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)}`;
-  $('#wm-name').value = baseName(f.name) + '-浮水印.pdf';
-  $('#wm-empty').hidden = true; $('#wm-work').hidden = false;
+  const o = await wmSlot.open(files[0]); if (!o || !await wmSlot.take(o)) return;
+  wm.n = o.pj.numPages;
+  $('#wm-name').value = baseName(o.f.name) + '-浮水印.pdf';
   await renderWmPage();
 }
 const wmFontAsked = new Set();
@@ -196,10 +196,4 @@ let wmResizeTimer;
 window.addEventListener('resize', () => {
   clearTimeout(wmResizeTimer);
   wmResizeTimer = setTimeout(() => { if (wm.pj && !$('#panel-watermark').hidden) renderWmPage(); }, 150);
-});
-registerHolder('watermark', () => wm.pj ? wm.size + canvasBytes('#wm-canvas, #wm-over') : 0, () => {
-  wm.renderToken = (wm.renderToken || 0) + 1; wm.pj.destroy();
-  for (const c of [$('#wm-canvas'), $('#wm-over')]) c.width = c.height = 0;
-  Object.assign(wm, { name: '', pj: null, n: 0, cur: 0, size: 0 });
-  $('#wm-empty').hidden = false; $('#wm-work').hidden = true;
 });

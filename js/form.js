@@ -4,24 +4,18 @@
    On export pdf-lib writes the values into the real fields. Text that the standard PDF font cannot show
    (Chinese and most non-Latin text) gets its own appearance: a sharp picture of the text, so every viewer shows it.
    「壓平」 turns the filled fields into fixed page content. */
-const ff = { name: '', pj: null, fields: [], vals: new Map(), token: 0, urls: [] };
+const ff = { name: '', pj: null, fields: [], vals: new Map(), size: 0, urls: [] };
 function releaseFormPages() { ff.urls.forEach(u => URL.revokeObjectURL(u)); ff.urls = []; }
+const ffSlot = pdfSlot('form', 'ff', ff, { // see pdfSlot() in core.js
+  blank: () => ({ name: '', pj: null, fields: [], vals: new Map(), size: 0 }),
+  leave() { releaseFormPages(); const box = $('#ff-pages'); forgetCards(box); box.innerHTML = ''; },
+});
 
 async function loadForm(files) {
-  const f = files[0];
-  if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
-  const { bytes, owned } = got, size = bytes.length; // read now: pdf.js may take the bytes over
-  let pj;
-  try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
-  if (ff.pj) ff.pj.destroy();
-  releaseFormPages();
-  const token = ++ff.token;
-  Object.assign(ff, { name: f.name, pj, fields: [], vals: new Map(), size });
+  const o = await ffSlot.open(files[0]); if (!o || !await ffSlot.take(o, null)) return;
+  const { pj, f } = o, gone = () => !ffSlot.isCurrent(pj); // another file was opened, or the memory released
   $('#ff-name').value = baseName(f.name) + '-已填.pdf';
-  $('#ff-fname').textContent = f.name;
-  $('#ff-empty').hidden = true; $('#ff-work').hidden = false;
-  const box = $('#ff-pages'); forgetCards(box); box.innerHTML = '';
+  const box = $('#ff-pages');
   if (pj.isPureXfa) {
     $('#ff-fmeta').textContent = `${pj.numPages} 頁`;
     $('#ff-none').hidden = false; $('#ff-none-text').textContent = '這是 XFA 動態表單，瀏覽器裡無法填寫，請改用 Adobe Acrobat Reader。';
@@ -31,8 +25,8 @@ async function loadForm(files) {
   let unreadable = 0;
   for (let i = 1; i <= pj.numPages; i++) {
     let pg;
-    try { pg = await pj.getPage(i); } catch (e) { if (token !== ff.token) return; unreadable++; continue; } // a broken page: show the rest
-    if (token !== ff.token) return;
+    try { pg = await pj.getPage(i); } catch (e) { if (gone()) return; unreadable++; continue; } // a broken page: show the rest
+    if (gone()) return;
     const vp1 = pg.getViewport({ scale: 1 });
     const pageEl = document.createElement('div'); pageEl.className = 'ff-page';
     pageEl.style.aspectRatio = `${vp1.width} / ${vp1.height}`; pageEl.style.maxWidth = maxW + 'px';
@@ -53,7 +47,7 @@ async function loadForm(files) {
     // Each page becomes a JPEG picture, like the thumbnails: a canvas kept on screen holds every pixel (an A4 page on
     // a high-resolution screen is about 18 MB), the picture a few hundred KB, and the browser decodes it only while shown.
     whenVisible(pageEl, async () => {
-      const p = await pj.getPage(i); if (token !== ff.token) return;
+      const p = await pj.getPage(i); if (gone()) return;
       const vp = p.getViewport({ scale: maxW * dpr / vp1.width });
       const cv = document.createElement('canvas'); cv.width = Math.ceil(vp.width); cv.height = Math.ceil(vp.height);
       const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height);
@@ -61,7 +55,7 @@ async function loadForm(files) {
       await p.render({ canvasContext: ctx, viewport: vp, annotationMode: pdfjsLib.AnnotationMode.ENABLE_FORMS }).promise;
       p.cleanup();
       const blob = await canvasBlob(cv, 'image/jpeg', .9); cv.width = cv.height = 0;
-      if (token !== ff.token || !blob) return;
+      if (gone() || !blob) return;
       const img = document.createElement('img'); img.alt = ''; img.draggable = false;
       img.src = URL.createObjectURL(blob); ff.urls.push(img.src);
       pageEl.prepend(img);
@@ -323,10 +317,4 @@ onSample($('#ff-sample'), async () => {
   const notes = form.createTextField('notes'); notes.enableMultiline(); notes.addToPage(p, { x: 170, y: 290, width: 370, height: 74, ...box }); notes.setFontSize(11);
   p.drawText('Signature: ______________________     Date: ____________', { x: 50, y: 200, size: 12, font, color: soft });
   await loadForm([pdfFile(await doc.save(), 'membership-form.pdf')]);
-});
-registerHolder('form', () => ff.pj ? ff.size : 0, () => {
-  ff.token++; ff.pj.destroy(); releaseFormPages();
-  const box = $('#ff-pages'); forgetCards(box); box.innerHTML = '';
-  Object.assign(ff, { name: '', pj: null, fields: [], vals: new Map(), size: 0 });
-  $('#ff-empty').hidden = false; $('#ff-work').hidden = true;
 });

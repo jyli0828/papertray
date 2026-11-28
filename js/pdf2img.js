@@ -1,27 +1,22 @@
 'use strict';
 /* ================= PDF -> IMAGES (or text) =================
    Format 「文字 TXT」 pulls the text out of the chosen pages instead of drawing them: one .txt file for all of them. */
-const p2i = { name: '', pj: null, pages: [] };
+const p2i = { name: '', pj: null, pages: [], size: 0 };
+const p2iSlot = pdfSlot('pdf2img', 'p2i', p2i, { // see pdfSlot() in core.js
+  blank: () => ({ name: '', pj: null, pages: [], size: 0 }),
+  leave(forGood) { releaseThumbs(p2i.pages); if (forGood) { forgetCards($('#p2i-grid')); $('#p2i-grid').innerHTML = ''; } },
+});
 async function loadP2i(files) {
-  const f = files[0];
-  if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
-  const { bytes, owned } = got, size = bytes.length;
-  let pj;
-  try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
-  if (p2i.pj) p2i.pj.destroy();
-  releaseThumbs(p2i.pages);
-  p2i.name = f.name; p2i.pj = pj; p2i.size = size;
+  const o = await p2iSlot.open(files[0]); if (!o || !await p2iSlot.take(o)) return;
+  const { pj } = o;
   p2i.pages = Array.from({ length: pj.numPages }, (_, i) => ({ id: uid(), index: i, selected: true, thumb: null, tw: 1, th: 1, w: 0, h: 0 }));
-  $('#p2i-fname').textContent = f.name;
-  $('#p2i-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)}`;
-  $('#p2i-empty').hidden = true; $('#p2i-work').hidden = false; $('#p2i-progress').hidden = true;
+  $('#p2i-progress').hidden = true;
   renderP2i(); // the previous file's cards must not stay on screen while the sizes are read
   // Page sizes next (fast), so the summary is right; thumbnails come as cards scroll near the screen.
   const pages = p2i.pages;
   if (!await eachPage(pj, (pg, i) => {
     if (pg) { const vp = pg.getViewport({ scale: 1 }); pages[i].w = vp.width; pages[i].h = vp.height; }
-  }, { stop: () => p2i.pj !== pj })) return;
+  }, { stop: () => !p2iSlot.isCurrent(pj) })) return;
   // The sizes go into the cards already shown; building them all again would also lose the thumbnails drawn so far.
   for (const card of $('#p2i-grid').children) {
     const p = p2i.pages[card._index], el = card.querySelector('.psize');
@@ -219,10 +214,4 @@ acceptFiles($('#panel-pdf2img'), $('#p2i-drop'), loadP2i);
 $('#p2i-change').addEventListener('click', () => $('#p2i-input').click());
 onSample($('#p2i-sample'), async () => {
   await loadP2i([await quarterlySample(3)]);
-});
-registerHolder('pdf2img', () => p2i.pj ? p2i.size : 0, () => {
-  p2i.pj.destroy(); releaseThumbs(p2i.pages);
-  forgetCards($('#p2i-grid')); $('#p2i-grid').innerHTML = '';
-  Object.assign(p2i, { name: '', pj: null, pages: [], size: 0 });
-  $('#p2i-empty').hidden = false; $('#p2i-work').hidden = true;
 });

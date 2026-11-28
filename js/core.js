@@ -296,6 +296,63 @@ async function readPdf(f) {
   return out ? { bytes: out, owned: true, unlocked: true } : null;
 }
 function encryptedMsg(name) { return `「${name}」有密碼保護，可以到「密碼」分頁解除。`; }
+/* The one PDF a tool has open (拆分, 轉成圖片, 加浮水印, 填表單, 文字辨識): opening it, replacing it, letting it go.
+     const slot = pdfSlot('split', 'split', split, { blank: () => ({…}), leave(forGood) {…} });
+     const o = await slot.open(file);   // { f, pj, size } or null (not a PDF, cannot be read: the reason was shown)
+     …read what the tool needs from o.pj; the file shown so far stays open and usable meanwhile…
+     if (!await slot.take(o)) return;   // false: a newer file was opened meanwhile, and o is closed
+   take() closes the old file, gives state blank() plus { name, pj, size }, fills #<ids>-fname / -fmeta (meta: the
+   text, null to leave it to the tool) and shows #<ids>-work. Files dropped one after another open in that order
+   whatever their sizes: the last asked for wins, not the last to finish reading (take() waits for a later file still
+   being read; if that one cannot be opened, o is shown after all). slot.isCurrent(pj) tells a reading
+   that goes on after take() whether its file is still the one shown. leave(forGood) undoes what the tool built for
+   the old file (thumbnails, cards, canvases), on take() and on 釋放記憶體 (forGood). extraSize(): memory the tool
+   holds beside the file, for 釋放記憶體. */
+function pdfSlot(tab, ids, state, { blank, leave, extraSize }) {
+  // Each open() is numbered; one gives way to a later one that is shown. A later one that fails (cannot be read, a
+  // password not given) does not take the earlier file away.
+  let asks = 0, shown = 0;
+  const reading = new Map(); // ask → { settled (a promise), settle() }, until take() or drop()
+  const settle = ask => { const r = reading.get(ask); if (r) { reading.delete(ask); r.settle(); } };
+  const slot = {
+    async open(f) {
+      if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return null; }
+      const ask = ++asks, r = {}; r.settled = new Promise(res => { r.settle = res; });
+      reading.set(ask, r); // until take() or drop(): the tool may read more before taking the file
+      let o = null;
+      try {
+        const got = await readPdf(f); if (!got) return null; // a password-protected file is unlocked here first
+        const size = got.bytes.length; // read now: pdf.js may take the bytes over
+        try { o = { f, size, ask, pj: await openPdfjs(got.bytes, got.owned) }; }
+        catch (e) { toast(loadErr(f.name, e), 'err'); }
+        return o;
+      } finally { if (!o) settle(ask); }
+    },
+    /* o given up without being shown (the tool found it unusable): it holds no later file back. */
+    drop(o) { settle(o.ask); o.pj.destroy(); },
+    async take(o, meta) {
+      settle(o.ask);
+      for (const [a, r] of reading) if (a > o.ask) await r.settled; // a later file: shown, or failed
+      if (o.ask < shown) { o.pj.destroy(); return false; }
+      shown = o.ask;
+      if (leave) leave(false);
+      if (state.pj) state.pj.destroy();
+      Object.assign(state, blank(), { name: o.f.name, pj: o.pj, size: o.size });
+      $(`#${ids}-fname`).textContent = o.f.name;
+      if (meta !== null) $(`#${ids}-fmeta`).textContent = meta || `${o.pj.numPages} 頁 · ${fmtSize(o.size)}`;
+      $(`#${ids}-empty`).hidden = true; $(`#${ids}-work`).hidden = false;
+      return true;
+    },
+    isCurrent: pj => !!pj && state.pj === pj,
+  };
+  registerHolder(tab, () => state.pj ? state.size + (extraSize ? extraSize() : 0) : 0, () => {
+    shown = asks + 1; // a file still being read is not shown afterwards
+    if (leave) leave(true);
+    state.pj.destroy(); Object.assign(state, blank());
+    $(`#${ids}-empty`).hidden = false; $(`#${ids}-work`).hidden = true;
+  });
+  return slot;
+}
 /* pdf.js takes ownership of the bytes it is given. Pass owned = true only when nothing else needs them afterwards;
    otherwise a copy goes to pdf.js. */
 async function openPdfjs(bytes, owned) {

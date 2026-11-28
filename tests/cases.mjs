@@ -1138,6 +1138,22 @@ export default [
     }
   },
   {
+    name: '接連放入兩個檔案：顯示後放的那個，即使先放的比較晚讀完；後放的打不開時留著先放的',
+    async run() {
+      const big = await T.labeled(Array.from({ length: 400 }, (_, i) => 'B' + i), 'big.pdf'), small = await T.labeled(['S1', 'S2'], 'small.pdf');
+      for (const [tab, load, state] of [['split', loadSplit, split], ['pdf2img', loadP2i, p2i], ['watermark', loadWm, wm], ['ocr', loadOcr, ocrTab]]) {
+        showTab(tab);
+        await Promise.all([load([big]), load([small])]);
+        T.eq([state.name, state.pj && state.pj.numPages], ['small.pdf', 2], `${tab}：顯示後放的檔案`);
+        const e0 = T.errors.length;
+        await Promise.all([load([big]), load([pdfFile(new TextEncoder().encode('%PDF-1.4 broken'), 'broken.pdf')])]);
+        T.ok(T.errors.length === e0 + 1 && T.errors[e0].includes('broken.pdf'), `${tab}：壞檔的錯誤提示 ${JSON.stringify(T.errors.slice(e0))}`);
+        T.errors.length = e0; // that one was expected
+        T.eq([state.name, state.pj && state.pj.numPages], ['big.pdf', 400], `${tab}：後放的打不開，留著先放的`);
+      }
+    }
+  },
+  {
     name: '編輯：放入不能用的檔案不會多出空的復原步驟；插入頁面一次復原',
     async run() {
       T.allowErrors = true;

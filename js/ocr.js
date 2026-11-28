@@ -176,6 +176,7 @@ const tidyOcr = s => s.replace(/([⺀-鿿　-〿＀-￯]) +(?=[⺀-鿿　-〿＀
    pages that had none (the pages themselves are untouched, so nothing gets blurrier or bigger than the text), or the
    text as a .txt file. */
 const ocrTab = { name: '', pj: null, size: 0, n: 0, hasText: [] };
+const ocrSlot = pdfSlot('ocr', 'ocr', ocrTab, { blank: () => ({ name: '', pj: null, size: 0, n: 0, hasText: [] }) }); // see pdfSlot() in core.js
 async function loadOcr(files) {
   let f = files[0];
   if (!f) return;
@@ -185,25 +186,21 @@ async function loadOcr(files) {
     try { f = await imagesToPdf(imgs, stemName(imgs[0].name) + '.pdf'); }
     catch (e) { toast('圖片無法讀取，可能已損壞。', 'err'); return; }
   }
-  const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
-  const { bytes, owned } = got, size = bytes.length;
-  let pj;
-  try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
-  if (ocrTab.pj) ocrTab.pj.destroy();
-  Object.assign(ocrTab, { name: f.name, pj, size, n: pj.numPages, hasText: [] });
-  $('#ocr-fname').textContent = f.name;
-  $('#ocr-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)} · 檢查文字中…`;
+  const o = await ocrSlot.open(f); if (!o) return;
+  const { pj, size } = o;
+  if (!await ocrSlot.take(o, `${pj.numPages} 頁 · ${fmtSize(size)} · 檢查文字中…`)) return;
+  ocrTab.n = pj.numPages;
   $('#ocr-name').value = baseName(f.name) + '-可搜尋.pdf';
-  $('#ocr-empty').hidden = true; $('#ocr-work').hidden = false; $('#ocr-progress').hidden = true;
+  $('#ocr-progress').hidden = true;
   updateOcrSummary();
   // 50 pages asked for at a time (see eachPage() in core.js): one by one, a 1000-page file took 2 s to check.
   for (let i = 0; i < pj.numPages; i += 50) {
-    if (ocrTab.pj !== pj) return;
+    if (!ocrSlot.isCurrent(pj)) return;
     const has = await Promise.all(Array.from({ length: Math.min(50, pj.numPages - i) }, async (_, k) => {
       try { return (await (await pj.getPage(i + k + 1)).getTextContent()).items.some(it => it.str && it.str.trim()); }
       catch (e) { return false; }
     }));
-    if (ocrTab.pj !== pj) return;
+    if (!ocrSlot.isCurrent(pj)) return;
     has.forEach((v, k) => { ocrTab.hasText[i + k] = v; });
   }
   const scans = ocrTab.hasText.filter(t => !t).length;
@@ -280,10 +277,6 @@ acceptFiles($('#panel-ocr'), $('#ocr-drop'), loadOcr);
 $('#ocr-change').addEventListener('click', () => $('#ocr-input').click());
 registerTarget('pdf', 'ocr', '文字辨識', loadOcr);
 registerTarget('image', 'ocr', '文字辨識', loadOcr);
-registerHolder('ocr', () => ocrTab.pj ? ocrTab.size : 0, () => {
-  ocrTab.pj.destroy(); Object.assign(ocrTab, { name: '', pj: null, size: 0, n: 0, hasText: [] });
-  $('#ocr-empty').hidden = false; $('#ocr-work').hidden = true;
-});
 /* A made-up page of meeting minutes, drawn as a slightly crooked, slightly grey scan: there is no text layer, only a picture. */
 $('#ocr-sample').addEventListener('click', async e => {
   await busy(e.currentTarget, '產生中…', async () => {

@@ -1,14 +1,14 @@
 'use strict';
 /* ================= SPLIT ================= */
 const GROUP_COLORS = ['#0b7a6b', '#c2662b', '#3a5fc8', '#a3407a', '#6b8a12', '#7a55c8'];
-const split = { name: '', pj: null, pages: [] };
+const split = { name: '', pj: null, pages: [], size: 0 };
+const splitSlot = pdfSlot('split', 'split', split, { // see pdfSlot() in core.js
+  blank: () => ({ name: '', pj: null, pages: [], size: 0 }),
+  leave(forGood) { releaseThumbs(split.pages); if (forGood) { forgetCards($('#split-grid')); $('#split-grid').innerHTML = ''; } },
+});
 async function loadSplit(files) {
-  const f = files[0];
-  if (!isPdf(f)) { toast(`「${f.name}」不是 PDF 檔`, 'err'); return; }
-  const got = await readPdf(f); if (!got) return; // a password-protected file is unlocked here first
-  const { bytes, owned } = got, size = bytes.length;
-  let pj;
-  try { pj = await openPdfjs(bytes, owned); } catch (e) { toast(loadErr(f.name, e), 'err'); return; }
+  const o = await splitSlot.open(files[0]); if (!o) return;
+  const { pj } = o;
   // Page sizes are quick to read; thumbnails are drawn only when their card comes near the screen. The file shown so
   // far stays open until the new one is read, so its cards (and 拆分) keep working meanwhile.
   const pages = [];
@@ -18,15 +18,11 @@ async function loadSplit(files) {
     const vp = pg.getViewport({ scale: 1 });
     pages.push({ id: uid(), index: i, thumb: null, tw: 1, th: 1, w: vp.width, h: vp.height });
   }, { stop: () => broken });
-  if (broken) { pj.destroy(); toast(loadErr(f.name, null), 'err'); return; }
-  if (split.pj) split.pj.destroy();
-  releaseThumbs(split.pages);
-  Object.assign(split, { name: f.name, pj, pages, size });
-  $('#split-fname').textContent = f.name;
-  $('#split-fmeta').textContent = `${pj.numPages} 頁 · ${fmtSize(size)}`;
+  if (broken) { splitSlot.drop(o); toast(loadErr(o.f.name, null), 'err'); return; }
+  if (!await splitSlot.take(o)) return;
+  split.pages = pages;
   const half = Math.ceil(pj.numPages / 2);
   $('#split-ranges').value = pj.numPages > 1 ? `1-${half}, ${half + 1}-` : '1';
-  $('#split-empty').hidden = true; $('#split-work').hidden = false;
   renderSplit();
 }
 function splitGroups() {
@@ -98,9 +94,3 @@ acceptFiles($('#panel-split'), $('#split-drop'), loadSplit);
 $('#split-change').addEventListener('click', () => $('#split-input').click());
 registerTarget('pdf', 'split', '拆分', loadSplit);
 onSample($('#split-sample'), async () => loadSplit([await quarterlySample(6)]));
-registerHolder('split', () => split.pj ? split.size : 0, () => {
-  split.pj.destroy(); releaseThumbs(split.pages);
-  forgetCards($('#split-grid')); $('#split-grid').innerHTML = '';
-  Object.assign(split, { name: '', pj: null, pages: [], size: 0 });
-  $('#split-empty').hidden = false; $('#split-work').hidden = true;
-});
