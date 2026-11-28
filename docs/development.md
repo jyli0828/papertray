@@ -210,6 +210,8 @@ node tests/run.mjs
 
 不用安裝任何套件：需要 Node 22 以上和 Chrome 或 Edge（找不到時用環境變數 `CHROME` 指定執行檔）。它會開一個本機伺服器、在背景開瀏覽器，每個測試用全新的瀏覽器設定檔跑一次，約三分鐘。
 
+在 Linux 上跑測試還要有中文字型（Ubuntu：`sudo apt install fonts-noto-cjk`）。沒有的話，「文字辨識：掃描檔變成可搜尋的 PDF」會失敗：範例掃描檔的中文是用系統字型畫出來的，畫不出字就辨識不到。「裁切框不在原點的頁面…」也會失敗：文字框的大小由瀏覽器依字型量出來，退回 DejaVu Sans 時量到的高度和畫出來的不同。Windows、macOS 和 GitHub Actions 的 Ubuntu 都已經有中文字型，WSL 和精簡的 Linux 安裝通常沒有。
+
 - `node tests/run.mjs 拆分 合併`：只跑名稱含有這些字的測試；`--skip-slow` 略過文字辨識；`--headed` 開著視窗看過程。
 - `--file`：改成直接開啟 `index.html`（`file://`），也就是使用者雙擊開啟的情況；`--bundle`：測試單一檔案版 `dist/紙匣.html`（先執行 `python tools/build.py`，需要網路）。三種都要通過。
 - 測試在 `tests/cases.mjs`：每個 `run()` 在頁面裡執行，`js/` 的所有名稱都能直接用，另外有 `tests/helpers.js` 的 `T`（`T.result()` 等工具產生結果、`T.pdfText()` 讀出 PDF 的文字、`T.ink()` 找出頁面上某種顏色畫在哪裡、`T.eq()`／`T.ok()` 檢查）。
